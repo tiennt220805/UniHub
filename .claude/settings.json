@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "deny": ["Read(.env)", "Read(.env.*)"]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "command": "npx prettier --write $CLAUDE_FILE_PATH"
+      }
+    ]
+  }
+}
