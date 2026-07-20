@@ -85,7 +85,7 @@ These are structural limitations of the current process rather than isolated bug
 ### 5.2 Out-of-Scope
 
 - **Native mobile applications.** The proof-of-concept is delivered as a responsive web application; native iOS/Android clients are not built.
-- **Real cloud production deployment.** Infrastructure is validated against a local Kubernetes (Minikube) cluster; deployment to a managed cloud provider is not part of this delivery.
+- **Real cloud production deployment.** Infrastructure is validated against a local Kubernetes (Minikube) cluster; deployment to a managed cloud provider is not part of this delivery. The one exception is AWS S3, used specifically as the object store for uploaded PDF brochures (see Section 6, Assumptions) — this is a scoped, single-purpose managed dependency, not a production cloud rollout of the system itself.
 - **Real financial settlement.** Payment integration operates strictly in sandbox/test mode; no live monetary transactions or production PCI-compliance workstreams are in scope.
 
 ---
@@ -98,6 +98,7 @@ This proposal is made under the following assumptions. These define the boundary
 - A payment gateway with sandbox/test capabilities is available and accessible for integration during development.
 - Outbound email delivery infrastructure (e.g., an SMTP provider or transactional email service) is available for the notification pipeline.
 - Kubernetes is the target deployment environment for this phase of the project; no alternative orchestration platform is assumed.
+- An AWS account with S3 access is available for storing Organizer-uploaded PDF brochures; this is the one managed cloud dependency used alongside the otherwise self-hosted, local Kubernetes topology.
 - The project targets a functionally complete **proof-of-concept** deployed on a local cluster, rather than a production cloud rollout — performance and reliability targets are validated at this scale, not at live-production scale.
 - The Organizing Committee will continue to own workshop content curation (speaker information, room assignments); the system automates process and data flow, not event content decisions.
 
@@ -165,8 +166,14 @@ All application instances are stateless with respect to user session — no inst
 └────────────────┘ └───────────────────┘ └──────────┬───────────┘ └──────────────┬────────────┘
                                                      └────────── kept in sync ─────┘
 
+        ┌──────────────────────────┐
+        │  Object Storage            │  ◄── Organizer-uploaded PDF brochures
+        │  (managed cloud storage)   │       (also read by the async summarization task)
+        └──────────────────────────┘
+
         Cross-cutting: metrics & dashboards, request tracing, structured logging
-        External dependency: Payment gateway (isolated via fault-tolerance safeguards)
+        External dependencies: Payment gateway (isolated via fault-tolerance safeguards);
+                                Object storage (managed cloud service, outside the local cluster)
 ```
 
 At a component level:
@@ -176,6 +183,7 @@ At a component level:
 - The **coordination and caching layer** supports two responsibilities: protecting shared resources (such as seat counts) from conflicting concurrent updates, and reducing repeated load on the primary data store for frequently read, rarely changed information.
 - The **asynchronous task queue** decouples time-consuming or time-delayed work — such as sending notifications or releasing an expired seat hold — from the main request path, so a student's registration request is never held up waiting for that work to complete.
 - The **primary data store** separates write responsibility (a single authoritative point) from read responsibility (one or more replicas), so that heavy read traffic — such as students browsing the catalog — does not compete with the correctness-critical write path.
+- **Object storage** holds uploaded promotional PDFs outside the transactional database, so large binary files never inflate the primary data store or its backups; the AI summarization step reads directly from this store rather than from a request payload.
 - Cross-cutting concerns (monitoring, tracing, logging) span every component so that both routine operation and incidents are observable end-to-end.
 
 ---
@@ -193,6 +201,7 @@ This section explains the major architectural decisions behind the system, the a
 | **Container orchestration platform** (Kubernetes, run locally via Minikube)           | Docker Compose                                                     | The project's reliability goals — automatic recovery from instance failure, and running multiple instances of both the application and the database — are native capabilities of an orchestration platform, and are the intended target environment even at proof-of-concept scale. |
 | **Structured observability stack** (metrics dashboards + distributed request tracing) | Relying on application logs only                                   | At the target scale, diagnosing an issue from logs alone across many parallel instances is impractical; dashboards and request-level tracing are necessary to understand system behavior during a live registration peak.                                                           |
 | **Fault-isolation around the payment gateway** (circuit breaker pattern)              | Calling the gateway directly with retries only                     | The SRS explicitly requires that a payment gateway outage must not degrade unrelated functionality; a fault-isolation mechanism is the standard way to contain that failure to the payment path only.                                                                               |
+| **Managed object storage for uploaded files** (AWS S3)                                | Storing PDF brochures as BLOBs in PostgreSQL                       | Large binary files degrade database performance and bloat backups; a dedicated object store keeps the transactional database focused on structured data while giving the AI summarization step direct, durable access to the source file.                                          |
 | **Integration testing against real infrastructure** (containerized test dependencies) | In-memory test substitutes                                         | The behaviors that matter most (locking, transaction isolation) are specific to the real database and coordination layer; an in-memory substitute would not reliably exercise these behaviors.                                                                                      |
 
 ---
