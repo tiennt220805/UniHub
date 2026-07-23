@@ -14,22 +14,24 @@ Statelessness is the defining property of the application layer: no instance ret
 
 ### 1.2 Core Components
 
-| Component               | Purpose                                                                                         | Notes                                                                                                                       |
-| :---------------------- | :---------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------- |
-| **Web Application**     | Discovery and registration for Students; catalog and reporting management for Organizers/Admins | Single responsive web client; views are gated by permission-based access control                                            |
-| **Check-in Client**     | E-ticket scanning at venue entrances                                                            | Offline-capable web client; queues scan events locally and syncs once connectivity returns                                  |
-| **Ingress Controller**  | Single external entry point for all client traffic                                              | Kubernetes-native Ingress; performs TLS termination and load balancing across Backend API instances                         |
-| **Backend API**         | Central business logic and orchestration for every module                                       | Java 21 / Spring Boot 3.x, stateless Modular Monolith, deployed as multiple parallel instances                              |
-| **PostgreSQL**          | System of record for all transactional data                                                     | Master-Slave replication topology; writes are routed to the Master, reads to Slave replicas                                 |
-| **Redis**               | Distributed coordination and caching                                                            | Backs distributed locking and rate limiting (via Redisson), and serves as a read-through cache for low-change workshop data |
-| **Message Broker**      | Asynchronous, decoupled task processing                                                         | RabbitMQ; carries seat-hold expiry, notification delivery, and reconciliation triggers off the synchronous request path     |
-| **Object Storage**      | Durable storage for Organizer-uploaded promotional PDFs                                         | AWS S3; decouples large binary storage from the transactional database and serves as the source file for AI summarization   |
-| **Observability Stack** | Operational visibility across all running instances                                             | Prometheus + Grafana for metrics and dashboards; OpenTelemetry for distributed request tracing                              |
+| Component               | Purpose                                                                                         | Notes                                                                                                                              |
+| :---------------------- | :---------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------- |
+| **Web Application**     | Discovery and registration for Students; catalog and reporting management for Organizers/Admins | Single responsive web client; views are gated by permission-based access control                                                   |
+| **Check-in Client**     | E-ticket scanning at venue entrances                                                            | Offline-capable web client; queues scan events locally and syncs once connectivity returns                                         |
+| **Ingress Controller**  | Single external entry point for all client traffic                                              | Kubernetes-native Ingress; performs TLS termination and load balancing across Backend API instances                                |
+| **Service Mesh**        | Zero-Trust enforcement for all in-cluster traffic                                               | Istio with Envoy sidecar proxies; automatic mutual TLS (mTLS) between every pod, transparent to application code — see Section 5.4 |
+| **Backend API**         | Central business logic and orchestration for every module                                       | Java 21 / Spring Boot 3.x, stateless Modular Monolith, deployed as multiple parallel instances                                     |
+| **PostgreSQL**          | System of record for all transactional data                                                     | Master-Slave replication topology; writes are routed to the Master, reads to Slave replicas                                        |
+| **Redis**               | Distributed coordination and caching                                                            | Backs distributed locking and rate limiting (via Redisson), and serves as a read-through cache for low-change workshop data        |
+| **Message Broker**      | Asynchronous, decoupled task processing                                                         | RabbitMQ; carries seat-hold expiry, notification delivery, and reconciliation triggers off the synchronous request path            |
+| **Object Storage**      | Durable storage for Organizer-uploaded promotional PDFs                                         | AWS S3; decouples large binary storage from the transactional database and serves as the source file for AI summarization          |
+| **Observability Stack** | Operational visibility across all running instances                                             | Prometheus + Grafana for metrics and dashboards; OpenTelemetry for distributed request tracing                                     |
 
 ### 1.3 Communication Protocols
 
+- **In-cluster transport security:** every hop below that stays inside the cluster is automatically wrapped in mutual TLS (mTLS) by the Service Mesh's sidecar proxies (Section 5.4) — the protocols named here are the application-layer contract, not the transport security.
 - **Client to Backend (Web Application & Check-in Client):** HTTPS with JSON payloads; authentication carried via a stateless JWT, verified independently by any Backend API instance.
-- **Ingress to Backend API:** Internal HTTP, load-balanced across all healthy API instances behind the Ingress Controller.
+- **Ingress to Backend API:** mTLS via sidecar proxies, load-balanced across all healthy API instances behind the Ingress Controller.
 - **Backend API to PostgreSQL:** JDBC, with write traffic routed to the Master and read traffic routed to Slave replicas via a dynamic routing datasource.
 - **Backend API to Redis:** Redis protocol via the Redisson client, used for distributed locks, rate-limit counters, and cached read data.
 - **Backend API to Message Broker:** AMQP, for publishing and consuming asynchronous tasks.
@@ -440,3 +442,324 @@ flowchart TB
 - Exactly one instance executes a given scheduled job per cycle — never zero (barring a coordination-layer outage) and never more than one.
 - A skipped cycle is always recovered by the next scheduled tick — none of these jobs depend on every single cycle succeeding.
 - This pattern only governs _when and how many_ instances run a job — it says nothing about the job's own internal correctness. That belongs to the job's own file, e.g. `technical-design/student-sync.md`.
+
+---
+
+## 5. Security & Access Control Architecture
+
+### 5.1 Fine-Grained Role-Based Access Control (RBAC) Model
+
+**Rationale**
+
+A hardcoded check like "if role is Organizer, allow this" seems simple — until a new role shows up. The SRS already anticipates this: today there are three roles (Student, Organizer/Admin, Check-in Staff), but nothing rules out a Department Lead or a Volunteer Support Staff role tomorrow. If access control is wired to role _names_, every new role means hunting down every check that might need to include it.
+
+So access control isn't built on role names at all. It's built on **permissions** — individual, atomic capabilities like "create a workshop" or "scan a check-in." A role is just a named bundle of permissions. Adding a role, or changing what an existing one can do, is a data change: assign or remove permissions from a bundle. No code touches this, and no redeploy is needed.
+
+**Model**
+
+Three things, three relationships:
+
+- A **User** is assigned one or more **Roles**.
+- A **Role** bundles a set of **Permissions** — it has no capability of its own beyond what it bundles.
+- A **Permission** governs exactly one protected action, independent of every other permission.
+
+<div align="center">
+
+```mermaid
+flowchart LR
+    User(("User"))
+    Role["Role<br/>e.g., Organizer / Admin"]
+    Perm1["Permission:<br/>Create / Edit Workshop"]
+    Perm2["Permission:<br/>View Reports"]
+    Perm3["Permission:<br/>Scan Check-in"]
+    Action["Protected Action<br/>(checked at the API layer)"]
+
+    User -->|assigned| Role
+    Role -->|bundles| Perm1
+    Role -->|bundles| Perm2
+    Perm3 -.->|not granted to this role| Role
+    Perm1 -->|governs| Action
+
+    classDef userStyle fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
+    classDef roleStyle fill:#E3F2FD,stroke:#1565C0,color:#0D47A1
+    classDef permStyle fill:#FFF3E0,stroke:#E65100,color:#E65100
+    classDef actionStyle fill:#F3E5F5,stroke:#6A1B9A,color:#4A148C
+
+    class User userStyle
+    class Role roleStyle
+    class Perm1,Perm2,Perm3 permStyle
+    class Action actionStyle
+```
+
+</div>
+
+A Role is a convenience layer, not the unit of enforcement. Every check at the API layer asks "does this user have _this specific permission_," never "is this user's role X" — which is exactly the distinction between fine-grained RBAC and a hardcoded role switch.
+
+**Trade-offs**
+
+- **One more hop, on purpose.** Resolving "can this user do this" now means User → Role → Permission instead of a direct capability check. That indirection is the entire point — it's what makes a role reconfigurable without touching code — but it means a user's permission set is a _derived_ fact, not something read directly off the user. Section 5.2 covers where that resolution actually happens (once, not on every request).
+- **Roles could be skipped — deliberately, they aren't.** Permissions alone would work for enforcement; the system doesn't strictly need Roles to know what a user can do. Roles exist because assigning capabilities to a person one permission at a time doesn't scale when the Organizing Committee is provisioning volunteer and staff accounts close to an event. Roles are an aggregation convenience layered on top of the real unit of enforcement, not a shortcut around it.
+- **Permission granularity is a judgment call.** Too coarse, and we're back to hardcoded-role rigidity in disguise. Too fine — a separate permission for every button and field — and assembling a role becomes unmanageable for whoever configures it. The system settles on one permission per business capability (creating a workshop is separate from cancelling one; viewing a report is separate from exporting one), not per API field.
+- **Reconfiguration has no guardrail of its own.** Because changing a role's permissions is just a data change, it's also an _invisible_ one unless something else records it. Changing what a role can do is exactly the kind of sensitive operation Section 5.5 (Audit Logging) exists to catch.
+
+**Guarantees**
+
+- Adding a role, or changing an existing one's permissions, never requires a code change or a redeploy.
+- Permissions are never conflated — granting one never implicitly grants another. Every capability is checked on its own.
+- A user's access is fully determined by their assigned role(s) at evaluation time. There's no fallback path that checks a role name directly — the permission check is the only path, by design (`docs/requirement.md`, Section 2.11).
+
+### 5.2 Stateless Authentication & JWT Claims Lifecycle
+
+**Rationale**
+
+Section 5.1 left a debt: resolving "what can this user do" means walking User → Role → Permission, and that's a database-backed lookup. Doing that lookup on _every single request_ would put a consistency-sensitive read back on the hot path — exactly the cost Section 4.1 was designed to isolate. It would also fight the statelessness requirement from Section 1.1: any Backend API instance must be able to handle any request, with no per-instance session state.
+
+The fix is to resolve permissions **once**, at login, and carry the result with the client instead of re-deriving it every time. That's what the JWT is: not just proof of identity, but a signed, self-contained snapshot of "this user, with these permissions, as of this moment."
+
+**Model**
+
+- The token carries the user's **resolved permission list**, not the role name (`docs/requirement.md`, Section 2.11, is explicit about this). Role is how permissions get _assigned_ — it plays no part at request time.
+- Verification is **local and stateless**: any instance checks the token's signature and expiry on its own, with no shared session store and no database round-trip.
+- The lifecycle has three moments: **issue** (login resolves permissions once, signs them into a token), **use** (every request, any instance, signature-only check), and **expire** (the token stops being trusted, forcing re-authentication).
+
+<div align="center">
+
+```mermaid
+flowchart LR
+    Login["Login Request"]
+    Resolve["Resolve Permissions<br/>(User → Role → Permission,<br/>Section 5.1 — once)"]
+    Issue["Issue Signed JWT<br/>(identity + resolved permissions)"]
+    Client["Client<br/>(holds token)"]
+
+    Login --> Resolve --> Issue --> Client
+
+    Client -->|Every subsequent request| API["Backend API<br/>Instance (any pod)"]
+    API -->|"Verify signature + expiry<br/>— no DB lookup"| Decision{Valid?}
+    Decision -->|Yes| Allow["Enforce Embedded<br/>Permissions"]
+    Decision -->|No| Reject["401 — Re-authenticate"]
+
+    classDef flowStyle fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
+    classDef tokenStyle fill:#E3F2FD,stroke:#1565C0,color:#0D47A1
+    classDef decisionStyle fill:#FFF3E0,stroke:#E65100,color:#E65100
+
+    class Login,Resolve,Issue flowStyle
+    class Client,API tokenStyle
+    class Decision,Allow,Reject decisionStyle
+```
+
+</div>
+
+**Trade-offs**
+
+- **Revocation lag is the real cost here.** Because permissions are baked into the token at issuance, a permission change, a role reassignment, or an account suspension doesn't take effect until that token expires. There's a window — bounded by the token's lifetime — where a user's real access and their token's embedded access can disagree. This isn't an oversight; it's the direct price of not doing a DB lookup per request. The token lifetime exists specifically to bound that window — short enough that a revoked permission doesn't stay dangerously live, long enough that the system isn't re-authenticating constantly. The exact duration is a tuning parameter for `technical-design/`, not an architectural decision.
+- **This architecture doesn't solve instant revocation, and doesn't claim to.** For something like a compromised account needing to be cut off immediately, a bounded lifetime alone isn't a real answer — that needs an explicit deny-list check, which adds back the per-request lookup this design exists to avoid. The SRS doesn't call for instant revocation today, so this architecture doesn't build for it; if that requirement shows up later, it's a deliberate trade-off to revisit, not a bug in this one.
+- **Carrying the full permission list costs bytes, on every request.** `docs/requirement.md` requires the token to carry specific authorities, not just a role name — so a user with many permissions sends a bigger token, every time. That's the accepted cost of zero-lookup authorization.
+
+**Guarantees**
+
+- Any Backend API instance authenticates and authorizes a request the same way, with no shared session store and no database round-trip.
+- The permissions enforced at request time are exactly the ones resolved at issuance — never silently re-derived, never different between two instances handling the same token.
+- A token's contents can't be altered without invalidating its signature — there's no way to escalate permissions by editing the payload.
+
+### 5.3 QR Code E-Ticket Security & Integrity
+
+**Rationale**
+
+Every other decision in this section assumes the verifier is connected to the system. This one can't assume that: check-in has to work fully offline (`docs/requirement.md`, Sections 1.3.5 and 2.9), so a staff device can't call the server to ask "is this ticket real" — there may be no network to call on. The ticket has to prove itself, with zero round-trip.
+
+**Model**
+
+When a ticket is issued, the Registration Module signs it. That signature is what lets any device confirm the ticket came from the system and hasn't been altered — without looking anything up.
+
+That check proves exactly one thing: the ticket is **authentic** — issued by the system, untouched. It proves nothing about whether the ticket is still **valid**. Cancel a workshop, and its tickets' signatures don't change — a device scanning offline has no way to know about that cancellation yet. Checking authenticity is instant and offline. Checking validity isn't — that only happens once the device reconnects and syncs with the server.
+
+<div align="center">
+
+```mermaid
+flowchart TB
+    Reg["Registration Module<br/>(ticket issuance)"]
+    Ticket["Signed QR Payload<br/>(ticket ID + signature)"]
+
+    Reg -->|Sign at issuance| Ticket
+    Ticket -->|Held by| Student(("Student"))
+
+    Student -->|Presents at venue| Scan["Check-in Device<br/>(offline-capable)"]
+
+    Scan -->|"① Verify signature<br/>(fully offline, instant)"| Auth{Signature Valid?}
+    Auth -->|No| RejectForged["Reject — Forged/Tampered"]
+    Auth -->|Yes| Accept["Accepted as Authentic<br/>— recorded locally"]
+
+    Accept -.->|"② Reconciled later<br/>(Sections 2.9 / 4.3)"| Recon["Check-in Module<br/>(server-side validity + dedup)"]
+    Recon --> Valid{"Still valid?<br/>(not cancelled, not already<br/>checked in elsewhere)"}
+    Valid -->|Yes| Final["Final Valid Check-in"]
+    Valid -->|No| RejectStale["Rejected — Stale or Duplicate"]
+
+    classDef issueStyle fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
+    classDef offlineStyle fill:#E3F2FD,stroke:#1565C0,color:#0D47A1
+    classDef reconStyle fill:#F3E5F5,stroke:#6A1B9A,color:#4A148C
+    classDef rejectStyle fill:#FDEDEC,stroke:#B03A2E,color:#78281F
+
+    class Reg,Ticket issueStyle
+    class Scan,Auth,Accept offlineStyle
+    class Recon,Valid,Final reconStyle
+    class RejectForged,RejectStale rejectStyle
+```
+
+</div>
+
+**Trade-offs**
+
+- **Offline authenticity, delayed validity — accepted, not fixed.** A real, correctly-signed ticket for a workshop that was just cancelled still passes the offline check — the device simply doesn't know yet. Requiring a live connection for every scan would break the offline requirement outright, so we accept this gap instead of closing it upfront.
+- **No per-ticket revocation, ever.** This goes further than Section 5.2's token expiry: a ticket's signature has no lifetime at all. Once issued, it stays authentic forever — the only way to kill it is rotating the signing key, and that kills every ticket, not just one. The real defense against a stale-but-real ticket is reconciliation after the scan, not blocking it before.
+- **Signing stops forgery. It doesn't stop reuse.** A photographed or copied QR code is a perfectly real payload — it passes the signature check every time. That's a copying problem, not a forgery problem, and signing was never meant to catch it. One device can catch an obvious repeat scan on its own. Two different offline devices scanning the same copied ticket can't know about each other until both sync. Closing that gap is what the earliest-timestamp rule in `proposal.md` (Section 11.4) already handles — not the signature's job.
+
+**Guarantees**
+
+- A tampered or fabricated QR payload fails verification on every device, offline or online — no exceptions.
+- Once issued, a ticket can't be revoked one at a time. Staleness is caught during reconciliation, not blocked at the scan — that's a known limit, not something we missed.
+- Duplicate scans of a real ticket — one device or many — settle to exactly one valid check-in once everything reconciles. Never two. Same rule as `proposal.md` (Section 11.4).
+
+### 5.4 Network & Data Protection Boundaries
+
+**Rationale**
+
+An earlier version of this section drew one trust line: encrypted from the outside, trusted network on the inside. That's a reasonable baseline, but it assumes the cluster network itself can be trusted — that nothing inside ever has to prove itself to anything else. This project adopts a stronger model instead: **Zero-Trust**. No connection is trusted by default, external or internal — every hop is encrypted and every endpoint proves its identity, every time.
+
+Wiring that by hand — certificates and mutual authentication into every service-to-service call — would mean touching every module's code. Instead, a **Service Mesh** does it transparently: every pod gets a **sidecar proxy** (Envoy, via Istio) running alongside it, and all traffic in and out of that pod flows through the sidecar first. Two sidecars negotiate mutual TLS with each other automatically — the Backend API, PostgreSQL, Redis, and RabbitMQ never have to know encryption is happening at all.
+
+**Model**
+
+- Every pod in the mesh — Backend API, PostgreSQL, Redis, RabbitMQ — runs its own **sidecar proxy**. Application code talks to `localhost`; the sidecar handles everything past that.
+- Two sidecars negotiate **mutual TLS (mTLS)**: each side proves its identity to the other, not just one direction. That's the "mutual" in mTLS, and it's what makes this Zero-Trust — a connection isn't just encrypted, it's authenticated on both ends before anything is exchanged.
+- This is invisible to the Backend API's own code. Section 1.1's module boundaries don't change; the mesh operates entirely below the application layer.
+- Credentials, signing keys, and third-party API keys are a separate concern from transport security — they're never in source code or application config, injected at runtime instead. The exact mechanism lives in `technical-design/`.
+
+<div align="center">
+
+```mermaid
+flowchart LR
+    subgraph External["Outside the Cluster"]
+        Client["Web App / Check-in Client"]
+    end
+
+    subgraph Cluster["Inside the Cluster — Every Pod in the Mesh"]
+        Ingress["Ingress Controller<br/>TLS Termination"]
+
+        subgraph PodAPI["Backend API Pod"]
+            SidecarAPI["Sidecar Proxy<br/>(Envoy)"]
+            API["Backend API"]
+        end
+
+        subgraph PodDB["PostgreSQL Pod"]
+            SidecarDB["Sidecar Proxy<br/>(Envoy)"]
+            DB["PostgreSQL"]
+        end
+
+        Secrets[("Secret Store<br/>(runtime-injected)")]
+    end
+
+    Client -->|"HTTPS<br/>(encrypted)"| Ingress
+    Ingress -->|"mTLS<br/>(encrypted + mutually authenticated)"| SidecarAPI
+    SidecarAPI -->|localhost| API
+    SidecarAPI -->|"mTLS<br/>(encrypted + mutually authenticated)"| SidecarDB
+    SidecarDB -->|localhost| DB
+    Secrets -.->|"Injected at startup<br/>— never in source/config"| API
+
+    classDef extStyle fill:#FFFDE7,stroke:#F9A825,color:#795548
+    classDef tlsStyle fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
+    classDef meshStyle fill:#E3F2FD,stroke:#1565C0,color:#0D47A1
+    classDef appStyle fill:#FDEDEC,stroke:#B03A2E,color:#78281F
+    classDef secretStyle fill:#F3E5F5,stroke:#6A1B9A,color:#4A148C
+
+    class Client extStyle
+    class Ingress tlsStyle
+    class SidecarAPI,SidecarDB meshStyle
+    class API,DB appStyle
+    class Secrets secretStyle
+```
+
+</div>
+
+The diagram shows one pod-to-pod hop for clarity, but the same mTLS applies everywhere in the mesh — Backend API to PostgreSQL, to Redis, to RabbitMQ, and to the Ingress. There's no exempted hop.
+
+**Trade-offs**
+
+- **Every pod now carries a sidecar's overhead.** A sidecar proxy uses its own CPU and memory, on every pod — Backend API, PostgreSQL, Redis, RabbitMQ, all of it. That adds directly to the resource pressure already flagged for this project's local cluster (`proposal.md`, Section 16). We accept it because this project treats defense-in-depth as worth the cost even without production traffic to justify it — a deliberate portfolio decision, not something the SRS requires (`docs/requirement.md`, Section 2.11 only requires encryption for client-facing traffic).
+- **Every hop now costs a little latency.** Traffic that used to go pod-to-pod directly now passes through two sidecars, one on each end — including on the registration hot path (Section 4.1). The cost per request is small, but it's not zero, and it applies everywhere, not just at the edge.
+- **The mesh is now a dependency of everything.** Before, only the Ingress had to work correctly for external traffic to be safe. Now, the mesh's control plane has to be healthy for any two pods to talk to each other at all — losing it doesn't just weaken security, it can stop internal traffic outright. That's a new, cluster-wide dependency the previous design didn't have.
+
+**Guarantees**
+
+- Every connection is encrypted — external or internal, there is no plaintext hop anywhere in the system, including Backend API to PostgreSQL, Redis, and RabbitMQ.
+- Every connection is mutually authenticated — a pod only accepts traffic from another pod that can prove its identity, not just anything reachable on the network.
+- None of this touches application code. The Backend API's modules (Section 1.1) work exactly as described elsewhere in this document; the mesh operates entirely beneath them.
+- Credentials and keys stay out of source code and committed config, regardless of the transport layer securing them in flight.
+
+### 5.5 Audit Logging for Sensitive Operations
+
+**Rationale**
+
+`docs/requirement.md` (Section 2.11) requires an audit trail for critical operations: registration, payment, check-in, and workshop schedule changes. There's a fifth category this section adds on top of that list: changes to what a role can do. Section 5.1 already flagged this — reconfiguring a role's permissions is just a data change, with no guardrail of its own unless something records it.
+
+This is a different job from the Observability Stack (Section 1.2). Observability answers "is the system healthy" — metrics, traces, dashboards, aimed at operators. Audit logging answers "who did this, and when" — aimed at whoever investigates an incident after the fact. Same instinct to record what happened, different question, different audience.
+
+**Model**
+
+- Five categories are audited: registration, payment, check-in, workshop lifecycle changes, and role/permission changes.
+- Every audit event captures the same four things: **who** (the actor's identity, from the JWT — Section 5.2), **what** (the operation), **on what** (the target), and **when**.
+- This isn't owned by one module. Every module that performs a sensitive operation is responsible for emitting its own audit event as part of that operation.
+- Capturing the event and completing the business operation are two separate concerns. The audit event is published asynchronously — reusing the same Message Broker pattern from Section 4.3 — so writing to the audit trail never sits on the critical path of a registration, a payment, or a check-in.
+
+<div align="center">
+
+```mermaid
+flowchart LR
+    Module["Any Module<br/>(Registration, Payment, Check-in,<br/>Workshop, User/RBAC)"]
+    Business["Business Operation<br/>Completes"]
+    Broker{{"RabbitMQ<br/>Message Broker<br/>(Section 4.3)"}}
+    Consumer["Audit Consumer<br/>(same deployable,<br/>consumer role)"]
+    Store[("Durable Audit Store")]
+
+    Module -->|"① Perform operation"| Business
+    Module -.->|"② Emit audit event<br/>(never blocks ①)"| Broker
+    Broker -->|Consume| Consumer
+    Consumer -->|Append-only write| Store
+
+    classDef apiStyle fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
+    classDef brokerStyle fill:#FCE4EC,stroke:#AD1457,color:#880E4F
+    classDef storeStyle fill:#F3E5F5,stroke:#6A1B9A,color:#4A148C
+    classDef businessStyle fill:#FFF3E0,stroke:#E65100,color:#E65100
+
+    class Module,Consumer apiStyle
+    class Broker brokerStyle
+    class Store storeStyle
+    class Business businessStyle
+```
+
+</div>
+
+**Trade-offs**
+
+- **Fail-open, on purpose.** If the audit pipeline is down, the registration, payment, or check-in it would have recorded still succeeds. We chose this deliberately: audit logging is an investigative concern, not a transactional one, and it shouldn't be able to take down a business operation that has nothing to do with it. The cost is a possible, bounded gap in the audit trail during an outage — accepted, not ignored: an audit-publish failure is itself something the Observability Stack surfaces, not something that fails silently.
+- **Async means eventual, not instant.** An audit event is queued the moment the operation happens, not necessarily written to durable storage in the same instant. For after-the-fact investigation, that lag doesn't matter. It would matter for a real-time audit view — this design doesn't promise that.
+- **A fifth category we added ourselves.** Role/permission changes weren't in the SRS's named list, but leaving them out would mean the one part of the system with the least oversight (Section 5.1's "invisible unless something records it") is also the one part with no audit trail. We extended the scope to close that gap rather than stop at the letter of the requirement.
+
+**Guarantees**
+
+- Every operation in the five audited categories emits an audit event — this isn't opt-in per module, it's a property of performing that operation.
+- Every audit event records who, what, on what, and when — enough to reconstruct a sequence of sensitive actions after the fact.
+- An audit pipeline outage never blocks or fails the business operation it would have recorded — audit failure is an operational alert, not a user-facing error.
+
+### 5.6 Security Guarantees Summary
+
+Five different mechanisms, five different questions. This table is the short version — what each one promises, and where that promise deliberately stops.
+
+| Area                     | Guarantee                                                                                                                  | Known Limit                                                                                                                                     |
+| :----------------------- | :------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **RBAC** (5.1)           | Access is fully determined by permissions, never a hardcoded role name — reconfigurable without a code change or redeploy. | A role's own change history has no guardrail by itself; that gap is closed by 5.5, not by 5.1.                                                  |
+| **Authentication** (5.2) | Any instance verifies a request the same way — stateless, no shared session store, no database round-trip.                 | Revocation isn't instant. A permission change or suspension only takes effect once the token expires.                                           |
+| **E-Tickets** (5.3)      | A forged or tampered ticket fails verification everywhere, online or offline.                                              | A real ticket can still be stale (workshop cancelled) or duplicated (photographed) — the signature doesn't catch either; reconciliation does.   |
+| **Network** (5.4)        | Every connection, external and internal, is encrypted and mutually authenticated — Zero-Trust, no exempted hop.            | The mesh's control plane is now a dependency of all internal traffic — lose it, and pods can't reach each other at all, not just less securely. |
+| **Audit Logging** (5.5)  | Every sensitive operation, across five categories, leaves a traceable who/what/when record.                                | Fail-open by design — an audit pipeline outage doesn't block the operation it would have recorded, so a bounded gap is possible.                |
+
+None of these limits are oversights — they're the same fault-isolation instinct from Section 1.4, applied to security instead of availability. A payment gateway outage shouldn't take down browsing (1.4); an audit pipeline outage shouldn't take down a registration (5.5). A stale ticket shouldn't require every check-in device to be online (5.3); a permission change shouldn't require a redeploy (5.1). Each subsection in this section chose which guarantee to hold absolutely, and which one to relax — deliberately, and in writing, rather than leaving it to be discovered later.
