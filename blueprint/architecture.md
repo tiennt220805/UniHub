@@ -763,3 +763,171 @@ Five different mechanisms, five different questions. This table is the short ver
 | **Audit Logging** (5.5)  | Every sensitive operation, across five categories, leaves a traceable who/what/when record.                                | Fail-open by design — an audit pipeline outage doesn't block the operation it would have recorded, so a bounded gap is possible.                |
 
 None of these limits are oversights — they're the same fault-isolation instinct from Section 1.4, applied to security instead of availability. A payment gateway outage shouldn't take down browsing (1.4); an audit pipeline outage shouldn't take down a registration (5.5). A stale ticket shouldn't require every check-in device to be online (5.3); a permission change shouldn't require a redeploy (5.1). Each subsection in this section chose which guarantee to hold absolutely, and which one to relax — deliberately, and in writing, rather than leaving it to be discovered later.
+
+---
+
+## 6. Database Architecture
+
+### 6.1 Domain Model Overview & Data Integrity
+
+**Rationale**
+
+Section 2.3 split the Backend API into six modules, but never said which module owns which piece of data. Without that, nothing stops one module's code from reaching into another module's table directly — quietly breaking the boundaries Section 2.3 already drew. So: name the entities, and give each one exactly one module allowed to write it.
+
+Not every entity means the same thing, either. Some represent the actual business — a Workshop, a Registration, a Payment. Others exist purely to make a guarantee work — an Idempotency Key means nothing to a student or an Organizer; it exists because Section 4.5 needs somewhere to record "this request already happened." Keeping these two kinds of entities separate matters: **Core Domain Entities** are what `technical-design/database-schema.md` will spend most of its detail on. **Technical Pattern Entities** are supporting infrastructure for guarantees this document already made elsewhere.
+
+**Model**
+
+Six Core Domain Entities, one per module from Section 2.3:
+
+- **User Module** owns User, Role, and Permission — the three-way model from Section 5.1.
+- **Workshop Module** owns Workshop.
+- **Registration Module** owns Registration.
+- **Payment Module** owns Payment.
+- **Check-in Module** owns Attendance.
+- **Notification Module** owns Notification.
+
+Three Technical Pattern Entities back guarantees already made earlier — not business data:
+
+- **Idempotency Key** — backs the exactly-once guarantee from Section 4.5.
+- **Event Publication** — records "this write also needs to publish a message," committed in the _same transaction_ as the business write it describes. This is what actually closes a gap Section 4.3 left open: a crash between committing a row and publishing to RabbitMQ can't silently lose the event, because the intent to publish is durable before the transaction ever commits.
+- **Audit Event** — backs the who/what/when record from Section 5.5.
+
+<div align="center">
+
+```mermaid
+flowchart TB
+    subgraph UserMod["User Module owns"]
+        User(("User"))
+        Role["Role"]
+        Permission["Permission"]
+    end
+
+    subgraph WorkshopMod["Workshop Module owns"]
+        Workshop["Workshop"]
+    end
+
+    subgraph RegMod["Registration Module owns"]
+        Registration["Registration"]
+    end
+
+    subgraph PayMod["Payment Module owns"]
+        Payment["Payment"]
+    end
+
+    subgraph CheckinMod["Check-in Module owns"]
+        Attendance["Attendance"]
+    end
+
+    subgraph NotifMod["Notification Module owns"]
+        Notification["Notification"]
+    end
+
+    subgraph Technical["Technical Pattern Entities (cross-cutting)"]
+        Idempotency[("Idempotency Key")]
+        EventPub[("Event Publication")]
+        AuditEvent[("Audit Event")]
+    end
+
+    User -->|assigned| Role
+    Role -->|bundles| Permission
+
+    User -->|registers for| Workshop
+    Workshop -->|reserved via| Registration
+    Registration -->|paid via| Payment
+    Registration -->|checked in via| Attendance
+    Registration -.->|triggers| Notification
+    Workshop -.->|triggers| Notification
+
+    classDef userStyle fill:#E3F2FD,stroke:#1565C0,color:#0D47A1
+    classDef workshopStyle fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
+    classDef regStyle fill:#FFF3E0,stroke:#E65100,color:#E65100
+    classDef payStyle fill:#FCE4EC,stroke:#AD1457,color:#880E4F
+    classDef checkinStyle fill:#F3E5F5,stroke:#6A1B9A,color:#4A148C
+    classDef notifStyle fill:#FFFDE7,stroke:#F9A825,color:#795548
+    classDef techStyle fill:#ECEFF1,stroke:#455A64,color:#263238
+
+    class User,Role,Permission userStyle
+    class Workshop workshopStyle
+    class Registration regStyle
+    class Payment payStyle
+    class Attendance checkinStyle
+    class Notification notifStyle
+    class Idempotency,EventPub,AuditEvent techStyle
+```
+
+</div>
+
+**Single Authoritative Writer, one rule.** A module writes only the entities it owns. A module that needs another module's data reads it through that module's own interface, not a direct table query — the same discipline Section 1.1 already applies in code, extended down to the schema.
+
+**Data Integrity Principles**
+
+- **Locking and check constraints prevent overbooking.** Every entity in the seat-reservation race — Workshop's capacity, Registration's status — carries an optimistic-concurrency version marker, backed by a check constraint so the invariant (capacity never goes negative) holds at the database level even if application logic has a bug. This is the storage-layer half of the anti-overbooking strategy from `proposal.md` (Section 11.1); the coordination half is Section 4.2's distributed lock.
+- **Unique constraints are the idempotency backstop.** Section 4.5 already decided idempotency records live in PostgreSQL, in the same transaction as the effect they guard. A unique constraint on the key is what makes that decision enforceable by the database itself, not just application code — a second insert with the same key fails outright, rather than relying on the application to check first and hope nothing races it.
+- **`ON DELETE RESTRICT` protects history.** A Workshop with existing Registrations can't be deleted — only cancelled. A Registration with a Payment or an Attendance can't be deleted either. This isn't just data hygiene: Section 5.5's audit trail is worthless if the record it describes can vanish out from under it.
+
+### 6.2 Schema Evolution & Migration Strategy
+
+**Rationale**
+
+The system runs as N parallel, stateless instances (Section 1.1). If each instance's ORM is allowed to inspect and modify the schema on boot, every one of those instances starting at once — during a rolling deploy, after a crash-loop, anywhere N pods come up together — can attempt to change the same table at the same time. That's not hypothetical: concurrent DDL on one table is exactly the kind of table-locking, race-prone operation Sections 4 and 5 spend most of their length eliminating everywhere else. Letting the ORM do it implicitly on every boot would be the one place that discipline quietly stops applying.
+
+**Model**
+
+- Schema changes are explicit and versioned — never inferred from entity classes at runtime.
+- Migration runs once, from a single place, **before** any application instance using the new schema starts — never from inside the applications themselves.
+- The pipeline enforces the order: a dedicated migration step applies the schema first; only once it succeeds does the rolling deployment of Backend API pods begin. By the time any pod starts, the schema it expects already exists.
+
+<div align="center">
+
+```mermaid
+flowchart LR
+    Pipeline["CI/CD Pipeline"]
+    MigrationJob["Migration Job<br/>(runs once, applies schema)"]
+    DB[("PostgreSQL Master")]
+    Rollout["Rolling Deployment<br/>(N Backend API Pods)"]
+
+    Pipeline -->|"① Trigger"| MigrationJob
+    MigrationJob -->|"② Apply versioned migrations"| DB
+    MigrationJob -->|"③ Success"| Rollout
+    Rollout -->|"④ Pods start against<br/>already-migrated schema"| DB
+
+    classDef pipelineStyle fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
+    classDef jobStyle fill:#FFF3E0,stroke:#E65100,color:#E65100
+    classDef dbStyle fill:#F3E5F5,stroke:#6A1B9A,color:#4A148C
+
+    class Pipeline,Rollout pipelineStyle
+    class MigrationJob jobStyle
+    class DB dbStyle
+```
+
+</div>
+
+**Trade-offs**
+
+- **Slower iteration, on purpose.** Auto-DDL is convenient early on — the schema just matches the code. Removing it means every change is a deliberate, versioned step before it reaches a running instance. That's friction we accept, not a limitation we're stuck with.
+- **A failed migration blocks the whole rollout, not just one pod.** Because migration runs once, ahead of every instance, a bad migration stops the deployment before any pod starts on the new schema — instead of some pods succeeding and others crash-looping against a half-migrated database. Better to halt visibly before rollout than fail unpredictably per-instance during it.
+- **Migrations have to survive a rollout in progress, not just complete before it.** A rolling deployment briefly runs old and new pod versions side by side. A migration can't assume every pod is already on the new schema the moment it's applied — it has to tolerate being read by both versions until the rollout finishes. That's a real constraint on how a migration is written, not just where it runs.
+
+**Guarantees**
+
+- No two instances ever race to modify the schema — exactly one migration step runs, once, before any instance starts against the new version.
+- An application instance never starts against a schema it doesn't expect — migration completes, or the rollout doesn't proceed.
+- Schema history is fully versioned and reviewable, independent of whatever application code happens to be running against it.
+
+### 6.3 Data Lifecycle & Retention Summary
+
+Retention has been decided piecemeal across this document — a TTL here, an indefinite store there, each time as part of a different guarantee. This table puts every one of those decisions side by side, so a change to one doesn't get made without seeing what else in the system assumes a similar — or deliberately different — lifetime.
+
+| Data Domain          | Entity / Data                                                                       | Store                          | TTL / Cleanup Mechanism                                | Retention Policy                                                                         |
+| :------------------- | :---------------------------------------------------------------------------------- | :----------------------------- | :----------------------------------------------------- | :--------------------------------------------------------------------------------------- |
+| **System of Record** | Workshop, Registration, Payment, Attendance, User / Role / Permission, Notification | PostgreSQL (Master + Replicas) | None — never expires                                   | Indefinite. This _is_ the historical record (`ON DELETE RESTRICT`, Section 6.1).         |
+| **Technical State**  | Idempotency Key                                                                     | PostgreSQL                     | Scheduled sweep (Section 4.6)                          | Minutes — just enough to cover a realistic retry window (Section 4.5).                   |
+| **Technical State**  | Event Publication                                                                   | PostgreSQL                     | Scheduled sweep (Section 4.6), after confirmed publish | Short-lived — until the message is confirmed delivered, then discarded (Section 6.1).    |
+| **Technical State**  | Audit Event                                                                         | Durable audit store            | None defined at this scope                             | Long-term. Retained for investigation, never opportunistically cleaned up (Section 5.5). |
+| **Technical State**  | Coordination Locks & Rate Limits                                                    | Redis                          | Native key expiry (TTL)                                | Seconds — lives only as long as the operation it coordinates (Sections 4.2, 4.6).        |
+| **Cache**            | Workshop catalog reads                                                              | Redis                          | TTL expiry + explicit invalidation on write            | Seconds to minutes. Disposable, never authoritative (Section 4.2).                       |
+| **Blobs**            | PDF brochures                                                                       | AWS S3                         | None                                                   | Indefinite — tied to the life of the Workshop it belongs to (Section 4.4).               |
+| **Edge Data**        | Pending check-in scans                                                              | Local device storage           | Cleared after confirmed sync                           | Transient — exists only until reconciliation confirms receipt (Section 5.3).             |
+
+The pattern across every row is the one Section 6.1 already established: data that represents the business outlives the operation that created it; data that only supports a guarantee dies the moment that guarantee no longer needs it. Nothing here is retained by default — every non-indefinite lifetime in this table is a deliberate cleanup mechanism, not an assumption that something will get overwritten eventually.
