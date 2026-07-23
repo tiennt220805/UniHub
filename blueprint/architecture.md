@@ -21,7 +21,7 @@ Statelessness is the defining property of the application layer: no instance ret
 | **Ingress Controller**  | Single external entry point for all client traffic                                              | Kubernetes-native Ingress; performs TLS termination and load balancing across Backend API instances                                |
 | **Service Mesh**        | Zero-Trust enforcement for all in-cluster traffic                                               | Istio with Envoy sidecar proxies; automatic mutual TLS (mTLS) between every pod, transparent to application code — see Section 5.4 |
 | **Backend API**         | Central business logic and orchestration for every module                                       | Java 21 / Spring Boot 3.x, stateless Modular Monolith, deployed as multiple parallel instances                                     |
-| **PostgreSQL**          | System of record for all transactional data                                                     | Master-Slave replication topology; writes are routed to the Master, reads to Slave replicas                                        |
+| **PostgreSQL**          | System of record for all transactional data                                                     | Master-Replica replication topology; writes are routed to the Master, reads to Replicas                                            |
 | **Redis**               | Distributed coordination and caching                                                            | Backs distributed locking and rate limiting (via Redisson), and serves as a read-through cache for low-change workshop data        |
 | **Message Broker**      | Asynchronous, decoupled task processing                                                         | RabbitMQ; carries seat-hold expiry, notification delivery, and reconciliation triggers off the synchronous request path            |
 | **Object Storage**      | Durable storage for Organizer-uploaded promotional PDFs                                         | AWS S3; decouples large binary storage from the transactional database and serves as the source file for AI summarization          |
@@ -32,7 +32,7 @@ Statelessness is the defining property of the application layer: no instance ret
 - **In-cluster transport security:** every hop below that stays inside the cluster is automatically wrapped in mutual TLS (mTLS) by the Service Mesh's sidecar proxies (Section 5.4) — the protocols named here are the application-layer contract, not the transport security.
 - **Client to Backend (Web Application & Check-in Client):** HTTPS with JSON payloads; authentication carried via a stateless JWT, verified independently by any Backend API instance.
 - **Ingress to Backend API:** mTLS via sidecar proxies, load-balanced across all healthy API instances behind the Ingress Controller.
-- **Backend API to PostgreSQL:** JDBC, with write traffic routed to the Master and read traffic routed to Slave replicas via a dynamic routing datasource.
+- **Backend API to PostgreSQL:** JDBC, with write traffic routed to the Master and read traffic routed to Replicas via a dynamic routing datasource.
 - **Backend API to Redis:** Redis protocol via the Redisson client, used for distributed locks, rate-limit counters, and cached read data.
 - **Backend API to Message Broker:** AMQP, for publishing and consuming asynchronous tasks.
 - **Backend API to Object Storage:** HTTPS via the AWS S3 API, for uploading and retrieving PDF brochures; the Background Workers use the same API to fetch a stored PDF before invoking summarization.
@@ -103,7 +103,7 @@ This decomposition is what justifies the Modular Monolith decision in Section 1.
 
 This diagram grounds the Container view (Section 2.2) in a concrete runtime topology, showing how each container is horizontally scaled and wired together in production. **Client traffic** enters exclusively through the **Ingress Controller**, which terminates TLS and load-balances requests across every running **Backend API** instance — the Application Layer is drawn as multiple parallel instances specifically to make explicit that no request is bound to a specific instance.
 
-Every Backend API instance shares the same **Data & Coordination Layer**: writes are sent to the **PostgreSQL Master**, read-heavy queries are served from the **PostgreSQL Slave** (kept current via replication), and **Redis** is used uniformly for distributed locking, rate limiting, and caching low-change reads. Because this layer is shared rather than instance-local, any Backend API instance can safely process any request without coordination gaps.
+Every Backend API instance shares the same **Data & Coordination Layer**: writes are sent to the **PostgreSQL Master**, read-heavy queries are served from the **PostgreSQL Replica** (kept current via replication), and **Redis** is used uniformly for distributed locking, rate limiting, and caching low-change reads. Because this layer is shared rather than instance-local, any Backend API instance can safely process any request without coordination gaps.
 
 Work that does not need to block the caller — notification delivery, seat-hold expiry, and financial reconciliation — is handed off to **RabbitMQ** and picked up by **Background Workers**, which write results back to PostgreSQL and hand off to Notification Providers. The **Legacy Student Management System** feeds into this same asynchronous path via its nightly batch file, keeping bulk data processing off the synchronous request path entirely. PDF brochure processing follows the same pattern: the Backend API uploads the file directly to **Object Storage (AWS S3)** and returns to the Organizer immediately, while a Background Worker later fetches that same file from S3 to invoke the AI Summarization Service — keeping large binary I/O and third-party summarization latency off the request path.
 
@@ -276,6 +276,8 @@ flowchart TB
 
 </div>
 
+The publish step shown here is backed by the transactional outbox pattern in Section 6.1 (Event Publication) — the business write and the intent to publish commit atomically before the message ever reaches the broker.
+
 **Trade-offs**
 
 - **At-least-once, not exactly-once.** A broker or consumer failure can redeliver a message, so every consumer has to treat processing as idempotent. Releasing an already-released seat hold, or reconciling an already-resolved transaction, must be a safe no-op — never a duplicate side effect. This is exactly why Section 4.5 (Idempotency Store) gets its own subsection instead of being folded into this one.
@@ -393,7 +395,7 @@ flowchart TB
 
 **Rationale**
 
-Three jobs run on a recurring schedule, not in reaction to a single event: the nightly student data sync, the payment reconciliation sweep for stuck Pending transactions, and the idempotency-record cleanup sweep from Section 4.5. This is a different problem from Section 4.3's messaging: a RabbitMQ message is scheduled once, for one specific piece of work, and whichever instance consumes it does so exactly once by construction. A recurring job has no such built-in exclusivity — every instance's internal clock fires independently, so without coordination, all N parallel instances (Section 1.1) would decide "it's time" at the same moment and run the same job simultaneously.
+Four jobs run on a recurring schedule, not in reaction to a single event: the nightly student data sync, the payment reconciliation sweep for stuck Pending transactions, the idempotency-record cleanup sweep from Section 4.5, and the Event Publication cleanup sweep from Section 6.1. This is a different problem from Section 4.3's messaging: a RabbitMQ message is scheduled once, for one specific piece of work, and whichever instance consumes it does so exactly once by construction. A recurring job has no such built-in exclusivity — every instance's internal clock fires independently, so without coordination, all N parallel instances (Section 1.1) would decide "it's time" at the same moment and run the same job simultaneously.
 
 **Topology**
 
@@ -419,6 +421,7 @@ flowchart TB
     Job --> Legacy["Nightly Student Sync"]
     Job --> Recon["Payment Reconciliation Sweep"]
     Job --> Cleanup["Idempotency Record Cleanup"]
+    Job --> EventPubCleanup["Event Publication Cleanup"]
 
     classDef apiStyle fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
     classDef lockStyle fill:#FDEDEC,stroke:#B03A2E,color:#78281F
@@ -426,7 +429,7 @@ flowchart TB
 
     class API1,API2,API3 apiStyle
     class Lock lockStyle
-    class Job,Skip,Legacy,Recon,Cleanup jobStyle
+    class Job,Skip,Legacy,Recon,Cleanup,EventPubCleanup jobStyle
 ```
 
 </div>
@@ -629,7 +632,7 @@ Wiring that by hand — certificates and mutual authentication into every servic
 
 **Model**
 
-- Every pod in the mesh — Backend API, PostgreSQL, Redis, RabbitMQ — runs its own **sidecar proxy**. Application code talks to `localhost`; the sidecar handles everything past that.
+- Every pod in the mesh — Backend API, PostgreSQL, Redis, RabbitMQ, the Observability Stack — runs its own **sidecar proxy**. Application code talks to `localhost`; the sidecar handles everything past that.
 - Two sidecars negotiate **mutual TLS (mTLS)**: each side proves its identity to the other, not just one direction. That's the "mutual" in mTLS, and it's what makes this Zero-Trust — a connection isn't just encrypted, it's authenticated on both ends before anything is exchanged.
 - This is invisible to the Backend API's own code. Section 1.1's module boundaries don't change; the mesh operates entirely below the application layer.
 - Credentials, signing keys, and third-party API keys are a separate concern from transport security — they're never in source code or application config, injected at runtime instead. The exact mechanism lives in `technical-design/`.
@@ -680,7 +683,7 @@ flowchart LR
 
 </div>
 
-The diagram shows one pod-to-pod hop for clarity, but the same mTLS applies everywhere in the mesh — Backend API to PostgreSQL, to Redis, to RabbitMQ, and to the Ingress. There's no exempted hop.
+The diagram shows one pod-to-pod hop for clarity, but the same mTLS applies everywhere in the mesh — Backend API to PostgreSQL, to Redis, to RabbitMQ, to the Observability Stack, and to the Ingress. There's no exempted hop.
 
 **Trade-offs**
 
@@ -708,7 +711,7 @@ This is a different job from the Observability Stack (Section 1.2). Observabilit
 - Five categories are audited: registration, payment, check-in, workshop lifecycle changes, and role/permission changes.
 - Every audit event captures the same four things: **who** (the actor's identity, from the JWT — Section 5.2), **what** (the operation), **on what** (the target), and **when**.
 - This isn't owned by one module. Every module that performs a sensitive operation is responsible for emitting its own audit event as part of that operation.
-- Capturing the event and completing the business operation are two separate concerns. The audit event is published asynchronously — reusing the same Message Broker pattern from Section 4.3 — so writing to the audit trail never sits on the critical path of a registration, a payment, or a check-in.
+- Capturing the event and completing the business operation are two separate concerns. The audit event is published asynchronously — reusing the same Message Broker as Section 4.3, but deliberately **without** the transactional-outbox guarantee from Section 6.1, since audit is an investigative concern, not a correctness-critical one (see Trade-offs below) — so writing to the audit trail never sits on the critical path of a registration, a payment, or a check-in.
 
 <div align="center">
 
@@ -717,20 +720,20 @@ flowchart LR
     Module["Any Module<br/>(Registration, Payment, Check-in,<br/>Workshop, User/RBAC)"]
     Business["Business Operation<br/>Completes"]
     Broker{{"RabbitMQ<br/>Message Broker<br/>(Section 4.3)"}}
-    Consumer["Audit Consumer<br/>(same deployable,<br/>consumer role)"]
+    Worker["Background Worker<br/>(same deployable,<br/>consumer role)"]
     Store[("Durable Audit Store")]
 
     Module -->|"① Perform operation"| Business
     Module -.->|"② Emit audit event<br/>(never blocks ①)"| Broker
-    Broker -->|Consume| Consumer
-    Consumer -->|Append-only write| Store
+    Broker -->|Consume| Worker
+    Worker -->|Append-only write| Store
 
     classDef apiStyle fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
     classDef brokerStyle fill:#FCE4EC,stroke:#AD1457,color:#880E4F
     classDef storeStyle fill:#F3E5F5,stroke:#6A1B9A,color:#4A148C
     classDef businessStyle fill:#FFF3E0,stroke:#E65100,color:#E65100
 
-    class Module,Consumer apiStyle
+    class Module,Worker apiStyle
     class Broker brokerStyle
     class Store storeStyle
     class Business businessStyle
