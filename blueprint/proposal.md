@@ -81,10 +81,12 @@ These are structural limitations of the current process rather than isolated bug
 - **AI Summarization** — automated generation of workshop promotional summaries from uploaded materials.
 - **Student Batch Ingestion** — nightly, fault-tolerant synchronization of legacy student data with error isolation.
 - **Fine-Grained Access Control** — permission-based access across Student, Organizer/Admin, and Check-in Staff roles.
+- **Web Application** — a responsive client (React + TypeScript) covering the full Student journey (discovery, registration, payment, and viewing/downloading the issued QR e-ticket) and the Organizer/Admin catalog and reporting workflows described above.
+- **Mobile Application** — a dedicated, staff-only client (React Native / Expo) implementing the offline-capable check-in requirement above: Check-in Staff use it exclusively to scan a Student's e-ticket at the venue entrance and record the check-in offline. Students do not install or use this application in any form.
 
 ### 5.2 Out-of-Scope
 
-- **Native mobile applications.** The proof-of-concept is delivered as a responsive web application; native iOS/Android clients are not built.
+- **Public app-store distribution.** The Mobile Application (Section 5.1) is built and delivered as a functioning client for Check-in Staff, including the offline scanning and reconciliation workflow; publishing a signed build to the Apple App Store or Google Play Store is out-of-scope. The proof-of-concept is distributed through non-store channels (e.g., Expo preview/internal builds), consistent with the local, non-production deployment posture in Section 5.2's other items.
 - **Real cloud production deployment.** Infrastructure is validated against a local Kubernetes (Minikube) cluster; deployment to a managed cloud provider is not part of this delivery. The one exception is AWS S3, used specifically as the object store for uploaded PDF brochures (see Section 6, Assumptions) — this is a scoped, single-purpose managed dependency, not a production cloud rollout of the system itself.
 - **Real financial settlement.** Payment integration operates strictly in sandbox/test mode; no live monetary transactions or production PCI-compliance workstreams are in scope.
 
@@ -135,10 +137,15 @@ The system is structured as a single deployable backend service, internally orga
 All application instances are stateless with respect to user session — no instance holds user-specific state that another instance cannot also access — which is what allows the system to run as multiple parallel instances behind a load-balancing entry point, adding capacity by running more instances rather than by growing a single one.
 
 ```
-                                   ┌────────────────────────┐
-                                   │        Students /       │
-                                   │   Admin / Check-in App  │
-                                   └────────────┬─────────────┘
+               ┌───────────────────────────┐   ┌───────────────────────────┐
+               │      Web Application        │   │     Mobile Application       │
+               │  (Student discovery/reg./    │   │  (Check-in Staff ONLY —      │
+               │   e-ticket, Organizer/Admin   │   │   offline QR scanning at     │
+               │   dashboard)                  │   │   venue entrances)           │
+               │  React + TS (Vite)           │   │  React Native (Expo) + TS    │
+               └──────────────┬────────────────┘   └──────────────┬────────────────┘
+                              │                                    │
+                              └─────────────────┬──────────────────┘
                                                 │
                                                 ▼
                                    ┌────────────────────────┐
@@ -178,6 +185,7 @@ All application instances are stateless with respect to user session — no inst
 
 At a component level:
 
+- **Client applications** are two independent codebases, not one shared client, and they map to disjoint personas — no persona uses both: a **Web Application** (React + TypeScript, Vite) for the Student's entire journey (discovery, registration, payment, and viewing/downloading the e-ticket) and the Organizer/Admin dashboard, and a **Mobile Application** (React Native / Expo, TypeScript), used exclusively by Check-in Staff for offline QR scanning at the venue. The mobile client's offline requirement (Section 11.4) is why it is a separate, native-capable codebase rather than a responsive view inside the same web client — not a reflection of who uses it. Full stack detail is in Section 10.
 - The **entry point** is the system's single point of contact with clients, distributing incoming traffic across all available application instances.
 - **Application instances** contain the business logic for every module and can be scaled up or down independently of the data layer.
 - The **coordination and caching layer** supports two responsibilities: protecting shared resources (such as seat counts) from conflicting concurrent updates, and reducing repeated load on the primary data store for frequently read, rarely changed information.
@@ -198,6 +206,8 @@ This section explains the major architectural decisions behind the system, the a
 | **Relational database with a single write authority and read replicas** (PostgreSQL)  | A NoSQL document store                                                              | The system's core correctness requirements — no double-booked seats, no duplicate payments — depend on strong transactional guarantees that a relational database provides more directly than most NoSQL alternatives.                                                              |
 | **A shared coordination and caching layer** (Redis)                                   | Relying on in-process/local locking only                                            | Because the system runs as multiple parallel instances, any coordination mechanism (such as a lock on seat availability) must be visible to all instances at once — a local, in-process lock cannot provide that.                                                                   |
 | **An asynchronous task queue** (RabbitMQ)                                             | Handling all background work synchronously or via periodic polling                  | Seat-hold expiry and notification delivery are time-sensitive but should not block the request that triggered them; a message queue lets this work happen reliably in the background instead.                                                                                       |
+| **Web client as a client-rendered SPA** (React + TypeScript, Vite; TanStack Query + Zustand for server/client state; Tailwind CSS + Shadcn UI; React Hook Form + Zod) | A server-rendered framework (e.g., Next.js), or a heavier global-state library (Redux) | The web surface is a permission-gated dashboard over a stateless JSON API (Section 9); a client-rendered SPA avoids operating a Node.js rendering tier the backend doesn't otherwise need. TanStack Query's cache/revalidate model maps directly onto the read-replica-plus-cache data the Backend API already exposes, and Zod validation mirrors the same contract the backend enforces, catching invalid input before it reaches the network. |
+| **Mobile client as a single cross-platform codebase, staff-only** (React Native / Expo + TypeScript; TanStack Query + Zustand; Expo SQLite via Drizzle ORM; Expo Camera; JOSE + Expo SecureStore) | Separate native iOS/Android codebases, a browser-based PWA for check-in, or extending the Web Application with a scanning view | A single Expo codebase covers both platforms without maintaining two native codebases, consistent with this project's single-developer delivery constraint (Section 16). This client is scoped to Check-in Staff only — Students never install or authenticate into it, they only ever hold the Web-Application-issued e-ticket that gets scanned. Offline check-in (Section 11.4) is the defining requirement: Expo SQLite via Drizzle ORM gives the device a durable, queryable local queue for scan events that survives an app restart or a connectivity gap — a plain in-memory queue would not. JOSE performs the ticket-signature verification from Section 11.4 entirely on-device, with zero network round-trip; Expo SecureStore keeps the on-device verification key material and the client's auth token behind the platform's hardware-backed keystore rather than plain app storage. |
 | **Container orchestration platform** (Kubernetes, run locally via Minikube)           | Docker Compose                                                                      | The project's reliability goals — automatic recovery from instance failure, and running multiple instances of both the application and the database — are native capabilities of an orchestration platform, and are the intended target environment even at proof-of-concept scale. |
 | **Structured observability stack** (metrics dashboards + distributed request tracing) | Relying on application logs only                                                    | At the target scale, diagnosing an issue from logs alone across many parallel instances is impractical; dashboards and request-level tracing are necessary to understand system behavior during a live registration peak.                                                           |
 | **Fault-isolation around the payment gateway** (circuit breaker pattern)              | Calling the gateway directly with retries only                                      | The SRS explicitly requires that a payment gateway outage must not degrade unrelated functionality; a fault-isolation mechanism is the standard way to contain that failure to the payment path only.                                                                               |
@@ -278,11 +288,11 @@ The project is delivered incrementally, with each phase building on a working sy
 
 | Phase                                           | Focus                                                                                                                                                         |
 | :---------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Phase 1 — Foundation**                        | Core domain model, authentication, and the Workshop module (creation, listing, detail view).                                                                  |
+| **Phase 1 — Foundation**                        | Core domain model, authentication, and the Workshop module (creation, listing, detail view); Web Application scaffolding (React + TypeScript / Vite) against these first endpoints.                                                                  |
 | **Phase 2 — Registration & Payment**            | Registration flow for free and paid workshops; payment gateway integration.                                                                                   |
 | **Phase 3 — Concurrency Protection**            | Seat-hold lifecycle, overbooking prevention, and payment idempotency, validated against the scenarios in Section 11.1–11.2.                                   |
 | **Phase 4 — Notifications**                     | Asynchronous, extensible notification pipeline for registration confirmations and workshop changes.                                                           |
-| **Phase 5 — Offline Check-in**                  | Digital ticket issuance, offline-capable scanning, and check-in reconciliation.                                                                               |
+| **Phase 5 — Offline Check-in**                  | Digital ticket issuance (issued to and displayed via the Web Application), offline-capable scanning, and check-in reconciliation; Mobile Application build (React Native / Expo), staff-only, covering Check-in Staff's offline scanning workflow.                                                                               |
 | **Phase 6 — Observability**                     | Metrics, dashboards, and request tracing across the system.                                                                                                   |
 | **Phase 7 — Kubernetes Deployment**             | Deployment of the full system to the local Kubernetes cluster, including automated recovery and CI/CD.                                                        |
 | **Phase 8 — Performance & Concurrency Testing** | Load testing against the documented registration surge and the overbooking-adversarial scenario; final validation against the success criteria in Section 12. |
@@ -303,7 +313,7 @@ The project is delivered incrementally, with each phase building on a working sy
 
 ## 17. Expected Deliverables
 
-- **Source Code** — the complete backend application, organized by business module.
+- **Source Code** — the complete backend application (organized by business module), the Web Application (React + TypeScript), and the Mobile Application (React Native / Expo).
 - **Infrastructure Configuration** — deployment manifests for the full Kubernetes-based topology (application, data layer, entry point, configuration/secrets).
 - **CI/CD Pipeline Definitions** — automated lint, test, and build pipeline.
 - **Load Test Scripts** — covering both the registration-surge scenario and the overbooking-adversarial scenario.
@@ -332,3 +342,5 @@ UniHub Workshop System is proposed to replace a manual registration process with
 - OpenTelemetry Documentation — distributed tracing concepts.
 - Prometheus & Grafana Documentation — metrics exposition and dashboard design guides.
 - Testcontainers Documentation — integration testing against real, containerized infrastructure.
+- React, Vite, TanStack Query, Zustand, Tailwind CSS, Shadcn UI, React Hook Form, Zod Documentation — Web Application stack references.
+- Expo, React Native, Drizzle ORM, JOSE Documentation — Mobile Application stack references, including Expo SQLite and Expo SecureStore.
