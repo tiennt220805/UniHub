@@ -1,0 +1,727 @@
+# Database Schema — Technical Design
+
+This file is the physical-level completion of `architecture.md` §6 (Database Architecture). §6.1 named nine entities and the invariants each one must uphold; this document turns every one of those invariants into an actual column, type, constraint, or index. Nothing here overrides `architecture.md` — where this file and that one appear to disagree, `architecture.md` is the authority and this file has a bug.
+
+**Scope:** every table owned by the six business modules, plus the three cross-cutting Technical Pattern Entities. Redis key formats/TTLs, JWT claim shape, and the nightly-sync pipeline's own internals are out of scope here — they belong to their own `technical-design/*.md` files, not yet written.
+
+All SQL in this document targets PostgreSQL (the Master; DDL runs once, ahead of rollout, per §6.2).
+
+---
+
+## 1. Conventions
+
+These apply to every table below; they're stated once here rather than repeated per entity.
+
+| Convention | Decision | Why |
+|---|---|---|
+| Primary key | `UUID`, `id UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Fits N stateless backend pods (no centralized ID coordination) and the offline-first Check-in Client, which must generate an ID for a scan record before it has ever talked to the server. |
+| Table names | snake_case, plural (`workshops`, `registrations`) | Standard PostgreSQL/JPA convention; nothing in `architecture.md` overrides it. |
+| Status/state columns | `VARCHAR(n) NOT NULL CHECK (col IN (...))` | Never a native `ENUM` type — adding a new allowed value later is a tolerant migration, which §6.2 requires (old and new pod versions must both read the schema safely mid-rollout). |
+| Optimistic concurrency | `version INT NOT NULL DEFAULT 0` | Applied to every entity in, or adjacent to, the seat-reservation/payment race (`workshops`, `registrations`, `payments`) — the storage-layer half of anti-overbooking (§6.1, §4.2, `proposal.md` §11.1). Application code must increment `version` and include `WHERE version = :expected` on every update to these tables; a 0-row update means "lost the race, reload and retry or reject." |
+| Audit timestamps | `created_at TIMESTAMPTZ NOT NULL DEFAULT now()`, `updated_at TIMESTAMPTZ NOT NULL DEFAULT now()` | On every table except the append-only technical/log tables, which only need `created_at`. |
+| History protection | `ON DELETE RESTRICT` on every FK into a system-of-record table | Per §6.1: a row with dependent history can't be deleted, only transitioned to a terminal status (`CANCELLED`, `SUSPENDED`, etc.). Applies even to RBAC tables here, for the same reason — a `Role` still assigned to a `User` can't be silently removed out from under them. |
+
+---
+
+## 2. User Module
+
+Owns `users`, `roles`, `permissions` — the three-way RBAC model from §5.1 — plus the two junction tables that realize its M:N relationships (named there but not previously tabled).
+
+**Note on scope:** the nightly legacy-sync pipeline's error-quarantine mechanism (§1.3.6, §2.10 — malformed/duplicate sync records set aside for manual review) is *not* modeled here. It belongs to the future `technical-design/student-sync.md`; this file only owns the `users` table those records eventually land in.
+
+### 2.1 `users`
+
+**Rationale:** the identity backing every other module. `legacy_student_id` is the natural key the nightly sync upserts against (§1.3.6); it's nullable because Organizer/Admin and Check-in Staff accounts are provisioned directly in UniHub, not synced from the legacy system. `password_hash` is nullable for the same reason, in reverse: the nightly sync batch job (§1.3.6) has no password to hash when it creates a brand-new student row, since that flow never involves the student setting one.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `email` | VARCHAR(255) | UNIQUE, NOT NULL | Login identifier for every account type. |
+| `password_hash` | VARCHAR(255) | NULL | `NULL` means the account has no local password yet — the row was created by the nightly legacy-sync batch (§1.3.6), and the student hasn't completed first-login setup. The application must force a "set your password" step on first login while this is `NULL`. Non-NULL from creation for Organizer/Admin/Check-in Staff accounts, which are provisioned directly, not synced. Hashing scheme/SSO details beyond this are out of scope for this file. |
+| `full_name` | VARCHAR(255) | NOT NULL | |
+| `legacy_student_id` | VARCHAR(50) | UNIQUE, NULL | Set by nightly sync; NULL for non-student accounts. |
+| `status` | VARCHAR(20) | NOT NULL, DEFAULT `'ACTIVE'`, CHECK IN (`ACTIVE`, `SUSPENDED`) | Deactivation is a status transition, never a delete — users are indefinite system-of-record (§6.3). |
+| `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
+**Indexes:** `UNIQUE (email)`, `UNIQUE (legacy_student_id)` (partial: `WHERE legacy_student_id IS NOT NULL`).
+
+### 2.2 `roles`
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `name` | VARCHAR(100) | UNIQUE, NOT NULL | e.g. `Organizer`, `Check-in Staff` — display/config label only, **never checked at the API layer** (§5.1). |
+| `description` | TEXT | NULL | |
+| `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
+### 2.3 `permissions`
+
+**Rationale:** one row per atomic capability (§5.1) — "creating a workshop is separate from cancelling one."
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `code` | VARCHAR(100) | UNIQUE, NOT NULL | e.g. `WORKSHOP_CREATE`, `CHECKIN_SCAN`, `REPORT_VIEW` — this is the literal string an API-layer `hasAuthority(...)` check tests against (`docs/requirement.md` §2.11). |
+| `description` | TEXT | NULL | |
+| `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
+### 2.4 `user_roles`
+
+M:N junction realizing "a User is assigned one or more Roles."
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `user_id` | UUID | FK → `users.id` ON DELETE RESTRICT, PK (part 1) | |
+| `role_id` | UUID | FK → `roles.id` ON DELETE RESTRICT, PK (part 2) | |
+| `assigned_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | |
+
+**Note:** removing a role from a user is `DELETE FROM user_roles WHERE ...`, not a cascade from deleting `users`/`roles` — those rows are never deleted. Role reassignment is one of the five audited categories (§5.5); the corresponding `audit_events` row is what makes that change reviewable, not this table.
+
+### 2.5 `role_permissions`
+
+M:N junction realizing "a Role bundles a set of Permissions."
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `role_id` | UUID | FK → `roles.id` ON DELETE RESTRICT, PK (part 1) | |
+| `permission_id` | UUID | FK → `permissions.id` ON DELETE RESTRICT, PK (part 2) | |
+| `assigned_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | |
+
+---
+
+## 3. Workshop Module
+
+### 3.1 `workshops`
+
+**Rationale:** the sole entity this module owns (§6.1). `capacity`/seat-tracking columns carry the optimistic-concurrency marker that is the storage-layer half of anti-overbooking (§6.1, §4.2, `proposal.md` §11.1) — the Redis lock (§4.2) only decides *when* a pod may attempt a write; this table decides whether it's *accepted*.
+
+**Invariant — same-transaction requirement:** every write that moves a `registrations` row into or out of `RESERVED`/`CONFIRMED` **must** update this table's `seats_taken` and `version` in the **same database transaction** as the `registrations` write itself. This is the same non-negotiable pairing §8.1/§8.2 already require for `idempotency_keys`/`event_publications`, applied here — if the two writes ever land in separate transactions, a crash between them reopens exactly the overbooking race this table's check constraint and optimistic-concurrency version exist to close. Splitting them is not a valid optimization.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `title` | VARCHAR(255) | NOT NULL | |
+| `description` | TEXT | NULL | Organizer-authored description. |
+| `ai_summary` | TEXT | NULL | Generated from the uploaded brochure (§1.3.4); NULL until the AI Summarization Service returns. |
+| `speaker_name` | VARCHAR(255) | NOT NULL | |
+| `speaker_bio` | TEXT | NULL | |
+| `location` | VARCHAR(255) | NOT NULL | Venue/room string — no separate `Location` entity; §6.1 names only `Workshop` as this module's entity. |
+| `start_time` | TIMESTAMPTZ | NOT NULL | |
+| `end_time` | TIMESTAMPTZ | NOT NULL, CHECK (`end_time > start_time`) | |
+| `capacity` | INT | NOT NULL, CHECK (`capacity >= 0`) | Fixed at creation/edit; not decremented directly. |
+| `seats_taken` | INT | NOT NULL, DEFAULT 0, CHECK (`seats_taken >= 0 AND seats_taken <= capacity`) | Counts `RESERVED` + `CONFIRMED` registrations — a hold occupies the seat for its 15-minute window (§1.3.1) exactly as much as a confirmed one does. This is the counter the check constraint protects from going negative or over capacity even under a bug in application logic. |
+| `is_paid` | BOOLEAN | NOT NULL, DEFAULT `false` | |
+| `price` | NUMERIC(12,2) | NULL, CHECK (`(is_paid = false AND price IS NULL) OR (is_paid = true AND price > 0)`) | |
+| `brochure_s3_key` | VARCHAR(512) | NULL | Object storage pointer (§4.4) — the PDF itself lives in S3, never in Postgres. |
+| `status` | VARCHAR(20) | NOT NULL, DEFAULT `'DRAFT'`, CHECK IN (`DRAFT`, `PUBLISHED`, `CANCELLED`, `COMPLETED`) | Reschedule is an update to `start_time`/`end_time` on a `PUBLISHED` row, not a status value — it's an event (notified via `event_publications`/`audit_events`), not a persistent state. |
+| `version` | INT | NOT NULL, DEFAULT 0 | Optimistic-concurrency marker (§6.1, §4.2). Every capacity-affecting update is `UPDATE workshops SET seats_taken = ..., version = version + 1 WHERE id = ... AND version = :expected`. |
+| `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
+**Indexes:** `(status, start_time)` for catalog browsing/filtering; a full-text/trigram index on `title`/`speaker_name` for search is a plausible future addition but not specified here — the SRS names search by "topic, speaker, or location" (§1.3.1) without a performance target that forces the choice now.
+
+---
+
+## 4. Registration Module
+
+### 4.1 `registrations`
+
+**Rationale:** the sole entity this module owns (§6.1). It calls Workshop for capacity, Payment for paid tickets, User for identity — but never writes those modules' tables directly (§1.1's module-boundary discipline, extended to schema per §6.1).
+
+**Invariant — same-transaction requirement:** a write to this table's `status` that also changes seat occupancy — `RESERVED` (hold taken), `CONFIRMED` (hold converted, or a free ticket confirmed outright), `CANCELLED`/`EXPIRED` (hold released) — **must** commit in the **same database transaction** as the corresponding `UPDATE workshops SET seats_taken = ..., version = version + 1 WHERE id = ... AND version = :expected` (§3.1). Never issue these as two separate transactions: a crash or partial failure between them would leave `workshops.seats_taken` out of sync with the actual set of active registrations, silently reintroducing the overbooking race both the check constraint and the Redis lock (§4.2) exist to prevent.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `workshop_id` | UUID | FK → `workshops.id` ON DELETE RESTRICT, NOT NULL | A workshop with registrations can't be deleted, only cancelled (§6.1). |
+| `user_id` | UUID | FK → `users.id` ON DELETE RESTRICT, NOT NULL | |
+| `ticket_type` | VARCHAR(10) | NOT NULL, CHECK IN (`FREE`, `PAID`) | |
+| `status` | VARCHAR(20) | NOT NULL, CHECK IN (`RESERVED`, `CONFIRMED`, `CANCELLED`, `EXPIRED`) | `RESERVED`: seat held pending payment. `CONFIRMED`: free ticket confirmed immediately, or paid ticket confirmed after payment success. `EXPIRED`: the 15-minute hold lapsed (§1.3.1) — the delayed-message/key-expiration mechanism that *triggers* this transition is `technical-design/anti-overbooking.md`'s concern, not this file's. |
+| `hold_expires_at` | TIMESTAMPTZ | NULL, CHECK (`(status = 'RESERVED') = (hold_expires_at IS NOT NULL)`) | Set iff the row is currently `RESERVED`; this is the column the TTL-release mechanism (§2.10) watches. |
+| `ticket_code` | VARCHAR(64) | UNIQUE, NOT NULL | The identifier embedded in the QR payload — what a Check-in device resolves to look up the registration. |
+| `qr_payload` | TEXT | NOT NULL | The full signed JWS token captured at issuance (§5.3) — stored, not recomputed on read, so a ticket keeps displaying correctly even after signing-key rotation. |
+| `version` | INT | NOT NULL, DEFAULT 0 | Optimistic-concurrency marker for status transitions racing against expiry/payment/cancellation. |
+| `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
+**Indexes:**
+- `UNIQUE (workshop_id, user_id) WHERE status IN ('RESERVED', 'CONFIRMED')` — a partial unique index preventing a student from holding two simultaneously-active registrations for the same workshop. (Inferred from "no seat sold to more than one person"/business common sense — not an explicit SRS line; flagged here as an assumption, not an architecture-mandated constraint.)
+- `(status) WHERE status = 'RESERVED'` and `(hold_expires_at) WHERE status = 'RESERVED'` — support the expiry sweep/listener.
+- `(workshop_id)`, `(user_id)` — reporting and "my registrations" lookups.
+
+---
+
+## 5. Payment Module
+
+### 5.1 `payments`
+
+**Rationale:** the sole entity this module owns (§6.1), and the only module allowed to call the Payment Gateway. `version` is not named explicitly in §6.1's anti-overbooking list, but the same optimistic-concurrency pattern is applied here for a distinct reason: the reconciliation sweep (§2.10) and a late-arriving gateway webhook can race to resolve the same `PENDING` row concurrently. This is a direct, consistent extension of an already-established pattern to a second, structurally identical race — not a new invariant.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `registration_id` | UUID | UNIQUE, NOT NULL, FK → `registrations.id` ON DELETE RESTRICT | 1:1 with the registration it pays for. |
+| `amount` | NUMERIC(12,2) | NOT NULL, CHECK (`amount > 0`) | |
+| `currency` | VARCHAR(3) | NOT NULL, DEFAULT `'VND'` | |
+| `gateway` | VARCHAR(20) | NOT NULL, DEFAULT `'STRIPE'` | Sandbox mode only (`proposal.md` §5.2). |
+| `gateway_transaction_id` | VARCHAR(255) | UNIQUE, NULL | Set once the gateway responds; the UNIQUE constraint stops two `payments` rows from ever claiming the same external transaction. |
+| `status` | VARCHAR(20) | NOT NULL, DEFAULT `'PENDING'`, CHECK IN (`PENDING`, `SUCCEEDED`, `FAILED`, `CANCELLED`) | |
+| `initiated_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | What the reconciliation sweep's ">15 minutes in Pending" check (§2.10) measures from. |
+| `resolved_at` | TIMESTAMPTZ | NULL | Set when `status` leaves `PENDING`, by whichever of {webhook, reconciliation sweep} gets there first. |
+| `version` | INT | NOT NULL, DEFAULT 0 | See Rationale above. |
+| `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
+**Indexes:** `(initiated_at) WHERE status = 'PENDING'` — the reconciliation sweep's primary scan target.
+
+---
+
+## 6. Check-in Module
+
+Owns `Attendance` (§6.1) — physically split here into two tables: a raw scan log (rows are always appended, never deleted, though `outcome` can be revised in place — see §6.1), and a finalized one-row-per-registration projection. This isn't a second business entity; it's a physical decomposition of the one entity §6.1 names, justified by two requirements that otherwise conflict on a single table:
+
+- `docs/requirement.md` §2.9 requires every offline scan — including ones that later lose the earliest-timestamp-wins reconciliation — to be "recorded with complete information: which ticket, which staff member, the scan status, and the exact scan timestamp."
+- `proposal.md` §11.4 / `architecture.md` §5.3 require exactly one final valid check-in per ticket, ever.
+
+A single table can satisfy one of these cleanly or the other, not both without the split.
+
+### 6.1 `check_in_scans`
+
+**Rationale:** the raw record of every scan event any device ever synced, win or lose — this is the audit trail §2.9 requires. Rows are never deleted, but **`outcome` is not immutable**: earliest-timestamp-wins reconciliation (`proposal.md` §11.4) can revisit a decision already made. A scan initially recorded `ACCEPTED` must flip to `REJECTED_DUPLICATE` if a scan with an *earlier* `scanned_at` from a different device syncs later — the winner is determined by device-clock time, not by sync arrival order, and arrival order is exactly what a real offline-first, multi-device deployment can't control.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | Client-generated on-device (offline-first — §5.3), not server-assigned. |
+| `registration_id` | UUID | NOT NULL, FK → `registrations.id` ON DELETE RESTRICT | Resolved server-side from the scanned `ticket_code` at sync time. |
+| `scanned_by` | UUID | NOT NULL, FK → `users.id` ON DELETE RESTRICT | The Check-in Staff member who performed the scan. |
+| `device_id` | VARCHAR(100) | NOT NULL | Identifies which physical Check-in Client device recorded this scan — needed because §2.9's reconciliation must compare scans **across** devices. |
+| `scanned_at` | TIMESTAMPTZ | NOT NULL | The device's own clock at scan time — the value earliest-timestamp-wins reconciliation actually compares. Never the server's receipt time. |
+| `received_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | When this row reached the server — for operational visibility into sync lag, not reconciliation logic. |
+| `outcome` | VARCHAR(20) | NOT NULL, CHECK IN (`ACCEPTED`, `REJECTED_DUPLICATE`, `REJECTED_INVALID`) | Set at first reconciliation, and **revised** later if an earlier-`scanned_at` scan from another device syncs afterward — see Rationale. `REJECTED_INVALID` covers a signature-authentic ticket whose registration was since cancelled (§5.3's "authentic but not valid" gap); that one doesn't get revisited. |
+| `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | `updated_at` moves only when a later reconciliation pass revises `outcome` — this table is otherwise append-only. |
+
+**Indexes:** `(registration_id)`, `(device_id)`.
+
+### 6.2 `attendances`
+
+**Rationale:** the finalized projection — exactly one row per registration that ever had a winning scan, enforced by the UNIQUE constraint below, not by application discipline alone.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `registration_id` | UUID | UNIQUE, NOT NULL, FK → `registrations.id` ON DELETE RESTRICT | The uniqueness constraint **is** the "exactly one valid check-in" guarantee (§5.3, `proposal.md` §11.4) — enforced by the database, not just application logic. |
+| `winning_scan_id` | UUID | UNIQUE, NOT NULL, FK → `check_in_scans.id` ON DELETE RESTRICT | Which raw scan won. |
+| `checked_in_at` | TIMESTAMPTZ | NOT NULL | Denormalized copy of the winning scan's `scanned_at`, so check-in-rate reports (§1.3.3) don't need to join `check_in_scans` for the common case. |
+| `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | `updated_at` changes when a later-arriving-but-earlier-timestamped scan overtakes the current winner. |
+
+**Overtake logic — one transaction, two tables:** when a new `check_in_scans` row's `scanned_at` is earlier than the current winner's, reconciliation must, together, in a single transaction:
+1. `UPDATE check_in_scans SET outcome = 'REJECTED_DUPLICATE', updated_at = now() WHERE id = :previous_winning_scan_id;`
+2. `INSERT INTO attendances (...) VALUES (...) ON CONFLICT (registration_id) DO UPDATE SET winning_scan_id = excluded.winning_scan_id, checked_in_at = excluded.checked_in_at, updated_at = now() WHERE excluded.checked_in_at < attendances.checked_in_at;`
+
+Doing only one of these two would leave `check_in_scans.outcome` and `attendances.winning_scan_id` disagreeing about which scan actually won — the same same-transaction discipline required elsewhere in this document (§3.1, §4.1, §8.1) applies here too.
+
+---
+
+## 7. Notification Module
+
+### 7.1 `notifications`
+
+**Rationale:** the sole entity this module owns (§6.1). `related_entity_id` is a deliberately un-enforced polymorphic reference — see Trade-off below.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `user_id` | UUID | NOT NULL, FK → `users.id` ON DELETE RESTRICT | Recipient. |
+| `channel` | VARCHAR(20) | NOT NULL, CHECK IN (`EMAIL`, `IN_APP`) | Adding SMS/Zalo/Telegram later (§1.3.2) is a new allowed value in this CHECK constraint — a tolerant migration, per §6.2, and exactly the "pluggable" property the SRS asks for at the schema level. |
+| `type` | VARCHAR(30) | NOT NULL, CHECK IN (`REGISTRATION_CONFIRMED`, `WORKSHOP_CANCELLED`, `WORKSHOP_RESCHEDULED`) | Drives templated content; not exhaustive — extend the CHECK list as new notification-triggering events are added. |
+| `related_entity_type` | VARCHAR(20) | NOT NULL, CHECK IN (`WORKSHOP`, `REGISTRATION`) | | 
+| `related_entity_id` | UUID | NOT NULL | **No FK.** A polymorphic reference can't target two tables with one constraint in PostgreSQL without a trigger or a shared supertype table — neither of which this module's single-entity ownership (§6.1) justifies adding. Referential correctness here is an application invariant (the Notification Module only ever writes a row in reaction to an event it received, never from unvalidated user input), not a database-enforced one. |
+| `status` | VARCHAR(20) | NOT NULL, DEFAULT `'PENDING'`, CHECK IN (`PENDING`, `SENT`, `FAILED`) | |
+| `sent_at` | TIMESTAMPTZ | NULL | |
+| `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | |
+
+**Indexes:** `(user_id, status)` — in-app notification inbox queries.
+
+---
+
+## 8. Technical Pattern Entities
+
+Cross-cutting, not business data (§6.1) — no module "owns" these the way it owns its domain entity; several modules write to them.
+
+### 8.1 `idempotency_keys`
+
+**Rationale:** backs the exactly-once guarantee (§4.5, `proposal.md` §11.2). The UNIQUE constraint on `(scope, idempotency_key)` — not application-level "check then insert" logic — is what makes a second concurrent request with the same key, in the same operation scope, fail outright rather than racing the first. Composite, not key-only: a client-generated key is only required to be unique per client-side request flow, and scoping the constraint by operation type means an accidental key reuse across two unrelated operations (e.g. a UUID reused across a registration-create and a later payment-charge) can't produce a spurious collision. Written in the **same transaction** as the business effect it guards (§4.5); this table has no FK into any business table precisely because the whole point is to check by key *before* the guarded row's id exists yet.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `idempotency_key` | VARCHAR(255) | NOT NULL | Client-generated (§2.8). Unique only in combination with `scope` — see the composite constraint below. |
+| `scope` | VARCHAR(50) | NOT NULL | e.g. `REGISTRATION_CREATE`, `PAYMENT_CHARGE` — which operation this key guards, and the other half of the composite uniqueness constraint. |
+| `response_status` | INT | NOT NULL | HTTP status of the original result. |
+| `response_body` | JSONB | NOT NULL | The original result, replayed verbatim on a duplicate request — never re-executed (§4.5). |
+| `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | What the cleanup sweep (§4.6) ages records against. |
+
+**Indexes:** `UNIQUE (scope, idempotency_key)` (the backstop itself — composite, not key-only); `(created_at)` for the sweep.
+
+**Retention:** minutes, not permanent (§6.3) — swept by the scheduled job in §4.6, not native TTL (Postgres rows don't expire on their own).
+
+### 8.2 `event_publications`
+
+**Rationale:** the transactional outbox (§4.3, §6.1). Written in the same transaction as the business row it announces — that atomicity is the entire guarantee; a relay process (same deployable, consumer role) polls `PENDING` rows and publishes them to RabbitMQ.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `aggregate_type` | VARCHAR(50) | NOT NULL | e.g. `REGISTRATION`, `PAYMENT`, `WORKSHOP`. |
+| `aggregate_id` | UUID | NOT NULL | The business row this event describes. No FK — the aggregate may belong to any of several tables; see the same polymorphic trade-off as §7.1. |
+| `event_type` | VARCHAR(100) | NOT NULL | e.g. `RegistrationConfirmed`, `WorkshopCancelled`. |
+| `payload` | JSONB | NOT NULL | The message body to publish. |
+| `status` | VARCHAR(20) | NOT NULL, DEFAULT `'PENDING'`, CHECK IN (`PENDING`, `PUBLISHED`) | |
+| `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | |
+| `published_at` | TIMESTAMPTZ | NULL | |
+
+**Indexes:** `(status) WHERE status = 'PENDING'` — the relay's poll target.
+
+**Retention:** short-lived — discarded after confirmed publish, by the same §4.6 sweep pattern (§6.1, §6.3).
+
+### 8.3 `audit_events`
+
+**Rationale:** resolves the generic "Durable Audit Store" (§5.5) to a concrete table. This *is* PostgreSQL — no other durable store exists anywhere else in this stack, and introducing one solely for audit would be a new infrastructure component `architecture.md`/`proposal.md` never named. Written **without** the transactional-outbox guarantee (§5.5, deliberately) — a background worker consumes an async message and appends here; a pipeline outage delays this table's writes but never blocks the business operation being audited.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `actor_user_id` | UUID | NOT NULL, FK → `users.id` ON DELETE RESTRICT | Who — from the JWT (§5.2). |
+| `action` | VARCHAR(100) | NOT NULL | What — e.g. `WORKSHOP_CANCELLED`, `ROLE_PERMISSIONS_CHANGED`. |
+| `target_type` | VARCHAR(50) | NOT NULL | e.g. `WORKSHOP`, `PAYMENT`, `ROLE`. |
+| `target_id` | UUID | NOT NULL | On what. No FK — same polymorphic trade-off as §7.1/§8.2. |
+| `metadata` | JSONB | NULL | e.g. old/new permission set for a role change. |
+| `occurred_at` | TIMESTAMPTZ | NOT NULL | When the operation actually happened, module-side. |
+| `recorded_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | When this row was durably written — may lag `occurred_at` (§5.5: "eventual, not instant"). |
+
+**Indexes:** `(target_type, target_id)`, `(occurred_at)`.
+
+**Retention:** long-term, never opportunistically cleaned up (§5.5, §6.3) — deliberately absent from the §4.6 sweep pattern that governs the other two Technical Pattern Entities.
+
+---
+
+## 9. Consolidated Entity-Relationship Diagram
+
+Standard Mermaid `erDiagram` notation — entity attribute blocks (`PK`/`FK` tags) plus Crow's Foot relationship syntax, matching the structural convention used by the ERD in `design.md` §4 (Database Design). Entities are declared grouped by bounded context (Identity/RBAC → Workshop/Registration/Payment → Check-in/Notification/Audit), then all relationships follow, grouped the same way. Every column in every entity block below matches its `CREATE TABLE` in Section 10 1:1 — this is the full column list, not a subset. Sections 2–8 remain the authoritative source for types/constraints/rationale; this diagram is the structural cross-check that nothing drifted.
+
+**Note:** this diagram intentionally keeps this document's own entity model (established in Sections 2–8), not `design.md`'s — that file models `role` as a plain string column on `USERS` with no `ROLES`/`PERMISSIONS` tables, which conflicts with the permission-based RBAC invariant this project treats as non-negotiable (`CLAUDE.md`, `architecture.md` §5.1). Only the *syntax convention* was borrowed. `IDEMPOTENCY_KEYS` and `EVENT_PUBLICATIONS` are still excluded — no stable FK to any business row, by design (§8.1, §8.2).
+
+```mermaid
+erDiagram
+    %% --- Identity & RBAC ---
+    USERS {
+        uuid id PK
+        string email
+        string password_hash
+        string full_name
+        string legacy_student_id
+        string status
+        datetime created_at
+        datetime updated_at
+    }
+
+    ROLES {
+        uuid id PK
+        string name
+        string description
+        datetime created_at
+        datetime updated_at
+    }
+
+    PERMISSIONS {
+        uuid id PK
+        string code
+        string description
+        datetime created_at
+        datetime updated_at
+    }
+
+    USER_ROLES {
+        uuid user_id PK,FK
+        uuid role_id PK,FK
+        datetime assigned_at
+    }
+
+    ROLE_PERMISSIONS {
+        uuid role_id PK,FK
+        uuid permission_id PK,FK
+        datetime assigned_at
+    }
+
+    %% --- Workshop / Registration / Payment (business core) ---
+    WORKSHOPS {
+        uuid id PK
+        string title
+        string description
+        string ai_summary
+        string speaker_name
+        string speaker_bio
+        string location
+        datetime start_time
+        datetime end_time
+        int capacity
+        int seats_taken
+        boolean is_paid
+        decimal price
+        string brochure_s3_key
+        string status
+        int version
+        datetime created_at
+        datetime updated_at
+    }
+
+    REGISTRATIONS {
+        uuid id PK
+        uuid workshop_id FK
+        uuid user_id FK
+        string ticket_type
+        string status
+        datetime hold_expires_at
+        string ticket_code
+        string qr_payload
+        int version
+        datetime created_at
+        datetime updated_at
+    }
+
+    PAYMENTS {
+        uuid id PK
+        uuid registration_id FK
+        decimal amount
+        string currency
+        string gateway
+        string gateway_transaction_id
+        string status
+        datetime initiated_at
+        datetime resolved_at
+        int version
+        datetime created_at
+        datetime updated_at
+    }
+
+    %% --- Check-in / Notification / Audit ---
+    CHECK_IN_SCANS {
+        uuid id PK
+        uuid registration_id FK
+        uuid scanned_by FK
+        string device_id
+        datetime scanned_at
+        datetime received_at
+        string outcome
+        datetime created_at
+        datetime updated_at
+    }
+
+    ATTENDANCES {
+        uuid id PK
+        uuid registration_id FK
+        uuid winning_scan_id FK
+        datetime checked_in_at
+        datetime created_at
+        datetime updated_at
+    }
+
+    NOTIFICATIONS {
+        uuid id PK
+        uuid user_id FK
+        string channel
+        string type
+        string related_entity_type
+        uuid related_entity_id
+        string status
+        datetime sent_at
+        datetime created_at
+    }
+
+    AUDIT_EVENTS {
+        uuid id PK
+        uuid actor_user_id FK
+        string action
+        string target_type
+        uuid target_id
+        jsonb metadata
+        datetime occurred_at
+        datetime recorded_at
+    }
+
+    %% --- Relationships: Identity & RBAC ---
+    USERS ||--o{ USER_ROLES : assigned
+    ROLES ||--o{ USER_ROLES : bundles
+    ROLES ||--o{ ROLE_PERMISSIONS : bundles
+    PERMISSIONS ||--o{ ROLE_PERMISSIONS : grants
+
+    %% --- Relationships: business core ---
+    USERS ||--o{ REGISTRATIONS : registers
+    WORKSHOPS ||--o{ REGISTRATIONS : "reserved via"
+    REGISTRATIONS ||--o| PAYMENTS : "paid via"
+
+    %% --- Relationships: check-in, notification, audit ---
+    REGISTRATIONS ||--o{ CHECK_IN_SCANS : "scanned as"
+    REGISTRATIONS ||--o| ATTENDANCES : "checked in via"
+    CHECK_IN_SCANS ||--o| ATTENDANCES : "wins into"
+    USERS ||--o{ CHECK_IN_SCANS : "staff scans"
+    USERS ||--o{ NOTIFICATIONS : receives
+    USERS ||--o{ AUDIT_EVENTS : "acts as"
+```
+
+---
+
+## 10. DDL Appendix
+
+Reference-only — this is the schema described above expressed as literal PostgreSQL DDL. It is not a runnable migration file: there is no Spring Boot module or migration tool wired up yet (per `CLAUDE.md`'s Project Status), so nothing here has a home to run from until that scaffolding exists.
+
+```sql
+-- ============================================================
+-- 2. User Module
+-- ============================================================
+
+CREATE TABLE users (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email               VARCHAR(255) NOT NULL UNIQUE,
+    password_hash       VARCHAR(255),
+    full_name           VARCHAR(255) NOT NULL,
+    legacy_student_id   VARCHAR(50) UNIQUE,
+    status              VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'
+                            CHECK (status IN ('ACTIVE', 'SUSPENDED')),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE roles (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        VARCHAR(100) NOT NULL UNIQUE,
+    description TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE permissions (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code        VARCHAR(100) NOT NULL UNIQUE,
+    description TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE user_roles (
+    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    role_id     UUID NOT NULL REFERENCES roles(id) ON DELETE RESTRICT,
+    assigned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, role_id)
+);
+
+CREATE TABLE role_permissions (
+    role_id       UUID NOT NULL REFERENCES roles(id) ON DELETE RESTRICT,
+    permission_id UUID NOT NULL REFERENCES permissions(id) ON DELETE RESTRICT,
+    assigned_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (role_id, permission_id)
+);
+
+-- ============================================================
+-- 3. Workshop Module
+-- ============================================================
+
+CREATE TABLE workshops (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title            VARCHAR(255) NOT NULL,
+    description      TEXT,
+    ai_summary       TEXT,
+    speaker_name     VARCHAR(255) NOT NULL,
+    speaker_bio      TEXT,
+    location         VARCHAR(255) NOT NULL,
+    start_time       TIMESTAMPTZ NOT NULL,
+    end_time         TIMESTAMPTZ NOT NULL,
+    capacity         INT NOT NULL CHECK (capacity >= 0),
+    seats_taken      INT NOT NULL DEFAULT 0
+                         CHECK (seats_taken >= 0 AND seats_taken <= capacity),
+    is_paid          BOOLEAN NOT NULL DEFAULT false,
+    price            NUMERIC(12,2)
+                         CHECK ((is_paid = false AND price IS NULL)
+                             OR (is_paid = true AND price > 0)),
+    brochure_s3_key  VARCHAR(512),
+    status           VARCHAR(20) NOT NULL DEFAULT 'DRAFT'
+                         CHECK (status IN ('DRAFT', 'PUBLISHED', 'CANCELLED', 'COMPLETED')),
+    version          INT NOT NULL DEFAULT 0,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT chk_workshop_time_order CHECK (end_time > start_time)
+);
+
+CREATE INDEX idx_workshops_status_start_time ON workshops (status, start_time);
+
+-- ============================================================
+-- 4. Registration Module
+-- ============================================================
+
+CREATE TABLE registrations (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workshop_id      UUID NOT NULL REFERENCES workshops(id) ON DELETE RESTRICT,
+    user_id          UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    ticket_type      VARCHAR(10) NOT NULL CHECK (ticket_type IN ('FREE', 'PAID')),
+    status           VARCHAR(20) NOT NULL
+                         CHECK (status IN ('RESERVED', 'CONFIRMED', 'CANCELLED', 'EXPIRED')),
+    hold_expires_at  TIMESTAMPTZ
+                         CHECK ((status = 'RESERVED') = (hold_expires_at IS NOT NULL)),
+    ticket_code      VARCHAR(64) NOT NULL UNIQUE,
+    qr_payload       TEXT NOT NULL,
+    version          INT NOT NULL DEFAULT 0,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX uq_registrations_active_per_user
+    ON registrations (workshop_id, user_id)
+    WHERE status IN ('RESERVED', 'CONFIRMED');
+
+CREATE INDEX idx_registrations_reserved_hold
+    ON registrations (hold_expires_at)
+    WHERE status = 'RESERVED';
+
+CREATE INDEX idx_registrations_workshop_id ON registrations (workshop_id);
+CREATE INDEX idx_registrations_user_id ON registrations (user_id);
+
+-- ============================================================
+-- 5. Payment Module
+-- ============================================================
+
+CREATE TABLE payments (
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    registration_id         UUID NOT NULL UNIQUE
+                                REFERENCES registrations(id) ON DELETE RESTRICT,
+    amount                  NUMERIC(12,2) NOT NULL CHECK (amount > 0),
+    currency                VARCHAR(3) NOT NULL DEFAULT 'VND',
+    gateway                 VARCHAR(20) NOT NULL DEFAULT 'STRIPE',
+    gateway_transaction_id  VARCHAR(255) UNIQUE,
+    status                  VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+                                CHECK (status IN ('PENDING', 'SUCCEEDED', 'FAILED', 'CANCELLED')),
+    initiated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved_at             TIMESTAMPTZ,
+    version                 INT NOT NULL DEFAULT 0,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_payments_pending_scan
+    ON payments (initiated_at)
+    WHERE status = 'PENDING';
+
+-- ============================================================
+-- 6. Check-in Module
+-- ============================================================
+
+CREATE TABLE check_in_scans (
+    id              UUID PRIMARY KEY,
+    registration_id UUID NOT NULL REFERENCES registrations(id) ON DELETE RESTRICT,
+    scanned_by      UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    device_id       VARCHAR(100) NOT NULL,
+    scanned_at      TIMESTAMPTZ NOT NULL,
+    received_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    outcome         VARCHAR(20) NOT NULL
+                        CHECK (outcome IN ('ACCEPTED', 'REJECTED_DUPLICATE', 'REJECTED_INVALID')),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_check_in_scans_registration_id ON check_in_scans (registration_id);
+CREATE INDEX idx_check_in_scans_device_id ON check_in_scans (device_id);
+
+CREATE TABLE attendances (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    registration_id  UUID NOT NULL UNIQUE
+                         REFERENCES registrations(id) ON DELETE RESTRICT,
+    winning_scan_id  UUID NOT NULL UNIQUE
+                         REFERENCES check_in_scans(id) ON DELETE RESTRICT,
+    checked_in_at    TIMESTAMPTZ NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ============================================================
+-- 7. Notification Module
+-- ============================================================
+
+CREATE TABLE notifications (
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id              UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    channel              VARCHAR(20) NOT NULL CHECK (channel IN ('EMAIL', 'IN_APP')),
+    type                 VARCHAR(30) NOT NULL
+                             CHECK (type IN ('REGISTRATION_CONFIRMED', 'WORKSHOP_CANCELLED', 'WORKSHOP_RESCHEDULED')),
+    related_entity_type  VARCHAR(20) NOT NULL CHECK (related_entity_type IN ('WORKSHOP', 'REGISTRATION')),
+    related_entity_id    UUID NOT NULL,
+    status               VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+                             CHECK (status IN ('PENDING', 'SENT', 'FAILED')),
+    sent_at              TIMESTAMPTZ,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_notifications_user_status ON notifications (user_id, status);
+
+-- ============================================================
+-- 8. Technical Pattern Entities
+-- ============================================================
+
+CREATE TABLE idempotency_keys (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    idempotency_key  VARCHAR(255) NOT NULL,
+    scope            VARCHAR(50) NOT NULL,
+    response_status  INT NOT NULL,
+    response_body    JSONB NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_idempotency_keys_scope_key UNIQUE (scope, idempotency_key)
+);
+
+CREATE INDEX idx_idempotency_keys_created_at ON idempotency_keys (created_at);
+
+CREATE TABLE event_publications (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    aggregate_type VARCHAR(50) NOT NULL,
+    aggregate_id   UUID NOT NULL,
+    event_type     VARCHAR(100) NOT NULL,
+    payload        JSONB NOT NULL,
+    status         VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+                       CHECK (status IN ('PENDING', 'PUBLISHED')),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    published_at   TIMESTAMPTZ
+);
+
+CREATE INDEX idx_event_publications_pending
+    ON event_publications (created_at)
+    WHERE status = 'PENDING';
+
+CREATE TABLE audit_events (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    actor_user_id  UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    action         VARCHAR(100) NOT NULL,
+    target_type    VARCHAR(50) NOT NULL,
+    target_id      UUID NOT NULL,
+    metadata       JSONB,
+    occurred_at    TIMESTAMPTZ NOT NULL,
+    recorded_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_audit_events_target ON audit_events (target_type, target_id);
+CREATE INDEX idx_audit_events_occurred_at ON audit_events (occurred_at);
+```
+
+---
+
+## 11. Traceability Matrix
+
+Every guarantee-bearing constraint above, mapped back to what it enforces. For review — not a new source of truth.
+
+| Constraint / Column | Table | Backs |
+|---|---|---|
+| `capacity`/`seats_taken` CHECK + `version` | `workshops` | Anti-overbooking, storage-layer half (§6.1, §4.2, `proposal.md` §11.1) |
+| Same-transaction requirement: `registrations` status write + `workshops.seats_taken`/`version` update | `workshops`, `registrations` | The transactional coupling that makes the check constraint/version pair actually effective, not just present — explicit invariant in §3.1/§4.1 |
+| `version` | `registrations` | Same, at the registration side of the race |
+| `UNIQUE (scope, idempotency_key)` | `idempotency_keys` | Exactly-once guarantee (§4.5, `proposal.md` §11.2), scoped per operation type so a key can't spuriously collide across unrelated operations |
+| Written in same transaction as business row (documented, not a DB feature) | `idempotency_keys` | Same — the atomicity is what §4.5 actually requires |
+| `status` PENDING/PUBLISHED + relay poll | `event_publications` | Transactional outbox (§4.3, §6.1) |
+| `ON DELETE RESTRICT` on `workshops`←`registrations`, `registrations`←`payments`, `registrations`←`check_in_scans`, `registrations`←`attendances` | multiple | History protection (§6.1) |
+| `UNIQUE (registration_id)` | `attendances` | Exactly one valid check-in, ever (§5.3, `proposal.md` §11.4) |
+| `check_in_scans.outcome` revision + `attendances.winning_scan_id`/`checked_in_at` update, same transaction | `check_in_scans` → `attendances` | Earliest-timestamp-wins duplicate resolution (`proposal.md` §11.4) — §6.1/§6.2 make the two-table update explicitly atomic, not just the projection alone |
+| Three-table model (`users`/`roles`/`permissions` + junctions) | RBAC tables | Permission-based, never role-name-based, access control (§5.1, `docs/requirement.md` §2.11) |
+| `users.password_hash` nullable | `users` | Accommodates nightly legacy-sync account creation (§1.3.6) ahead of first-login password setup — a `NOT NULL` constraint here would make the sync job unable to insert a new student row |
+| No FK on `notifications.related_entity_id`, `event_publications.aggregate_id`, `audit_events.target_id` | multiple | Deliberate — polymorphic references the relational model can't constrain without a supertype table this design doesn't otherwise need |
