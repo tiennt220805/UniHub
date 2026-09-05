@@ -27,7 +27,7 @@ Every review evaluates code across these dimensions:
 
 Does the code do what it claims to do?
 
-- Does it match the spec or task requirements?
+- Does it match the spec or task requirements? If a `SPEC.md` exists, check its Verification Checklist/Success Criteria and its Decisions/ADR section — those are the sharpest anchor for "does this match what was actually decided," not just "does this seem reasonable."
 - Are edge cases handled (null, empty, boundary values)?
 - Are error paths handled (not just the happy path)?
 - Does it pass all tests? Are the tests actually testing the right things?

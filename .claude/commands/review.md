@@ -6,7 +6,7 @@ Invoke the agent-skills:code-review-and-quality skill.
 
 Review the current changes (staged or recent commits) across all five axes:
 
-1. **Correctness** — Does it match the spec? Edge cases handled? Tests adequate?
+1. **Correctness** — Does it match SPEC.md's Verification Checklist/Success Criteria and the chosen option in its Decisions/ADR section (if SPEC.md exists)? Edge cases handled? Tests adequate?
 2. **Readability** — Clear names? Straightforward logic? Well-organized?
 3. **Architecture** — Follows existing patterns? Clean boundaries? Right abstraction level?
 4. **Security** — Input validated? Secrets safe? Auth checked? (Use security-and-hardening skill)
