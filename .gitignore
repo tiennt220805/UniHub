@@ -55,3 +55,8 @@ redis_data/
 *.pem
 *.key
 *.p12
+
+# ==========================================
+# 6. Ephemeral spec-driven-development task files
+# ==========================================
+/tasks/
