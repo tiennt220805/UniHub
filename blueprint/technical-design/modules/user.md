@@ -6,9 +6,9 @@ This file is the physical-level completion of `architecture.md` §5.1 (Fine-Grai
 
 **Scope:** the RBAC data model this module owns — `users`, `roles`, `permissions`, and their junction tables — narrated at the rationale level, with the exact schema in `../platform/database-schema.md` §2 (§1); the nightly legacy-student-sync pipeline end to end — file ingestion, per-record validation/classification, the upsert into `users`, the run-bookkeeping table, and the error-quarantine table (§2–§8).
 
-**Out of scope, and where it actually lives:** the Redis job-lock itself (key, 30-minute lease, `tryLock` mechanics — `../platform/distributed-coordination.md` §2); the exact `users`/`roles`/`permissions` column definitions (`../platform/database-schema.md` §2, referenced throughout, not repeated here); what a resolved JWT looks like once this module's data feeds into one (`../platform/auth-and-identity.md`); RBAC/permission assignment for the *synced student accounts themselves* (distinct from the administrative permission codes this file proposes for quarantine review, §7); any transport mechanism other than the shared volume decided below.
+**Out of scope, and where it actually lives:** the Redis job-lock itself (key, 30-minute lease, `tryLock` mechanics — `../platform/distributed-coordination.md` §2); the exact `users`/`roles`/`permissions`/`legacy_sync_runs`/`legacy_sync_errors` column definitions (`../platform/database-schema.md` §2, referenced throughout, not repeated here — this file used to carry `legacy_sync_runs`/`legacy_sync_errors`' own `CREATE TABLE` DDL directly; it now narrates rationale only, consistent with how it always treated `users`/`roles`/`permissions`); what a resolved JWT looks like once this module's data feeds into one (`../platform/auth-and-identity.md`); RBAC/permission assignment for the *synced student accounts themselves* (distinct from the administrative permission codes this file proposes for quarantine review, §7); any transport mechanism other than the shared volume decided below.
 
-File ingestion in this document targets a Kubernetes-mounted shared volume, not AWS S3 — `CLAUDE.md` scopes S3 exclusively to brochure PDFs, the one deliberate managed-cloud dependency in an otherwise local/self-hosted stack (see `../modules/workshop.md`). All DDL referenced below targets PostgreSQL (the Master), following the same explicit-versioned-migration discipline as `../platform/database-schema.md` (`architecture.md` §6.2) — nothing here is ORM auto-generated. The two run/error tables below are presented parent-before-child (`legacy_sync_runs` in §5, then `legacy_sync_errors` in §6) specifically so their DDL runs top-to-bottom without a forward foreign-key reference.
+File ingestion in this document targets a Kubernetes-mounted shared volume, not AWS S3 — `CLAUDE.md` scopes S3 exclusively to brochure PDFs, the one deliberate managed-cloud dependency in an otherwise local/self-hosted stack (see `../modules/workshop.md`). All SQL referenced below targets PostgreSQL (the Master), following the same explicit-versioned-migration discipline as `../platform/database-schema.md` (`architecture.md` §6.2) — nothing here is ORM auto-generated. The two run/error tables are declared parent-before-child in `../platform/database-schema.md` §2.6/§2.7 (`legacy_sync_runs` before `legacy_sync_errors`) specifically so their DDL runs top-to-bottom without a forward foreign-key reference.
 
 ---
 
@@ -23,6 +23,7 @@ File ingestion in this document targets a Kubernetes-mounted shared volume, not 
 - [7. Fault Isolation from Live Traffic](#7-fault-isolation-from-live-traffic)
 - [8. Upsert Idempotency & Concurrent-Run Safety](#8-upsert-idempotency-concurrent-run-safety)
 - [9. Reference Table](#9-reference-table)
+- [API Surface](#api-surface)
 
 ---
 
@@ -140,32 +141,9 @@ flowchart TB
 
 **Rationale:** every scheduled cycle — successful, failed for any reason, or unable to even find a file — must leave exactly one queryable record, so an administrator (or the Observability Stack) never has to reconstruct what happened from ephemeral pod logs. This table is presented ahead of the quarantine table (§6) because `legacy_sync_errors` rows reference it by foreign key — a row can't be quarantined against a run that doesn't exist in the database yet.
 
-**Model:**
+**Exact columns are in `../platform/database-schema.md` §2.6** — referenced throughout, not repeated here, the same discipline this file already applies to `users`/`roles`/`permissions` (§1). `failure_reason` follows the same `VARCHAR + CHECK`, never-a-native-`ENUM` convention as `legacy_sync_errors.reason_code` (§6) and every status column in `../platform/database-schema.md` §1 — `PIPELINE_ERROR` is reserved for a mid-run crash Pass 2 itself can't attribute to a specific file problem, distinct from the two file-level failures named in §2. `failure_detail` mirrors `legacy_sync_errors.reason_detail` (§6) for the same reason: the coded reason is what a query filters on, the free-text detail is what a human reads.
 
-```sql
-CREATE TABLE legacy_sync_runs (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    export_date         DATE NOT NULL,
-    status              VARCHAR(20) NOT NULL DEFAULT 'RUNNING'
-                            CHECK (status IN ('RUNNING', 'COMPLETED', 'FAILED')),
-    failure_reason      VARCHAR(50)
-                            CHECK (failure_reason IN ('FILE_NOT_FOUND', 'FILE_UNREADABLE', 'PIPELINE_ERROR')),
-    failure_detail      TEXT,
-    started_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    finished_at         TIMESTAMPTZ,
-    rows_processed      INT NOT NULL DEFAULT 0,
-    rows_created        INT NOT NULL DEFAULT 0,
-    rows_updated        INT NOT NULL DEFAULT 0,
-    rows_quarantined    INT NOT NULL DEFAULT 0
-);
-
-CREATE INDEX idx_legacy_sync_runs_export_date ON legacy_sync_runs (export_date);
-CREATE INDEX idx_legacy_sync_runs_failed ON legacy_sync_runs (status) WHERE status = 'FAILED';
-```
-
-`failure_reason` follows the same `VARCHAR + CHECK`, never-a-native-`ENUM` convention as `legacy_sync_errors.reason_code` (§6) and every status column in `../platform/database-schema.md` §1 — `PIPELINE_ERROR` is reserved for a mid-run crash Pass 2 itself can't attribute to a specific file problem, distinct from the two file-level failures named in §2. `failure_detail` mirrors `legacy_sync_errors.reason_detail` (§6) for the same reason: the coded reason is what a query filters on, the free-text detail is what a human reads.
-
-**State transitions:**
+**Model — state transitions:**
 
 ```sql
 -- Start of cycle, before Pass 1 opens the file (§2) — every attempt gets a row from this point on
@@ -210,26 +188,7 @@ Every path through §2 and §3 ends in exactly one of these three `UPDATE`s — 
 
 **Rationale:** `docs/requirement.md` §2.10 requires quarantined records to be "set aside for manual review." A structured table, not a log line, is what lets an administrator query and act on quarantined records rather than trawling logs.
 
-**Model:**
-
-```sql
-CREATE TABLE legacy_sync_errors (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    sync_run_id     UUID NOT NULL REFERENCES legacy_sync_runs(id) ON DELETE RESTRICT,
-    row_number      INT NOT NULL,
-    raw_row         TEXT NOT NULL,
-    reason_code     VARCHAR(50) NOT NULL
-                        CHECK (reason_code IN ('MALFORMED_ROW', 'INVALID_FIELD', 'DUPLICATE_IN_FILE')),
-    reason_detail   TEXT,
-    reviewed        BOOLEAN NOT NULL DEFAULT false,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX idx_legacy_sync_errors_run ON legacy_sync_errors (sync_run_id);
-CREATE INDEX idx_legacy_sync_errors_reviewed ON legacy_sync_errors (reviewed) WHERE reviewed = false;
-```
-
-`legacy_sync_runs` (§5) is declared first specifically so this `REFERENCES` clause resolves against a table that already exists when both blocks are run top-to-bottom.
+**Exact columns are in `../platform/database-schema.md` §2.7** — referenced throughout, not repeated here, the same discipline this file already applies to `users`/`roles`/`permissions` (§1) and `legacy_sync_runs` (§5). `legacy_sync_runs` (§5) is declared first in that section specifically so `legacy_sync_errors.sync_run_id`'s `REFERENCES` clause resolves against a table that already exists when both `CREATE TABLE` statements run top-to-bottom.
 
 - `raw_row` stores the full original CSV line verbatim — an admin reviewing a quarantined record must be able to see exactly what the legacy system sent, without re-opening a file that may already have been rotated off the shared volume.
 - `reviewed` is a plain boolean, not a workflow state machine — this table's job is triage visibility, not a ticketing system. Assignment/resolution workflow, if ever needed, is a future extension this file doesn't build toward now.
@@ -315,3 +274,9 @@ Every table, convention, and tuning parameter this document introduces, traced b
 | Batch commit size (500 rows) | Tuning parameter | Fault isolation from live registration traffic (§7, `docs/requirement.md` §1.3.6, `architecture.md` §4.1) |
 | 02:00 Asia/Ho_Chi_Minh (UTC+7) scheduling window | Tuning parameter | Minimizes overlap with the registration-surge scenario (§7, `docs/requirement.md` §1.4); pinned to a named zone rather than pod-local time |
 | `unihub:lock:job:nightly-student-sync` | Redis lock (reference only) | Exactly-one-instance-per-cycle — decided in `../platform/distributed-coordination.md` §2, not redeclared here |
+
+---
+
+## API Surface
+
+The concrete HTTP contract for every endpoint this module exposes is specified in `../api/paths/user.yaml` (schemas in `../api/schemas/user.yaml`), not repeated here — including the `legacy_sync_runs`/`legacy_sync_errors` read/resolve endpoints (§5, §6) verbatim. Where the two disagree, this file is the authority and the OpenAPI contract has a bug. Three things are flagged there as explicitly *not* covered, and are equally true of this file: `login`'s literal route (this file never names one, only `../platform/auth-and-identity.md` §4's reference to "the login endpoint"); first-login password setup for a legacy-synced account (`password_hash IS NULL` per `../platform/database-schema.md` §2.1) has no designed mechanism anywhere in this corpus; and RBAC role/permission management has **no HTTP surface at all** — it's Flyway migration-seeded data (`../platform/deployment-and-cicd.md`), not an API-mutable resource, per `../api/README.md`'s Key Decisions. See that README for the toolchain.

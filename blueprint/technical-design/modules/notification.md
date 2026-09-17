@@ -20,6 +20,7 @@ This file is the physical-level completion of `architecture.md` §2.3/§4.3 (the
 - [4. Template Rendering](#4-template-rendering)
 - [5. Failure Modes & Fail-Safe Behavior](#5-failure-modes-fail-safe-behavior)
 - [6. Reference Table](#6-reference-table)
+- [API Surface](#api-surface)
 
 ---
 
@@ -187,3 +188,9 @@ Every interface, table, and mechanism decision in this document, in one place �
 | Redelivery dedup | Application-level check on `(user_id, related_entity_type, related_entity_id, type)` — no DB unique constraint | Distinct, deliberately looser guarantee than `idempotency_keys` (`../platform/database-schema.md` §8.1) — duplicate notification is a UX nuisance, not a correctness violation (§3) |
 | Template scope | One template per `(type, channel)` pair, code-resident | Notification content is a code-level decision, not runtime-configurable data (§4) |
 | `notifications.channel` values | `EMAIL`, `IN_APP` (extensible via tolerant migration) | `../platform/database-schema.md` §7.1 |
+
+---
+
+## API Surface
+
+The concrete HTTP contract for this module's one endpoint — the in-app notification inbox read, `listMyNotifications` — is specified in `../api/paths/notification.yaml` (schema in `../api/schemas/notification.yaml`), not repeated here. That endpoint's route is flagged there as inferred: this file confirms the inbox read endpoint's *existence* (the scope note above excludes "the JWT that authenticates" it, implying the endpoint itself exists) without ever naming its path. Two real gaps are also flagged there rather than invented around, both direct consequences of `../platform/database-schema.md` §7.1's column list as this file describes it: no rendered notification content is persisted anywhere (§4's template rendering happens once, at dispatch, and is never written back to the row), and there is no read/unread column, so no "mark as read" operation exists. See `../api/README.md` for the toolchain.

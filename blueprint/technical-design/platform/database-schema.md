@@ -19,6 +19,8 @@ All SQL in this document targets PostgreSQL (the Master; DDL runs once, ahead of
   - [2.3 `permissions`](#23-permissions)
   - [2.4 `user_roles`](#24-user_roles)
   - [2.5 `role_permissions`](#25-role_permissions)
+  - [2.6 `legacy_sync_runs`](#26-legacy_sync_runs)
+  - [2.7 `legacy_sync_errors`](#27-legacy_sync_errors)
 - [3. Workshop Module](#3-workshop-module)
   - [3.1 `workshops`](#31-workshops)
 - [4. Registration Module](#4-registration-module)
@@ -57,7 +59,7 @@ These apply to every table below; they're stated once here rather than repeated 
 
 ## 2. User Module
 
-Owns `users`, `roles`, `permissions` — the three-way RBAC model from `architecture.md` §5.1 — plus the two junction tables that realize its M:N relationships (named there but not previously tabled). Rationale for each column, and the nightly-sync pipeline that writes into `users`, is narrated in `../modules/user.md`; this section is the exact schema only.
+Owns `users`, `roles`, `permissions` — the three-way RBAC model from `architecture.md` §5.1 — plus the two junction tables that realize its M:N relationships (named there but not previously tabled), plus the two tables backing the nightly legacy-student-sync pipeline's own bookkeeping (`legacy_sync_runs`, `legacy_sync_errors`). Rationale for each column, and the sync pipeline's own mechanics, is narrated in `../modules/user.md`; this section is the exact schema only.
 
 ### 2.1 `users`
 
@@ -114,6 +116,46 @@ M:N junction realizing "a Role bundles a set of Permissions."
 | `role_id` | UUID | FK → `roles.id` ON DELETE RESTRICT, PK (part 1) | |
 | `permission_id` | UUID | FK → `permissions.id` ON DELETE RESTRICT, PK (part 2) | |
 | `assigned_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | |
+
+### 2.6 `legacy_sync_runs`
+
+**Rationale:** per-cycle bookkeeping for the nightly legacy-student-sync pipeline (`../modules/user.md` §5) — every scheduled cycle, successful or failed, leaves exactly one row here. Declared before `legacy_sync_errors` (§2.7) specifically so that table's `REFERENCES` clause resolves against a table that already exists when both `CREATE TABLE` statements run top-to-bottom.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `export_date` | DATE | NOT NULL | The export's own date (`../modules/user.md` §2's filename convention), not `started_at`'s calendar date. |
+| `status` | VARCHAR(20) | NOT NULL, DEFAULT `'RUNNING'`, CHECK IN (`RUNNING`, `COMPLETED`, `FAILED`) | |
+| `failure_reason` | VARCHAR(50) | NULL, CHECK IN (`FILE_NOT_FOUND`, `FILE_UNREADABLE`, `PIPELINE_ERROR`) | Non-null only when `status = 'FAILED'` (`../modules/user.md` §5's three `UPDATE` statements). |
+| `failure_detail` | TEXT | NULL | Free-text detail (e.g. the parse error message) alongside the coded `failure_reason`. |
+| `started_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | |
+| `finished_at` | TIMESTAMPTZ | NULL | Non-null iff `status` is not `RUNNING` — set by every terminal `UPDATE` (`../modules/user.md` §5), never by the initial `INSERT`. |
+| `rows_processed` / `rows_created` / `rows_updated` / `rows_quarantined` | INT | NOT NULL, DEFAULT 0 | Purely observational counters (`../modules/user.md` §5) — feed no correctness guarantee. |
+
+**Indexes:** `(export_date)`, `(status) WHERE status = 'FAILED'`.
+
+**Retention:** indefinite, never swept — same posture as `audit_events` (§8.3); a `legacy_sync_runs` row is the only durable record that a given night's ingestion happened at all (`../modules/user.md` §5).
+
+### 2.7 `legacy_sync_errors`
+
+**Rationale:** the quarantine store for rows the nightly-sync pipeline rejects — set aside for manual review (`docs/requirement.md` §2.10, `../modules/user.md` §6), never written to `users`.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `sync_run_id` | UUID | NOT NULL, FK → `legacy_sync_runs.id` ON DELETE RESTRICT | A run's quarantined records can't outlive the run record explaining when and why they were quarantined (§1's history-protection convention). |
+| `row_number` | INT | NOT NULL | |
+| `raw_row` | TEXT | NOT NULL | The full original CSV line, verbatim (`../modules/user.md` §6) — lets an admin see exactly what the legacy system sent without re-opening the source file. |
+| `reason_code` | VARCHAR(50) | NOT NULL, CHECK IN (`MALFORMED_ROW`, `INVALID_FIELD`, `DUPLICATE_IN_FILE`) | |
+| `reason_detail` | TEXT | NULL | |
+| `reviewed` | BOOLEAN | NOT NULL, DEFAULT `false` | Plain triage flag, not a workflow state machine (`../modules/user.md` §6) — no reviewer identity or timestamp captured, a deliberate scope cut. |
+| `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | |
+
+**Indexes:** `(sync_run_id)`, `(reviewed) WHERE reviewed = false`.
+
+**No FK to `users`:** a quarantined row, by definition, never produced a `users` write (`../modules/user.md` §6).
+
+**Retention:** indefinite, never swept — same rationale as `legacy_sync_runs` (§2.6); these rows are the university's data-quality history for the legacy pipeline, valuable as an accumulated audit record, not a short-lived operational queue.
 
 ---
 
@@ -380,6 +422,31 @@ erDiagram
         datetime assigned_at
     }
 
+    LEGACY_SYNC_RUNS {
+        uuid id PK
+        date export_date
+        string status
+        string failure_reason
+        string failure_detail
+        datetime started_at
+        datetime finished_at
+        int rows_processed
+        int rows_created
+        int rows_updated
+        int rows_quarantined
+    }
+
+    LEGACY_SYNC_ERRORS {
+        uuid id PK
+        uuid sync_run_id FK
+        int row_number
+        string raw_row
+        string reason_code
+        string reason_detail
+        boolean reviewed
+        datetime created_at
+    }
+
     %% --- Workshop / Registration / Payment (business core) ---
     WORKSHOPS {
         uuid id PK
@@ -481,6 +548,7 @@ erDiagram
     ROLES ||--o{ USER_ROLES : bundles
     ROLES ||--o{ ROLE_PERMISSIONS : bundles
     PERMISSIONS ||--o{ ROLE_PERMISSIONS : grants
+    LEGACY_SYNC_RUNS ||--o{ LEGACY_SYNC_ERRORS : quarantines
 
     %% --- Relationships: business core ---
     USERS ||--o{ REGISTRATIONS : registers
@@ -548,6 +616,42 @@ CREATE TABLE role_permissions (
     assigned_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (role_id, permission_id)
 );
+
+-- legacy_sync_runs declared before legacy_sync_errors so the latter's
+-- REFERENCES clause resolves against a table that already exists.
+CREATE TABLE legacy_sync_runs (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    export_date         DATE NOT NULL,
+    status              VARCHAR(20) NOT NULL DEFAULT 'RUNNING'
+                            CHECK (status IN ('RUNNING', 'COMPLETED', 'FAILED')),
+    failure_reason      VARCHAR(50)
+                            CHECK (failure_reason IN ('FILE_NOT_FOUND', 'FILE_UNREADABLE', 'PIPELINE_ERROR')),
+    failure_detail      TEXT,
+    started_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at         TIMESTAMPTZ,
+    rows_processed      INT NOT NULL DEFAULT 0,
+    rows_created        INT NOT NULL DEFAULT 0,
+    rows_updated        INT NOT NULL DEFAULT 0,
+    rows_quarantined    INT NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_legacy_sync_runs_export_date ON legacy_sync_runs (export_date);
+CREATE INDEX idx_legacy_sync_runs_failed ON legacy_sync_runs (status) WHERE status = 'FAILED';
+
+CREATE TABLE legacy_sync_errors (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    sync_run_id     UUID NOT NULL REFERENCES legacy_sync_runs(id) ON DELETE RESTRICT,
+    row_number      INT NOT NULL,
+    raw_row         TEXT NOT NULL,
+    reason_code     VARCHAR(50) NOT NULL
+                        CHECK (reason_code IN ('MALFORMED_ROW', 'INVALID_FIELD', 'DUPLICATE_IN_FILE')),
+    reason_detail   TEXT,
+    reviewed        BOOLEAN NOT NULL DEFAULT false,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_legacy_sync_errors_run ON legacy_sync_errors (sync_run_id);
+CREATE INDEX idx_legacy_sync_errors_reviewed ON legacy_sync_errors (reviewed) WHERE reviewed = false;
 
 -- ============================================================
 -- 3. Workshop Module
@@ -755,3 +859,5 @@ Every guarantee-bearing constraint above, mapped back to what it enforces. For r
 | Three-table model (`users`/`roles`/`permissions` + junctions) | RBAC tables | Permission-based, never role-name-based, access control (`architecture.md` §5.1, `docs/requirement.md` §2.11) |
 | `users.password_hash` nullable | `users` | Accommodates nightly legacy-sync account creation (`../modules/user.md`) ahead of first-login password setup — a `NOT NULL` constraint here would make the sync job unable to insert a new student row |
 | No FK on `notifications.related_entity_id`, `event_publications.aggregate_id`, `audit_events.target_id` | multiple | Deliberate — polymorphic references the relational model can't constrain without a supertype table this design doesn't otherwise need |
+| `legacy_sync_runs.finished_at`/`.failure_reason` CHECK-shaped by `status` (enforced at the API layer's `if`/`then`/`else`, not a DB `CHECK` across columns) | `legacy_sync_runs` | Every scheduled cycle leaves exactly one queryable, unambiguous record (`../modules/user.md` §5) |
+| `legacy_sync_errors.sync_run_id` `ON DELETE RESTRICT` | `legacy_sync_errors` | A run's quarantined records can't outlive the run record explaining when and why they were quarantined (§1, `../modules/user.md` §6) |

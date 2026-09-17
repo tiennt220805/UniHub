@@ -12,9 +12,11 @@ info:
     exists.
 
 
-    **Pilot status:** Workshop, Registration, Payment, and Check-in are
-    drafted. User and Notification are not yet covered. See `README.md` and
-    this file's `tags[].x-status`.
+    **Status:** all six business modules are drafted — Workshop,
+    Registration, Payment, Check-in, User, Notification. See `README.md`
+    for what's still intentionally out of scope even so (RBAC
+    administration, first-login password setup, user suspension/
+    reactivation, notification read/unread state).
   contact:
     name: UniHub Engineering
   license:
@@ -41,7 +43,7 @@ tags:
     x-status: drafted
   - name: User
     description: Identity, RBAC, legacy student sync (`../modules/user.md`).
-    x-status: planned
+    x-status: drafted
   - name: Payment
     description: Payment Gateway integration, idempotent charge, reconciliation (`../modules/payment.md`).
     x-status: drafted
@@ -50,7 +52,7 @@ tags:
     x-status: drafted
   - name: Notification
     description: In-app notification inbox (dispatch itself is async/event-driven, not a synchronous API — `../modules/notification.md`).
-    x-status: planned
+    x-status: drafted
 security:
   - bearerAuth: []
 paths:
@@ -86,6 +88,18 @@ paths:
     $ref: './paths/checkin.yaml#/sync'
   /api/v1/workshops/{workshopId}/attendances:
     $ref: './paths/checkin.yaml#/workshopAttendances'
+  /api/v1/auth/login:
+    $ref: './paths/user.yaml#/login'
+  /api/v1/legacy-sync/runs:
+    $ref: './paths/user.yaml#/syncRuns'
+  /api/v1/legacy-sync/runs/{id}:
+    $ref: './paths/user.yaml#/syncRunById'
+  /api/v1/legacy-sync/errors:
+    $ref: './paths/user.yaml#/syncErrors'
+  /api/v1/legacy-sync/errors/{id}:
+    $ref: './paths/user.yaml#/syncErrorById'
+  /api/v1/notifications:
+    $ref: './paths/notification.yaml#/notifications'
 components:
   securitySchemes:
     bearerAuth:

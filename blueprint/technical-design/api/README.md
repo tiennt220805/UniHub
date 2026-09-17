@@ -12,19 +12,33 @@ Nothing here overrides `architecture.md` or a `modules/*.md` file — where this
 spec and those disagree, the narrative document is the authority and this
 spec has a bug.
 
-## Status: pilot, not complete
+## Status: all six modules drafted
 
-**Workshop**, **Registration**, **Payment**, and **Check-in** are drafted.
-Workshop+Registration were the initial pilot (highest-risk flow: discovery →
-seat reservation, `architecture.md` §4.2/§6.1). Payment+Check-in followed,
-completing the core transactional path (register → pay → check in) —
-`modules/payment.md` names itself "this system's second-highest-risk
-correctness path after seat reservation," the same reasoning that picked the
-first pair. **User and Notification are not yet drafted** —
-`openapi.yaml`'s `tags` list marks them `x-status: planned` so the
-aggregated spec doesn't silently read as complete. Extend this directory
-module-by-module following the same structure, not by writing both
-remaining modules into one large diff.
+Drafted in three pairs, each cross-checked against its `modules/*.md`
+source and each pair reviewed before the next started: **Workshop +
+Registration** (the highest-risk flow: discovery → seat reservation,
+`architecture.md` §4.2/§6.1), then **Payment + Check-in** (the rest of the
+core transactional path — `modules/payment.md` names itself "this system's
+second-highest-risk correctness path after seat reservation"), then
+**User + Notification** (identity/RBAC-adjacent and async-dispatch-adjacent
+surfaces — deliberately last, since both are thinner HTTP surfaces than the
+other four: User's RBAC data is migration-seeded rather than API-mutable,
+see Key decisions below, and Notification exposes exactly one read
+endpoint).
+
+**"Drafted" does not mean every gap is closed** — several endpoints and
+fields are explicitly flagged in-file as inferred (not narrated in any
+`modules/*.md`), and several real gaps are stated rather than invented
+around: `notifications` has no persisted rendered-content column and no
+read/unread column (Notification); first-login password setup for a
+legacy-synced account has no designed mechanism anywhere in this corpus,
+and no endpoint suspends or reactivates a user despite `auth-and-
+identity.md` §4 naming this directory as where that belongs (both User —
+`paths/user.yaml`'s `login` description). Search this directory for
+"flagged as an assumption" / "flagged as a known limitation" / "unresolved
+gap" to find every one of them — they're deliberately left visible in the
+spec itself, not collected in a separate document that could drift out of
+sync with it.
 
 ## Structure
 
@@ -73,6 +87,7 @@ the source of truth; `openapi.yaml` + its `$ref` tree is.
 | URI versioning | `/api/v1/...` | Already the precedent set in `modules/registration.md` (`POST /api/v1/registrations`) and `modules/payment.md` (`POST /api/v1/payments/charge`) — this directory formalizes it, doesn't invent it. |
 | Error shape | RFC 7807 Problem Details (`common/error.yaml`) | One error envelope for every module. Spring Boot 3.x's native `ProblemDetail` class produces this shape directly — no hand-rolled error mapper needed at implementation time. |
 | Pagination | Offset/limit (`page`/`size`, `common/pagination.yaml`), not cursor/keyset | Simpler to implement and consume, and this system's scale (`docs/requirement.md` §1.4`, PoC-sized) doesn't yet justify keyset pagination's added complexity. Revisit as a deliberate decision if a list endpoint's row count later makes offset scans expensive — not something to preempt now. |
+| RBAC role/permission management | **No API surface at all** — `roles`/`permissions`/`role_permissions` are Flyway migration-seeded data (`platform/deployment-and-cicd.md`'s `INSERT ... ON CONFLICT DO NOTHING` seed step), not runtime-mutable via this contract. | Confirmed by precedent, not assumed: the deployment doc's own migration already treats role→permission bundling as versioned schema data, consistent with `CLAUDE.md`'s "schema migrations are explicit and versioned... never rely on... runtime mutation" posture. Adding a CRUD API here would invent both new endpoints and a new permission-code family (e.g. `ROLE_MANAGE`) that no document specifies. |
 | Permission modeling | Custom `x-required-permission: <code>` extension per operation — a single string for one required permission, or an array of codes (e.g. `[WORKSHOP_CREATE, WORKSHOP_EDIT]`) meaning **any one** of them satisfies the check (OR, never AND). An accompanying `x-required-permission-note` on the same operation explains the OR relationship in prose where the codes alone don't make it obvious. | OpenAPI's built-in `security` scope array is an OAuth2 concept; this system's permission codes (`WORKSHOP_CREATE`, `CHECKIN_SCAN`, ...) aren't OAuth2 scopes, and forcing them into that field would misrepresent the auth model documented in `auth-and-identity.md` §2. An operation with no `x-required-permission` requires only a valid token. |
 | Correlation header | `X-Correlation-Id` request+response, optional on the way in | Matches `observability.md` §1 exactly — this directory doesn't define a second identifier. |
 | Contract authority once implementation starts | **This hand-written spec stays authoritative.** When Spring Boot code exists, wire `springdoc-openapi` to generate a spec from the running application's annotations, and diff it against this one in CI — a mismatch is a build failure, not a silent drift. This spec is not superseded by the generated one; the generated one is a conformance check against it. | Chosen over letting `springdoc-openapi`'s generated spec become the source of truth after implementation begins, and over generating server stubs directly from this spec via `openapi-generator` (rejected: too rigid for the iteration speed expected once Payment/Check-in's edge cases get implemented). |

@@ -1,0 +1,57 @@
+notifications:
+  get:
+    operationId: listMyNotifications
+    summary: List the caller's in-app notification inbox
+    description: >-
+      **Inferred route — flagged as an assumption.**
+      `../../modules/notification.md`'s own scope note confirms this
+      endpoint's *existence* ("the JWT that authenticates the in-app
+      notification inbox's own read endpoint" is explicitly out of that
+      file's scope, implying the endpoint itself is in scope somewhere) but
+      never fixes its path, request, or response shape anywhere in this
+      corpus — this is that endpoint.
+
+      **Always scoped to the authenticated caller — there is no query
+      parameter to list another user's notifications from this endpoint**,
+      the same guarantee `../paths/registration.yaml#/registrations`'s
+      `listMyRegistrations` states for its own "my X" read.
+
+      **Always scoped to `channel = IN_APP` for the caller — not
+      configurable.** This models specifically the "in-app notification
+      inbox" `notification.md`'s scope note names; an `EMAIL` row exists in
+      the same `notifications` table but has no reason to appear here — a
+      student reads their email in their actual mail client, not through
+      this API. No `channel` query parameter is offered, since there is
+      exactly one channel this endpoint ever returns.
+
+      **See `../schemas/notification.yaml#/Notification` for two real gaps
+      this endpoint does not paper over:** no rendered content is
+      persisted anywhere for this response to return, and there is no
+      read/unread column in the underlying table for a "mark as read"
+      operation to exist against.
+    tags: [Notification]
+    parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/notification.yaml#/NotificationDeliveryStatus'
+      - $ref: '../common/pagination.yaml#/PageParam'
+      - $ref: '../common/pagination.yaml#/SizeParam'
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    responses:
+      '200':
+        description: The caller's in-app notifications.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/notification.yaml#/NotificationListResponse'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'

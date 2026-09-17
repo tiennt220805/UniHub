@@ -1,0 +1,282 @@
+SyncRunIdParam:
+  name: id
+  in: path
+  required: true
+  schema:
+    type: string
+    format: uuid
+
+SyncErrorIdParam:
+  name: id
+  in: path
+  required: true
+  schema:
+    type: string
+    format: uuid
+
+login:
+  post:
+    operationId: login
+    summary: Authenticate and receive an access token
+    description: >-
+      **Inferred route — flagged as an assumption.** No document in this
+      corpus fixes this endpoint's literal path; `../../platform/auth-and-
+      identity.md` §4 confirms its *existence* ("On expiry: `401`, client
+      re-authenticates via the login endpoint") without naming it. Request/
+      response shapes are grounded directly in that file's §2 (claim vs.
+      response-body split) and §4 (30-minute TTL).
+
+      **Invalid credentials and a `SUSPENDED` account both return the same
+      `401` — flagged as a deliberate, inferred choice, not specified
+      anywhere.** `auth-and-identity.md` never states whether a suspended
+      account should get a distinguishable error; collapsing both into one
+      generic `401` is standard account-enumeration-resistance practice
+      (never let a login attempt reveal *why* it failed to someone who
+      doesn't already hold valid credentials) — but it's this file's own
+      reasoned choice, not a transcription of a stated requirement.
+
+      **First-login password setup for legacy-synced accounts is an
+      unresolved gap this endpoint does not attempt to close.**
+      `../../platform/database-schema.md` §2.1 states a synced student's
+      `password_hash` is `NULL` until they "complete first-login setup,"
+      but no document anywhere specifies *how* a student with no password
+      yet authenticates in order to set one — no magic-link, OTP, or
+      SMS/email verification mechanism is designed anywhere in this corpus
+      (the Notification module's `type` CHECK constraint,
+      `../../platform/database-schema.md` §7.1, has no
+      `ACCOUNT_SETUP`-shaped value). Inventing that mechanism here would be
+      designing a feature no requirement or architecture document has
+      actually specified — flagged for a human decision, not silently
+      built.
+
+      **A second, equally unresolved gap: no endpoint anywhere in this
+      spec suspends or reactivates a user.** `../../platform/auth-and-
+      identity.md` §4 states the operational procedure for flipping
+      `users.status` to `SUSPENDED` "is an Ops Runbook / API Contracts
+      concern, out of scope for this file" — an explicit forward-reference
+      to *this* directory. This file only ever reads the consequence (the
+      `401` above, and `syncRuns`/`syncErrors` below reusing the same
+      permission-gating pattern) without ever defining the write. Closing
+      this would mean inventing a new permission code (e.g. `USER_SUSPEND`)
+      that no document specifies — the same category of invention
+      `../README.md`'s Key Decisions table already declined for RBAC
+      role/permission management, applied here for the same reason.
+      Flagged for a human decision, not silently built.
+    tags: [User]
+    security: []
+    parameters:
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/user.yaml#/LoginRequest'
+    responses:
+      '200':
+        description: Authenticated.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/user.yaml#/LoginResponse'
+      '400':
+        description: Validation failure (e.g. malformed `email`).
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '401':
+        description: Invalid credentials, or the account is `SUSPENDED` (`../../platform/database-schema.md` §2.1) — deliberately indistinguishable, see above.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+
+syncRuns:
+  get:
+    operationId: listSyncRuns
+    summary: List nightly legacy-student-sync run history
+    description: >-
+      `../../modules/user.md` §5's "run history" — `STUDENT_SYNC_VIEW`
+      covers "read quarantined records and run history" per §6. Retained
+      indefinitely server-side (§5); this endpoint is a plain paginated
+      read over that history, newest first.
+    tags: [User]
+    x-required-permission: STUDENT_SYNC_VIEW
+    parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/user.yaml#/LegacySyncRunStatus'
+      - $ref: '../common/pagination.yaml#/PageParam'
+      - $ref: '../common/pagination.yaml#/SizeParam'
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    responses:
+      '200':
+        description: Sync run history.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/user.yaml#/LegacySyncRunListResponse'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, missing STUDENT_SYNC_VIEW permission.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+
+syncRunById:
+  get:
+    operationId: getSyncRun
+    summary: Get a single sync run's detail
+    tags: [User]
+    x-required-permission: STUDENT_SYNC_VIEW
+    parameters:
+      - $ref: '#/SyncRunIdParam'
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    responses:
+      '200':
+        description: Sync run detail.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/user.yaml#/LegacySyncRun'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, missing STUDENT_SYNC_VIEW permission.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '404':
+        description: No sync run with this id.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+
+syncErrors:
+  get:
+    operationId: listQuarantinedRecords
+    summary: List quarantined legacy-sync records
+    description: >-
+      `../../modules/user.md` §6 — rows the pipeline rejected, never
+      written to `users`. Filterable by `syncRunId` and `reviewed` so an
+      admin can, for example, pull only the unreviewed backlog across all
+      runs.
+    tags: [User]
+    x-required-permission: STUDENT_SYNC_VIEW
+    parameters:
+      - name: syncRunId
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - name: reviewed
+        in: query
+        required: false
+        schema:
+          type: boolean
+      - $ref: '../common/pagination.yaml#/PageParam'
+      - $ref: '../common/pagination.yaml#/SizeParam'
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    responses:
+      '200':
+        description: Quarantined records.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/user.yaml#/LegacySyncErrorListResponse'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, missing STUDENT_SYNC_VIEW permission.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+
+syncErrorById:
+  patch:
+    operationId: resolveQuarantinedRecord
+    summary: Toggle a quarantined record's reviewed flag
+    description: >-
+      `../../modules/user.md` §6 — `STUDENT_SYNC_RESOLVE`, split from
+      `STUDENT_SYNC_VIEW` on purpose (viewing and acting are separate
+      capabilities). No reviewer identity or timestamp is captured by this
+      write — a deliberate scope cut (§6), not this endpoint under-
+      specifying its own audit trail.
+    tags: [User]
+    x-required-permission: STUDENT_SYNC_RESOLVE
+    parameters:
+      - $ref: '#/SyncErrorIdParam'
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/user.yaml#/ResolveLegacySyncErrorRequest'
+    responses:
+      '200':
+        description: Updated record.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/user.yaml#/LegacySyncError'
+      '400':
+        description: Validation failure (missing `reviewed`).
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, missing STUDENT_SYNC_RESOLVE permission.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '404':
+        description: No quarantined record with this id.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
