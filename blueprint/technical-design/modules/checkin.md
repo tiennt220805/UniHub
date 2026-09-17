@@ -25,6 +25,7 @@ Both this ticket signature and the auth JWT use the JOSE (JSON Object Signing an
 - [7. Offline Scan Sync & Reconciliation](#7-offline-scan-sync-reconciliation)
 - [8. Failure Modes & Fail-Safe Behavior](#8-failure-modes-fail-safe-behavior)
 - [9. Reference Table](#9-reference-table)
+- [API Surface](#api-surface)
 
 ---
 
@@ -268,3 +269,9 @@ Every claim, algorithm, and key-management decision for the QR e-ticket, in one 
 | Local scan queue | Expo SQLite via Drizzle ORM (per `CLAUDE.md`) | Durable offline queue surviving app restart/connectivity gap (§7) |
 | Reconciliation rule | Earliest `scanned_at` wins, atomic overtake transaction | `proposal.md` §11.4 |
 | `check_in_scans.outcome` values | `ACCEPTED` / `REJECTED_DUPLICATE` / `REJECTED_INVALID` | Distinguishes "lost reconciliation" from "ticket was never valid" (§7) |
+
+---
+
+## API Surface
+
+The concrete HTTP contract for every endpoint this module exposes is specified in `../api/paths/checkin.yaml` (schemas in `../api/schemas/checkin.yaml`), not repeated here — including the verification-key JWK response shape (§6) and the offline scan/reconciliation model (§7) verbatim. Where the two disagree, this file is the authority and the OpenAPI contract has a bug. `syncScanBatch` (the scan-batch upload endpoint) and `listWorkshopAttendances` (the Organizer reporting view) are both flagged there as inferred endpoints — this file narrates the sync *behavior* in full (§7) but never fixes a literal route for it, and never specifies a reporting endpoint at all. See `../api/README.md` for the toolchain.

@@ -1,0 +1,165 @@
+verificationKey:
+  get:
+    operationId: getVerificationKey
+    summary: Fetch the current active ticket-verification public key
+    description: >-
+      `../../modules/checkin.md` §6, verbatim endpoint path. Fetch-while-
+      online, cache-for-offline: the Check-in Client calls this on login
+      and opportunistically on every successful sync, overwriting its
+      single cached key on every successful fetch (never accumulating
+      multiple keys) — see `../schemas/checkin.yaml#/VerificationKeyResponse`
+      for why that single-key model is what makes key rotation a total
+      revocation.
+    tags: [Check-in]
+    x-required-permission: CHECKIN_SCAN
+    parameters:
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    responses:
+      '200':
+        description: The current active ECDSA public key.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/checkin.yaml#/VerificationKeyResponse'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, missing CHECKIN_SCAN permission.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+
+sync:
+  post:
+    operationId: syncScanBatch
+    summary: Upload a batch of offline scan events
+    description: >-
+      **Inferred endpoint — flagged as an assumption.**
+      `../../modules/checkin.md` §7 narrates "the Check-in Client uploads
+      its queued scans in a batch to the Backend API" but never fixes a
+      literal route — this is that route, modeled directly on §7's own
+      described behavior: the server resolves each scan's `ticketCode` to
+      a `registrations.id`, inserts one `check_in_scans` row per scan (the
+      append-only audit trail `docs/requirement.md` §2.9 requires), and
+      runs earliest-timestamp-wins reconciliation (§7) as part of
+      processing this batch — synchronously, not as a separately-queued
+      job, since §7 never describes a queue for this step the way it does
+      for the seat-hold-expiry or summarization flows elsewhere in this
+      corpus.
+
+      **No `Idempotency-Key` header** — unlike `createRegistration`/
+      `chargePayment`, retry-safety here comes from each `ScanEvent`'s own
+      client-generated `id` (a database primary key), not from the
+      `idempotency_keys` table mechanism. Resyncing an already-processed
+      batch (e.g. after a dropped response) is safe: each scan's `id` is
+      unchanged, so re-processing is a natural no-op per scan, not a
+      distinct idempotency scope this file needs to declare.
+
+      A signature-authentic ticket whose registration was since cancelled
+      is recorded `REJECTED_INVALID`, not rejected at the HTTP layer — see
+      `../../modules/checkin.md` §7's "authentic but not valid" framing.
+      This endpoint never 404s for an unresolvable `ticketCode`; an
+      unresolvable one is itself recorded as `REJECTED_INVALID`, consistent
+      with treating every submitted scan as audit-trail data worth keeping
+      (`docs/requirement.md` §2.9), not as a request parameter to validate
+      away.
+    tags: [Check-in]
+    x-required-permission: CHECKIN_SCAN
+    parameters:
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/checkin.yaml#/SyncScanBatchRequest'
+    responses:
+      '200':
+        description: Per-scan outcomes, keyed by the client-generated scan id.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/checkin.yaml#/SyncScanBatchResponse'
+      '400':
+        description: >-
+          Malformed batch (e.g. missing required fields on a `ScanEvent`,
+          or `scans` empty/exceeding the 500-item cap —
+          `../schemas/checkin.yaml#/SyncScanBatchRequest`).
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, missing CHECKIN_SCAN permission.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+
+workshopAttendances:
+  get:
+    operationId: listWorkshopAttendances
+    summary: Organizer/Admin view of a workshop's check-ins
+    description: >-
+      **Inferred endpoint — flagged as an assumption**, mirroring
+      `../paths/registration.yaml#/workshopRegistrations`'s own inferred
+      status exactly: backs `docs/requirement.md` §1.3.3's "real-time
+      check-in rates," but no document specifies this route. Returns only
+      the finalized `attendances` projection
+      (`../../platform/database-schema.md` §6.2) — one row per registration
+      with a winning scan — not the raw, larger `check_in_scans` audit
+      trail; an operator investigating a specific reconciliation decision
+      needs a different, not-yet-specified tool, not this reporting
+      endpoint.
+    tags: [Check-in]
+    x-required-permission: REPORT_VIEW
+    parameters:
+      - $ref: '../paths/registration.yaml#/RegistrationWorkshopIdParam'
+      - $ref: '../common/pagination.yaml#/PageParam'
+      - $ref: '../common/pagination.yaml#/SizeParam'
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    responses:
+      '200':
+        description: Attendances for the given workshop.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/checkin.yaml#/AttendanceListResponse'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, missing REPORT_VIEW permission.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '404':
+        description: No workshop with this id.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'

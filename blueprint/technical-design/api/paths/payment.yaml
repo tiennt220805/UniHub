@@ -1,0 +1,222 @@
+PaymentIdParam:
+  name: id
+  in: path
+  required: true
+  schema:
+    type: string
+    format: uuid
+
+payments:
+  post:
+    operationId: chargePayment
+    summary: Initiate a payment charge for a RESERVED registration
+    description: >-
+      `../../modules/payment.md` §3/§8. No `x-required-permission` — any
+      authenticated user may charge, but only for a registration they
+      themselves own (see `403` below); there is no capability-style
+      permission for "being a student," same as `createRegistration`.
+
+      **The response is always `PENDING`, never a final outcome.** Per
+      `payment.md` §1, a row is created `PENDING` at charge-initiation and
+      resolved later by whichever of {the gateway's webhook,
+      `paymentGatewayWebhook`, or the reconciliation sweep} reaches it
+      first — poll `getPayment` to observe resolution.
+
+      **Idempotency (§8):** a retried request carrying the same
+      `Idempotency-Key` returns the original recorded response verbatim —
+      the Payment Gateway is never called a second time for the same key,
+      "not even to double-check."
+
+      **Circuit-breaker fallback (§3):** when the shared `paymentGateway`
+      breaker is `OPEN` or the call times out, no `payments` row is created
+      at all and the registration's seat-hold is left completely untouched
+      — the student keeps the remainder of their original 15-minute window
+      to retry once the gateway recovers.
+    tags: [Payment]
+    x-idempotent: true
+    parameters:
+      - $ref: '../common/headers.yaml#/IdempotencyKey'
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/payment.yaml#/CreatePaymentChargeRequest'
+    responses:
+      '201':
+        description: Payment initiated, status PENDING. Poll `getPayment` for resolution.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/payment.yaml#/Payment'
+      '400':
+        description: Validation failure (e.g. missing or malformed `registrationId`/`paymentMethodToken`).
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, but the caller does not own the target registration.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '404':
+        description: No registration with the given `registrationId`.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '409':
+        description: >-
+          The registration is not `RESERVED` (already `CONFIRMED`,
+          `CANCELLED`, or `EXPIRED`) — or a `payments` row already exists
+          for it (`../../platform/database-schema.md` §5.1's
+          `registration_id UNIQUE` constraint).
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '503':
+        description: >-
+          `paymentGateway` circuit `OPEN`, or the gateway call timed out
+          (`../../modules/payment.md` §3) — no `payments` row created,
+          seat-hold untouched, safe to retry.
+        headers:
+          Retry-After:
+            description: >-
+              **Value inferred — flagged as an assumption.** Not specified
+              in `payment.md`; set here to the breaker's own
+              `wait-duration-in-open-state` (30s, `payment.md` §2) as the
+              natural value, by analogy with `createRegistration`'s
+              `Retry-After` being tied to its own lock's wait budget — but
+              unlike that endpoint, `payment.md` never actually prescribes
+              this header for this path.
+            schema:
+              type: integer
+              example: 30
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+
+paymentById:
+  get:
+    operationId: getPayment
+    summary: Get a payment's current status
+    description: >-
+      **Inferred endpoint — flagged as an assumption.** Not narrated
+      anywhere in `payment.md`, but a direct corollary of `chargePayment`
+      always returning `PENDING`: a client needs some way to observe
+      eventual resolution, and no push/SSE mechanism exists anywhere in
+      this corpus. Ownership-checked, not permission-code-checked — same
+      model as `getRegistration`.
+    tags: [Payment]
+    parameters:
+      - $ref: '#/PaymentIdParam'
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    responses:
+      '200':
+        description: Current payment status.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/payment.yaml#/Payment'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, but the caller does not own the underlying registration.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '404':
+        description: No payment with this id.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+
+paymentGatewayWebhook:
+  post:
+    operationId: handlePaymentGatewayWebhook
+    summary: Payment Gateway webhook callback
+    description: >-
+      `../../modules/payment.md` §7, verbatim route and model — this
+      system's fast path for payment resolution, complementing (never
+      replacing) the reconciliation sweep's 15-minute-late backstop (§6).
+
+      **Authentication is deliberately not `bearerAuth` — the only
+      operation in this API that isn't.** The caller is the Payment
+      Gateway, not a UniHub user; it holds no UniHub session and
+      `../platform/auth-and-identity.md`'s entire model (resolved
+      permissions, `hasAuthority`) assumes an authenticated *user*, which
+      doesn't apply here. Trust is established instead by verifying the
+      gateway's signature header (`Stripe-Signature`) as an HMAC over the
+      **raw, unparsed** request body against a shared webhook-signing
+      secret — never by re-serializing the parsed payload, which risks a
+      whitespace/key-ordering mismatch that fails verification for a
+      legitimate request. **Exempt from per-user/per-IP rate limiting**
+      (`../../platform/distributed-coordination.md` §3) — the gateway is a
+      known, trusted, high-volume caller by design, not a traffic-abuse
+      risk.
+
+      **Always responds `200` once the payload has been durably handled**
+      (found-and-resolved, found-but-already-resolved, or
+      not-found-so-discarded all return `200`) — a non-2xx response tells
+      the gateway to retry delivery, which this system doesn't need once
+      the row is resolved or determined not to apply. Only an invalid
+      signature is rejected, before any byte of the body is trusted.
+    tags: [Payment]
+    x-auth-model: gateway-webhook-signature
+    security: []
+    parameters:
+      - name: Stripe-Signature
+        in: header
+        required: true
+        description: HMAC signature over the raw request body, verified against a shared webhook-signing secret before any other processing.
+        schema:
+          type: string
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    requestBody:
+      required: true
+      description: The Payment Gateway's raw event payload — schema owned by the gateway (Stripe, sandbox mode), not by this API.
+      content:
+        application/json:
+          schema:
+            type: object
+            description: Opaque gateway event payload; only `gateway_transaction_id`-equivalent and outcome fields are read (`../../modules/payment.md` §7).
+    responses:
+      '200':
+        description: >-
+          Payload durably handled: resolved (`status` left `PENDING`),
+          already resolved by a race with the reconciliation sweep or a
+          prior webhook delivery (no-op), or the `gateway_transaction_id`
+          doesn't match any `payments` row (logged and discarded — not
+          every webhook necessarily maps to a UniHub-initiated charge).
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+      '400':
+        description: Invalid signature — rejected before any byte of the body is trusted.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'

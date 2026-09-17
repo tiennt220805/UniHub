@@ -14,15 +14,17 @@ spec has a bug.
 
 ## Status: pilot, not complete
 
-Only **Workshop** and **Registration** are drafted so far — chosen as the
-pilot because they carry the system's highest-risk flow (discovery → seat
-reservation, `architecture.md` §4.2/§6.1) and already have the most
-contract detail narrated in prose (`modules/workshop.md`,
-`modules/registration.md`). **User, Payment, Check-in, and Notification are
-not yet drafted** — `openapi.yaml`'s `tags` list marks them `x-status: planned`
-so the aggregated spec doesn't silently read as complete. Extend this
-directory module-by-module following the same structure, not by writing all
-four remaining modules into one large diff.
+**Workshop**, **Registration**, **Payment**, and **Check-in** are drafted.
+Workshop+Registration were the initial pilot (highest-risk flow: discovery →
+seat reservation, `architecture.md` §4.2/§6.1). Payment+Check-in followed,
+completing the core transactional path (register → pay → check in) —
+`modules/payment.md` names itself "this system's second-highest-risk
+correctness path after seat reservation," the same reasoning that picked the
+first pair. **User and Notification are not yet drafted** —
+`openapi.yaml`'s `tags` list marks them `x-status: planned` so the
+aggregated spec doesn't silently read as complete. Extend this directory
+module-by-module following the same structure, not by writing both
+remaining modules into one large diff.
 
 ## Structure
 
@@ -78,7 +80,7 @@ the source of truth; `openapi.yaml` + its `$ref` tree is.
 ## Conventions for every path file
 
 - Every operation has a unique `operationId` (`camelCase`, e.g. `createRegistration`) — required for client codegen (e.g. `orval` generating TanStack Query hooks for the React frontend) to produce usable function names.
-- Every operation lists `401` (invalid/expired token) and, if `x-required-permission` is set, `403` (valid token, missing permission) — per the two-distinct-response-codes discipline `auth-and-identity.md` §5 and `registration.md` §2 both already apply to their own failure paths.
+- Every operation lists `401` (invalid/expired token) and, if `x-required-permission` is set, `403` (valid token, missing permission) — per the two-distinct-response-codes discipline `auth-and-identity.md` §5 and `registration.md` §2 both already apply to their own failure paths. **One documented exception:** `paymentGatewayWebhook` (`paths/payment.yaml`) sets `security: []` and an `x-auth-model: gateway-webhook-signature` extension instead — it authenticates the Payment Gateway itself via signature verification (`payment.md` §7), not a UniHub user, so `bearerAuth`/`401`/`403` don't apply to it. This is the only operation in the whole spec that overrides the default `security: [{bearerAuth: []}]` for a reason other than "public, no auth needed" (contrast with `listWorkshops`/`getWorkshop`, which use `security: []` because they're genuinely public).
 - `x-required-permission` may be a single permission code or an array of codes; an array means **any one** of them satisfies the check (OR) — documented per-operation via `x-required-permission-note` where that isn't obvious from the codes alone.
 - Every 2xx response declares `common/headers.yaml#/CorrelationIdResponse` under `headers: X-Correlation-Id`, mirroring the `CorrelationIdRequest` parameter every operation already accepts — the correlation id is always echoed back, on success or error, never only one or the other.
 - Every non-2xx response body is `common/error.yaml`, referenced the same way in every module — no module invents its own error shape.

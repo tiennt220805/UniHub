@@ -12,9 +12,9 @@ info:
     exists.
 
 
-    **Pilot status:** only the Workshop and Registration modules are
-    drafted. See `README.md` and this file's `tags[].x-status` for what's
-    not yet covered.
+    **Pilot status:** Workshop, Registration, Payment, and Check-in are
+    drafted. User and Notification are not yet covered. See `README.md` and
+    this file's `tags[].x-status`.
   contact:
     name: UniHub Engineering
   license:
@@ -44,10 +44,10 @@ tags:
     x-status: planned
   - name: Payment
     description: Payment Gateway integration, idempotent charge, reconciliation (`../modules/payment.md`).
-    x-status: planned
+    x-status: drafted
   - name: Check-in
     description: Offline QR verification key distribution, scan-batch sync/reconciliation (`../modules/checkin.md`).
-    x-status: planned
+    x-status: drafted
   - name: Notification
     description: In-app notification inbox (dispatch itself is async/event-driven, not a synchronous API — `../modules/notification.md`).
     x-status: planned
@@ -74,6 +74,18 @@ paths:
     $ref: './paths/registration.yaml#/registrationById'
   /api/v1/registrations/{id}/cancel:
     $ref: './paths/registration.yaml#/registrationCancel'
+  /api/v1/payments/charge:
+    $ref: './paths/payment.yaml#/payments'
+  /api/v1/payments/{id}:
+    $ref: './paths/payment.yaml#/paymentById'
+  /api/v1/webhooks/payment-gateway:
+    $ref: './paths/payment.yaml#/paymentGatewayWebhook'
+  /api/v1/checkin/verification-key:
+    $ref: './paths/checkin.yaml#/verificationKey'
+  /api/v1/checkin/sync:
+    $ref: './paths/checkin.yaml#/sync'
+  /api/v1/workshops/{workshopId}/attendances:
+    $ref: './paths/checkin.yaml#/workshopAttendances'
 components:
   securitySchemes:
     bearerAuth:

@@ -25,6 +25,7 @@ This file is the physical-level completion of `proposal.md` §11.3 (Resilience t
 - [8. Idempotent Payment-Charge](#8-idempotent-payment-charge)
 - [9. Fault Isolation Boundary & Failure Modes](#9-fault-isolation-boundary-failure-modes)
 - [10. Reference Table](#10-reference-table)
+- [API Surface](#api-surface)
 
 ---
 
@@ -317,3 +318,9 @@ Every algorithm, threshold, and endpoint decision in this document, in one place
 | Webhook idempotency | Re-check `status <> 'PENDING'` before acting, same pattern as §6 | Safe under gateway at-least-once redelivery and race against the sweep |
 | Idempotency scope: registration | `REGISTRATION_CREATE` | Owned by `../modules/registration.md` §4 — listed here only for contrast |
 | Idempotency scope: payment | `PAYMENT_CHARGE` | Composite uniqueness with client key (`../platform/database-schema.md` §8.1), scoped to this module's charge endpoint (§8) |
+
+---
+
+## API Surface
+
+The concrete HTTP contract for every endpoint this module exposes is specified in `../api/paths/payment.yaml` (schemas in `../api/schemas/payment.yaml`), not repeated here — including the webhook's signature-based authentication (§7), the shared-breaker fallback behavior (§2–§5), and the `Idempotency-Key` replay semantics (§8) verbatim. Where the two disagree, this file is the authority and the OpenAPI contract has a bug. `getPayment` in that contract is flagged there as an inferred endpoint — a direct corollary of `chargePayment` always returning `PENDING` (§1), never narrated as its own endpoint here. `chargePayment`'s request body shape (`paymentMethodToken`) is also flagged as inferred, since this file only specifies the `Idempotency-Key` header, never the body. See `../api/README.md` for the toolchain.
