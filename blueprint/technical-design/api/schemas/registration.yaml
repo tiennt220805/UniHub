@@ -1,0 +1,127 @@
+Registration:
+  type: object
+  description: >-
+    Full registration detail, including the QR e-ticket payload. Returned
+    only to the owning student (`getRegistration`, `createRegistration`) —
+    never in a list response (`RegistrationSummary`), since a signed ticket
+    payload has no reason to be broadcast to an Organizer's reporting view.
+    Field-level source is `../../platform/database-schema.md` §4.1.
+  required: [id, workshopId, userId, ticketType, status, createdAt]
+  properties:
+    id:
+      type: string
+      format: uuid
+    workshopId:
+      type: string
+      format: uuid
+    userId:
+      type: string
+      format: uuid
+    ticketType:
+      type: string
+      enum: [FREE, PAID]
+      description: Derived server-side from the workshop's `isPaid` at registration time — never client-supplied.
+    status:
+      $ref: '#/RegistrationStatus'
+    holdExpiresAt:
+      type: [string, 'null']
+      format: date-time
+      description: >-
+        Non-null if and only if `status` is `RESERVED`
+        (`database-schema.md` §4.1 CHECK constraint). The 15-minute deadline
+        after which `../../modules/registration.md` §3's expiry mechanism
+        releases the seat automatically. Structurally enforced below via
+        `if`/`then`/`else`, same technique as `Workshop.price`/`isPaid` —
+        unlike `ticketCode`/`qrPayload` below, this field's condition really
+        is a clean two-way "iff" against the *current* `status` value (no
+        history to preserve: `holdExpiresAt` has no meaning once a hold
+        resolves, so it's safe to require it null outside `RESERVED`).
+    ticketCode:
+      type: [string, 'null']
+      description: Set once `status` becomes `CONFIRMED`. The identifier a Check-in device resolves from the scanned QR payload.
+    qrPayload:
+      type: [string, 'null']
+      description: >-
+        Set once `status` becomes `CONFIRMED`. The signed JWS token
+        (`../../modules/checkin.md`) the Web Application renders as a QR
+        code for the student to present at check-in.
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+  if:
+    properties:
+      status:
+        const: RESERVED
+  then:
+    required: [holdExpiresAt]
+    properties:
+      holdExpiresAt:
+        type: string
+  else:
+    properties:
+      holdExpiresAt:
+        type: 'null'
+
+RegistrationSummary:
+  type: object
+  description: >-
+    List-view projection — used by both "my registrations" and an
+    Organizer's per-workshop reporting view. Omits `qrPayload` (the signed
+    ticket) deliberately; a list endpoint is not this API's e-ticket
+    delivery mechanism.
+  required: [id, workshopId, userId, ticketType, status, createdAt]
+  properties:
+    id:
+      type: string
+      format: uuid
+    workshopId:
+      type: string
+      format: uuid
+    userId:
+      type: string
+      format: uuid
+    ticketType:
+      type: string
+      enum: [FREE, PAID]
+    status:
+      $ref: '#/RegistrationStatus'
+    createdAt:
+      type: string
+      format: date-time
+
+RegistrationStatus:
+  type: string
+  enum: [RESERVED, CONFIRMED, CANCELLED, EXPIRED]
+  description: >-
+    `../../platform/database-schema.md` §4.1 /
+    `../../modules/registration.md` §1. `RESERVED`: seat held pending
+    payment. `CONFIRMED`: free ticket confirmed immediately, or paid ticket
+    confirmed after payment success. `EXPIRED`: the 15-minute hold lapsed.
+    `CANCELLED`: released by the student or the Organizer before the event.
+
+RegistrationListResponse:
+  type: object
+  required: [items, page]
+  properties:
+    items:
+      type: array
+      items:
+        $ref: '#/RegistrationSummary'
+    page:
+      $ref: '../common/pagination.yaml#/PageMeta'
+
+CreateRegistrationRequest:
+  type: object
+  description: >-
+    `../../modules/registration.md` §2/§4. `ticketType` is intentionally
+    absent from this request — the server derives it from the target
+    workshop's `isPaid` field; a client cannot request a `FREE` registration
+    for a paid workshop or vice versa.
+  required: [workshopId]
+  properties:
+    workshopId:
+      type: string
+      format: uuid

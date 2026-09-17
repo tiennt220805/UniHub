@@ -1,0 +1,310 @@
+RegistrationIdParam:
+  name: id
+  in: path
+  required: true
+  schema:
+    type: string
+    format: uuid
+
+RegistrationWorkshopIdParam:
+  name: workshopId
+  in: path
+  required: true
+  schema:
+    type: string
+    format: uuid
+
+registrations:
+  post:
+    operationId: createRegistration
+    summary: Register for a workshop (reserve or confirm a seat)
+    description: >-
+      `../../modules/registration.md` §2/§4 — this system's single
+      highest-risk correctness path. No `x-required-permission` — any
+      authenticated user may register for a workshop; there is no
+      capability-style permission for "being a student," only ownership of
+      the resulting registration.
+
+      **Idempotency (§4):** a retried request carrying the same
+      `Idempotency-Key` returns the original recorded response verbatim,
+      including its original status code — the seat-reservation transaction
+      is never re-attempted, not even as a no-op re-check. This means a
+      retry of a request that originally got `409` also gets `409` again,
+      even if a seat has since freed up; idempotency guarantees replay of
+      the recorded result, not re-evaluation of current state.
+
+      **Two distinct rejection paths, not one (§2):** `503` means the
+      *coordination layer* couldn't be reached or was contended — the seat
+      may still be available, retry shortly. `409` means the lock was
+      acquired and the workshop was definitively full — retrying the exact
+      same request won't change that outcome.
+    tags: [Registration]
+    x-idempotent: true
+    parameters:
+      - $ref: '../common/headers.yaml#/IdempotencyKey'
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/registration.yaml#/CreateRegistrationRequest'
+    responses:
+      '201':
+        description: >-
+          Registration created — `RESERVED` (paid ticket, 15-minute hold
+          starts now) or `CONFIRMED` (free ticket) depending on the target
+          workshop's `isPaid`.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/registration.yaml#/Registration'
+      '400':
+        description: Validation failure (e.g. missing or malformed `workshopId`).
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '404':
+        description: No workshop with this id.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '409':
+        description: >-
+          Lock acquired, workshop is sold out
+          (`../../modules/registration.md` §2) — or the caller already has
+          an active (`RESERVED`/`CONFIRMED`) registration for this workshop
+          (`../../platform/database-schema.md` §4.1's partial unique index).
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '503':
+        description: >-
+          Seat-lock contention or Redis unreachable
+          (`../../modules/registration.md` §2) — transient, safe to retry.
+        headers:
+          Retry-After:
+            description: Seconds to wait before retrying, per `../../modules/registration.md` §2's 2-second `tryLock` wait budget.
+            schema:
+              type: integer
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+  get:
+    operationId: listMyRegistrations
+    summary: List the caller's own registrations
+    description: >-
+      "My registrations" (`../../platform/database-schema.md` §4.1's
+      `(user_id)` index note). Always scoped to the authenticated caller —
+      there is no query parameter to list another user's registrations from
+      this endpoint.
+    tags: [Registration]
+    parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/registration.yaml#/RegistrationStatus'
+      - $ref: '../common/pagination.yaml#/PageParam'
+      - $ref: '../common/pagination.yaml#/SizeParam'
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    responses:
+      '200':
+        description: The caller's registrations.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/registration.yaml#/RegistrationListResponse'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+
+registrationById:
+  get:
+    operationId: getRegistration
+    summary: Get a single registration, including its QR e-ticket payload
+    description: >-
+      Ownership-checked, not permission-code-checked: the caller must be the
+      registration's own `userId`. This is the endpoint the Web Application
+      uses to render/download the e-ticket
+      (`CLAUDE.md`'s "Student never touches the Mobile App" boundary — this
+      is where that ticket lives).
+    tags: [Registration]
+    parameters:
+      - $ref: '#/RegistrationIdParam'
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    responses:
+      '200':
+        description: Full registration detail.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/registration.yaml#/Registration'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, but the caller does not own this registration.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '404':
+        description: No registration with this id.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+
+registrationCancel:
+  post:
+    operationId: cancelRegistration
+    summary: Cancel an active registration
+    description: >-
+      **Inferred endpoint — flagged as an assumption.**
+      `../../platform/database-schema.md` §4.1 defines `CANCELLED` as a
+      real status value, but no document in this corpus narrates the HTTP
+      trigger or transaction shape for cancellation the way §3 narrates
+      hold-expiry in full. Modeled here as reusing §3's own pattern —
+      acquire `unihub:lock:seat:{workshopId}`, single transaction moving
+      `status` to `CANCELLED` and releasing `workshops.seats_taken` — since
+      that is the only seat-releasing transaction shape this corpus actually
+      specifies, not a new one invented for this endpoint.
+
+      **Self-service only, by design of this v1 surface:** the only
+      authorization this operation implements is ownership — the caller
+      must be the registration's own `userId` (see the `403` below). An
+      Organizer cancelling another user's registration on their behalf (e.g.
+      handling a support request) is a distinct capability this operation
+      does **not** grant — it would need its own `x-required-permission`
+      path and is out of scope until a design note calls for it explicitly.
+      Revisit this endpoint when a design note fixes cancellation's own
+      rules (e.g. a cutoff time before the workshop start, whether a paid
+      ticket's cancellation refunds anything — payment refund flows are
+      `../../modules/payment.md`'s concern, undocumented there too — or an
+      Organizer-cancellation capability).
+    tags: [Registration]
+    parameters:
+      - $ref: '#/RegistrationIdParam'
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    responses:
+      '200':
+        description: Registration is now CANCELLED, seat released.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/registration.yaml#/Registration'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, but the caller does not own this registration.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '404':
+        description: No registration with this id.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '409':
+        description: Registration is already CANCELLED or EXPIRED.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '503':
+        description: Seat-lock contention or Redis unreachable — same coordination layer as createRegistration.
+        headers:
+          Retry-After:
+            schema:
+              type: integer
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+
+workshopRegistrations:
+  get:
+    operationId: listWorkshopRegistrations
+    summary: Organizer/Admin view of a workshop's registrations
+    description: >-
+      Reporting view backing `docs/requirement.md` §1.3.3's "clear, visual
+      reports and statistics on registration counts" — this endpoint
+      supplies the underlying data; aggregation/visualization is a frontend
+      concern. Backed by `../../platform/database-schema.md` §4.1's
+      `(workshop_id)` index, documented there as existing for exactly this
+      reporting purpose.
+    tags: [Registration]
+    x-required-permission: REPORT_VIEW
+    parameters:
+      - $ref: '#/RegistrationWorkshopIdParam'
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/registration.yaml#/RegistrationStatus'
+      - $ref: '../common/pagination.yaml#/PageParam'
+      - $ref: '../common/pagination.yaml#/SizeParam'
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    responses:
+      '200':
+        description: Registrations for the given workshop.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/registration.yaml#/RegistrationListResponse'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, missing REPORT_VIEW permission.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '404':
+        description: No workshop with this id.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'

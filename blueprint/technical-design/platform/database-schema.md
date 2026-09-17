@@ -165,8 +165,8 @@ Rationale for each column, and the anti-overbooking flow this table is central t
 | `ticket_type` | VARCHAR(10) | NOT NULL, CHECK IN (`FREE`, `PAID`) | |
 | `status` | VARCHAR(20) | NOT NULL, CHECK IN (`RESERVED`, `CONFIRMED`, `CANCELLED`, `EXPIRED`) | `RESERVED`: seat held pending payment. `CONFIRMED`: free ticket confirmed immediately, or paid ticket confirmed after payment success. `EXPIRED`: the 15-minute hold lapsed (§1.3.1) — the delayed-message/key-expiration mechanism that *triggers* this transition is `../modules/registration.md`'s concern, not this file's. |
 | `hold_expires_at` | TIMESTAMPTZ | NULL, CHECK (`(status = 'RESERVED') = (hold_expires_at IS NOT NULL)`) | Set iff the row is currently `RESERVED`; this is the column the TTL-release mechanism watches. |
-| `ticket_code` | VARCHAR(64) | UNIQUE, NOT NULL | The identifier embedded in the QR payload — what a Check-in device resolves to look up the registration. |
-| `qr_payload` | TEXT | NOT NULL | The full signed JWS token captured at issuance (`../modules/checkin.md`) — stored, not recomputed on read, so a ticket keeps displaying correctly even after signing-key rotation. |
+| `ticket_code` | VARCHAR(64) | UNIQUE, NULL | Set once, at the moment `status` becomes `CONFIRMED` (`../modules/registration.md` §1) — `NULL` for a `RESERVED` hold that hasn't converted yet. Retained as-is if the row later moves to `CANCELLED`/`EXPIRED` after having been `CONFIRMED`, never cleared once set. The identifier embedded in the QR payload — what a Check-in device resolves to look up the registration. |
+| `qr_payload` | TEXT | NULL | Same lifecycle as `ticket_code` — set once at `CONFIRMED`, retained afterward. The full signed JWS token captured at issuance (`../modules/checkin.md`) — stored, not recomputed on read, so a ticket keeps displaying correctly even after signing-key rotation. |
 | `version` | INT | NOT NULL, DEFAULT 0 | Optimistic-concurrency marker for status transitions racing against expiry/payment/cancellation. |
 | `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
 
@@ -594,8 +594,8 @@ CREATE TABLE registrations (
                          CHECK (status IN ('RESERVED', 'CONFIRMED', 'CANCELLED', 'EXPIRED')),
     hold_expires_at  TIMESTAMPTZ
                          CHECK ((status = 'RESERVED') = (hold_expires_at IS NOT NULL)),
-    ticket_code      VARCHAR(64) NOT NULL UNIQUE,
-    qr_payload       TEXT NOT NULL,
+    ticket_code      VARCHAR(64) UNIQUE,
+    qr_payload       TEXT,
     version          INT NOT NULL DEFAULT 0,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()

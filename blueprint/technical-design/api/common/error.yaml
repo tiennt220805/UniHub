@@ -1,0 +1,49 @@
+type: object
+description: >-
+  RFC 7807 Problem Details for HTTP APIs (`application/problem+json`). Every
+  non-2xx response across every UniHub module returns this shape — no module
+  defines its own error envelope. Spring Boot 3.x's native
+  `org.springframework.http.ProblemDetail` produces this shape directly, so no
+  hand-rolled error-mapping layer is needed on the implementation side.
+required:
+  - type
+  - title
+  - status
+properties:
+  type:
+    type: string
+    format: uri-reference
+    description: >-
+      A URI identifying the problem type. `about:blank` when the `status`
+      code alone already conveys enough meaning, which is the common case in
+      this API.
+    example: about:blank
+  title:
+    type: string
+    description: Short, human-readable summary of the problem type. Constant per `type`.
+    example: Conflict
+  status:
+    type: integer
+    description: >-
+      The HTTP status code, duplicated here (per RFC 7807) so the body is
+      self-describing even if read outside the HTTP transport (e.g. from a
+      log line).
+    example: 409
+  detail:
+    type: string
+    description: Human-readable explanation specific to this occurrence of the problem.
+    example: Workshop is sold out.
+  instance:
+    type: string
+    format: uri-reference
+    description: URI identifying this specific occurrence — the request path, by convention in this API.
+    example: /api/v1/registrations
+  correlationId:
+    type: string
+    format: uuid
+    description: >-
+      Echoes the request's `X-Correlation-Id` (`../../platform/observability.md`
+      §1) — the value to hand an operator when reporting this error. Always
+      present, even when the client never supplied one, since the server
+      generates one for every request.
+    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6

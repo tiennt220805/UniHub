@@ -1,0 +1,41 @@
+IdempotencyKey:
+  name: Idempotency-Key
+  in: header
+  required: true
+  description: >-
+    Client-generated key guarding exactly-once execution of this write
+    (`../../modules/registration.md` §4, `../../modules/payment.md` §8,
+    `../../platform/database-schema.md` §8.1). A retried request carrying the
+    same key returns the original recorded result verbatim — the underlying
+    business transaction is never re-run, not even as a no-op re-check.
+    Present on this parameter list only on the specific write operations that
+    declare it (registration-create, payment-charge) — not a blanket
+    requirement on every `POST` in this API.
+  schema:
+    type: string
+    format: uuid
+  example: 6c1f7e2a-0b3d-4a9e-9b1a-2f6e6b8c9d10
+
+CorrelationIdRequest:
+  name: X-Correlation-Id
+  in: header
+  required: false
+  description: >-
+    Optional client-supplied correlation id (`../../platform/observability.md`
+    §1) — propagated through distributed tracing and echoed back on both
+    success and error responses under the same header name. If the caller
+    omits it, the server generates one and returns it via the
+    `CorrelationIdResponse` header.
+  schema:
+    type: string
+    format: uuid
+
+CorrelationIdResponse:
+  description: >-
+    The correlation id that traced this request end to end
+    (`../../platform/observability.md` §1) — the value to search for in logs
+    or traces, and the same value carried in `error.yaml`'s `correlationId`
+    field on a non-2xx response.
+  schema:
+    type: string
+    format: uuid

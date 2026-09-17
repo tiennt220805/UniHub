@@ -1,0 +1,80 @@
+openapi: 3.1.0
+info:
+  title: UniHub Workshop System API
+  version: v1
+  description: >-
+    HTTP contract for the UniHub Backend API — a stateless Spring Boot
+    Modular Monolith (`../../../CLAUDE.md`) consumed by the Web Application
+    (Student + Organizer/Admin) and the Check-in Client (Check-in Staff
+    only). This spec formalizes endpoints already narrated in prose across
+    `../modules/*.md`; it does not introduce a second, conflicting contract
+    — see `README.md` for the drift-prevention plan once implementation
+    exists.
+
+
+    **Pilot status:** only the Workshop and Registration modules are
+    drafted. See `README.md` and this file's `tags[].x-status` for what's
+    not yet covered.
+  contact:
+    name: UniHub Engineering
+  license:
+    name: Proprietary — internal use only, not for public distribution (UniHub PoC)
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: 'https://{environment}.unihub.local'
+    description: >-
+      Single Ingress Controller entry point (`../../architecture.md` §1.2)
+      — terminates TLS, load-balances across Backend API instances. This
+      PoC has no separate staging/production split
+      (`../../proposal.md` §5.2); `local` (Minikube) and `poc` are the only
+      two environments.
+    variables:
+      environment:
+        default: local
+        enum: [local, poc]
+tags:
+  - name: Workshop
+    description: Workshop catalog, brochure upload, AI summarization trigger (`../modules/workshop.md`).
+    x-status: drafted
+  - name: Registration
+    description: Seat reservation, the system's highest-risk correctness path (`../modules/registration.md`).
+    x-status: drafted
+  - name: User
+    description: Identity, RBAC, legacy student sync (`../modules/user.md`).
+    x-status: planned
+  - name: Payment
+    description: Payment Gateway integration, idempotent charge, reconciliation (`../modules/payment.md`).
+    x-status: planned
+  - name: Check-in
+    description: Offline QR verification key distribution, scan-batch sync/reconciliation (`../modules/checkin.md`).
+    x-status: planned
+  - name: Notification
+    description: In-app notification inbox (dispatch itself is async/event-driven, not a synchronous API — `../modules/notification.md`).
+    x-status: planned
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/workshops:
+    $ref: './paths/workshop.yaml#/workshops'
+  /api/v1/workshops/{id}:
+    $ref: './paths/workshop.yaml#/workshopById'
+  /api/v1/workshops/{id}/publish:
+    $ref: './paths/workshop.yaml#/workshopPublish'
+  /api/v1/workshops/{id}/cancel:
+    $ref: './paths/workshop.yaml#/workshopCancel'
+  /api/v1/workshops/{id}/brochure-upload-url:
+    $ref: './paths/workshop.yaml#/workshopBrochureUploadUrl'
+  /api/v1/workshops/{id}/brochure-upload-confirm:
+    $ref: './paths/workshop.yaml#/workshopBrochureUploadConfirm'
+  /api/v1/workshops/{workshopId}/registrations:
+    $ref: './paths/registration.yaml#/workshopRegistrations'
+  /api/v1/registrations:
+    $ref: './paths/registration.yaml#/registrations'
+  /api/v1/registrations/{id}:
+    $ref: './paths/registration.yaml#/registrationById'
+  /api/v1/registrations/{id}/cancel:
+    $ref: './paths/registration.yaml#/registrationCancel'
+components:
+  securitySchemes:
+    bearerAuth:
+      $ref: './common/security-schemes.yaml#/bearerAuth'

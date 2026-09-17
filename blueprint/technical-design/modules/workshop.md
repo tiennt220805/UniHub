@@ -29,6 +29,7 @@ All object-storage configuration in this document targets AWS S3 (PoC) / MinIO (
 - [9. AI Summarization Service — Integration Contract](#9-ai-summarization-service-integration-contract)
 - [10. Failure Modes & Fail-Safe Behavior](#10-failure-modes-fail-safe-behavior)
 - [11. Reference Table](#11-reference-table)
+- [API Surface](#api-surface)
 
 ---
 
@@ -344,3 +345,9 @@ Every algorithm, threshold, TTL, and naming decision in this document, in one pl
 | AI Summarization endpoint | `POST {AI_SUMMARIZATION_BASE_URL}/v1/summarize`, `multipart/form-data`, bearer API key | AI Summarization Service Integration Contract ADR |
 | AI Summarization timeout | 15s connect+read, no inner retry | Relies on outer consumer-level retry (`../platform/messaging.md` §4) |
 | AI Summarization outcomes | `200` → persist; `422 UNSUPPORTED_CONTENT` → terminal, ack; other 4xx/5xx/timeout → retry/dead-letter | Distinguishes deterministic-failure from transient-failure without inventing a new mechanism |
+
+---
+
+## API Surface
+
+The concrete HTTP contract for every endpoint this module exposes — request/response bodies, status codes, headers — is specified in `../api/paths/workshop.yaml` (schemas in `../api/schemas/workshop.yaml`), not repeated here. That OpenAPI contract is generated from this file's own decisions (§2, §7, §9); where the two disagree, this file is the authority and the OpenAPI contract has a bug. See `../api/README.md` for the toolchain and for which endpoints are directly narrated here versus flagged there as inferred.

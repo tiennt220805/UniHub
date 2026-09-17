@@ -1,0 +1,16 @@
+bearerAuth:
+  type: http
+  scheme: bearer
+  bearerFormat: JWT
+  description: >-
+    Stateless auth JWT (`../../platform/auth-and-identity.md` §2-§3). HS256-signed,
+    30-minute TTL, carries the resolved `permissions[]` claim — never a role name
+    (`docs/requirement.md` §2.11, `architecture.md` §5.1). Zero-lookup verification:
+    no endpoint's authorization check queries the database or Redis at request time.
+
+    The specific permission an operation requires is documented on that operation via
+    the `x-required-permission` extension (see `../README.md`), not via OpenAPI's
+    built-in `security` scope array — scopes are an OAuth2 concept, and this system's
+    permission codes (`WORKSHOP_CREATE`, `CHECKIN_SCAN`, ...) are not OAuth2 scopes.
+    An operation with no `x-required-permission` requires only a valid token — any
+    authenticated user, no specific permission.

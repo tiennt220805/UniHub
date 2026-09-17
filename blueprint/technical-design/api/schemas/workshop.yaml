@@ -1,0 +1,309 @@
+Workshop:
+  type: object
+  description: >-
+    Full workshop detail. Field-level source is
+    `../../platform/database-schema.md` §3.1; the split between this body and
+    `WorkshopSummary` mirrors the two-TTL cache-aside representation narrated
+    in `../../modules/workshop.md` §2 (slow-changing detail vs. volatile
+    seat/status fields), merged into one response here since the client has
+    no reason to see them as two separate fetches.
+  required:
+    - id
+    - title
+    - speakerName
+    - location
+    - startTime
+    - endTime
+    - capacity
+    - seatsTaken
+    - isPaid
+    - hasBrochure
+    - status
+    - version
+  properties:
+    id:
+      type: string
+      format: uuid
+    title:
+      type: string
+    description:
+      type: [string, 'null']
+    aiSummary:
+      type: [string, 'null']
+      description: >-
+        Generated from the uploaded brochure (`../../modules/workshop.md`
+        §9). `null` until the AI Summarization Service returns, or if the
+        brochure failed post-upload verification (§8) — the two cases are
+        indistinguishable at this field by design (`workshop.md` §8).
+    speakerName:
+      type: string
+    speakerBio:
+      type: [string, 'null']
+    location:
+      type: string
+    startTime:
+      type: string
+      format: date-time
+    endTime:
+      type: string
+      format: date-time
+    capacity:
+      type: integer
+      minimum: 0
+    seatsTaken:
+      type: integer
+      minimum: 0
+      description: >-
+        Near-real-time, not real-time — up to 3 seconds stale
+        (`../../modules/workshop.md` §2's `seats` cache-key TTL). The actual
+        accept/reject decision for a registration attempt never depends on
+        this displayed value; it is re-checked transactionally at write time
+        (`../../modules/registration.md` §2).
+    isPaid:
+      type: boolean
+    price:
+      type: [number, 'null']
+      format: double
+      description: >-
+        Present iff `isPaid` is `true` (`database-schema.md` §3.1 CHECK
+        constraint). Structurally enforced below via `if`/`then`/`else`,
+        same technique as `CreateWorkshopRequest.price` — a mismatched pair
+        here would mean the backend's own serialization drifted from the
+        row it read, catchable by contract tests or a mock server (e.g.
+        Prism) validating this response against the schema, not just by
+        trusting the backend got it right.
+    hasBrochure:
+      type: boolean
+      description: >-
+        `true` once `brochure_s3_key` is set (`../../modules/workshop.md`
+        §7). There is no brochure-download URL anywhere in this API — a
+        client-facing download path is confirmed out of scope
+        (`workshop.md` §7's ADR).
+    status:
+      $ref: '#/WorkshopStatus'
+    version:
+      type: integer
+      description: Optimistic-concurrency marker (`database-schema.md` §3.1) — opaque to clients, not used for `If-Match`-style concurrency in this API's v1 surface.
+    createdAt:
+      type: string
+      format: date-time
+    updatedAt:
+      type: string
+      format: date-time
+  if:
+    properties:
+      isPaid:
+        const: true
+  then:
+    required: [price]
+    properties:
+      price:
+        type: number
+        exclusiveMinimum: 0
+  else:
+    properties:
+      price:
+        type: 'null'
+
+WorkshopSummary:
+  type: object
+  description: >-
+    Catalog list-view projection — deliberately thinner than `Workshop`,
+    matching `../../modules/workshop.md` §2's
+    `unihub:cache:workshop:list:{filterHash}` shape. A browsing list of
+    dozens of rows doesn't carry every detail field.
+  required: [id, title, location, startTime, status]
+  properties:
+    id:
+      type: string
+      format: uuid
+    title:
+      type: string
+    location:
+      type: string
+    startTime:
+      type: string
+      format: date-time
+    status:
+      $ref: '#/WorkshopStatus'
+
+WorkshopStatus:
+  type: string
+  enum: [DRAFT, PUBLISHED, CANCELLED, COMPLETED]
+  description: >-
+    `../../platform/database-schema.md` §3.1. Reschedule is a field update
+    (`startTime`/`endTime` via `PATCH`), never a status value.
+
+WorkshopListResponse:
+  type: object
+  required: [items, page]
+  properties:
+    items:
+      type: array
+      items:
+        $ref: '#/WorkshopSummary'
+    page:
+      $ref: '../common/pagination.yaml#/PageMeta'
+
+CreateWorkshopRequest:
+  type: object
+  description: >-
+    Creates a workshop in `DRAFT` status (`database-schema.md` §3.1's
+    default). Brochure upload is a separate, subsequent step against the
+    created `id` (`../../modules/workshop.md` §7) — never part of this
+    request, since the presigned-upload key format requires a `workshop_id`
+    that doesn't exist yet at this point.
+  required: [title, speakerName, location, startTime, endTime, capacity, isPaid]
+  properties:
+    title:
+      type: string
+      maxLength: 255
+    description:
+      type: [string, 'null']
+    speakerName:
+      type: string
+      maxLength: 255
+    speakerBio:
+      type: [string, 'null']
+    location:
+      type: string
+      maxLength: 255
+    startTime:
+      type: string
+      format: date-time
+      description: >-
+        Must be strictly before `endTime` (`database-schema.md` §3.1's
+        `chk_workshop_time_order CHECK (end_time > start_time)`). Not
+        structurally enforced by this schema, unlike `isPaid`/`price`
+        below: JSON Schema 2020-12 has no keyword to compare one field's
+        value against another field's value (`if`/`then`/`else` can match
+        against a fixed `const`/`enum`, not "is earlier than another
+        property") — so ordering between two `date-time` strings can't be
+        expressed here the way the `isPaid`/`price` pairing was. A request
+        violating this ordering is rejected at the application layer with
+        `400`, backed by the same DB CHECK constraint as the enforced
+        backstop.
+    endTime:
+      type: string
+      format: date-time
+      description: >-
+        Must be strictly after `startTime` — see `startTime`'s description
+        for why this ordering isn't structurally enforced in this schema.
+    capacity:
+      type: integer
+      minimum: 0
+    isPaid:
+      type: boolean
+      default: false
+    price:
+      type: [number, 'null']
+      format: double
+      description: >-
+        Required and `> 0` iff `isPaid` is `true`; must be absent/null iff
+        `isPaid` is `false` (`database-schema.md` §3.1 CHECK constraint).
+        Structurally enforced below via `if`/`then`/`else`, not just
+        described here — OpenAPI 3.1's full JSON Schema 2020-12 alignment
+        (`../README.md`'s Key Decisions) means a generic JSON Schema
+        validator rejects a mismatched `isPaid`/`price` pair on its own,
+        before this operation's handler ever runs; the `400` response is
+        the transport-level result of that rejection, not a separate check
+        an implementer has to hand-write from this prose. This works here
+        because `isPaid` and `price` are both present in the same request
+        body — see `UpdateWorkshopRequest.price` below for why the same
+        technique doesn't apply to the `PATCH` operation.
+  if:
+    properties:
+      isPaid:
+        const: true
+  then:
+    required: [price]
+    properties:
+      price:
+        type: number
+        exclusiveMinimum: 0
+  else:
+    properties:
+      price:
+        type: 'null'
+
+UpdateWorkshopRequest:
+  type: object
+  description: >-
+    Partial update — every field is optional, only present fields change.
+    Organizer edit and reschedule (`docs/requirement.md` §1.3.3) both go
+    through this one operation; reschedule is simply a request that sets
+    `startTime`/`endTime` and nothing else.
+  properties:
+    title:
+      type: string
+      maxLength: 255
+    description:
+      type: [string, 'null']
+    speakerName:
+      type: string
+      maxLength: 255
+    speakerBio:
+      type: [string, 'null']
+    location:
+      type: string
+      maxLength: 255
+    startTime:
+      type: string
+      format: date-time
+      description: >-
+        Same `endTime > startTime` ordering rule as
+        `CreateWorkshopRequest.startTime` (`database-schema.md` §3.1 CHECK
+        constraint), and the same reason it isn't structurally enforced
+        here (no cross-field date comparison keyword in JSON Schema).
+        Harder here than at creation, too: this is a partial update, so a
+        reschedule request setting only one of `startTime`/`endTime` must
+        be checked against the *other* field's *currently stored* value,
+        not just against a sibling in the same request body — the same
+        stateful-validation situation as `price`/`isPaid` below. The DB
+        CHECK constraint is what actually catches it, at write time.
+    endTime:
+      type: string
+      format: date-time
+      description: >-
+        Same ordering rule as `startTime` — see that field's description.
+    capacity:
+      type: integer
+      minimum: 0
+    price:
+      type: [number, 'null']
+      format: double
+      description: >-
+        Same `> 0` iff-paid rule as `CreateWorkshopRequest.price`
+        (`database-schema.md` §3.1 CHECK constraint), but **not**
+        structurally enforced here, and deliberately so: this operation has
+        no `isPaid` field to check against (`isPaid` isn't editable via
+        `PATCH` at all — a paid/free workshop can't flip kind after
+        creation in this v1 surface). A request that sends only `price`
+        must be validated against the *target row's current* `isPaid` in
+        the database, which is state this request body doesn't carry and
+        JSON Schema has no way to see — a stateful check the handler must
+        perform at write time, backed by the same DB CHECK constraint as
+        the enforced backstop (`architecture.md` §4.5's general "constraint
+        is the backstop, not just an application-level check" discipline,
+        applied here).
+
+BrochureUploadUrlResponse:
+  type: object
+  description: '`../../modules/workshop.md` §7 issuance step.'
+  required: [uploadUrl, expiresAt]
+  properties:
+    uploadUrl:
+      type: string
+      format: uri
+      description: Presigned S3/MinIO PUT URL, scoped to exactly one key, 10-minute TTL (`../../modules/workshop.md` §7).
+    expiresAt:
+      type: string
+      format: date-time
+
+BrochureUploadConfirmResponse:
+  type: object
+  required: [hasBrochure]
+  properties:
+    hasBrochure:
+      type: boolean
+      example: true

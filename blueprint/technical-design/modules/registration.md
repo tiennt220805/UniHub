@@ -18,6 +18,7 @@ This file is the physical-level completion of `architecture.md` §4.2 (the seat-
 - [4. Idempotent Registration-Create](#4-idempotent-registration-create)
 - [5. Failure Modes & Fail-Safe Behavior](#5-failure-modes-fail-safe-behavior)
 - [6. Reference Table](#6-reference-table)
+- [API Surface](#api-surface)
 
 ---
 
@@ -171,3 +172,9 @@ Every key format, tuning parameter, and idempotency scope in this document, in o
 | Hold-delay queue | `unihub.registration.hold-delay.queue`, TTL 900000ms (15 min), no consumer | Exact 15-minute hold window (`docs/requirement.md` §1.3.1) |
 | Seat-hold-expiry queue | `unihub.seat-hold-expiry.queue` | Consumer that releases an expired hold (§3) |
 | Idempotency scope | `REGISTRATION_CREATE` | Composite uniqueness with client key (`../platform/database-schema.md` §8.1), scoped to this module's create endpoint (§4) |
+
+---
+
+## API Surface
+
+The concrete HTTP contract for every endpoint this module exposes — request/response bodies, status codes, headers — is specified in `../api/paths/registration.yaml` (schemas in `../api/schemas/registration.yaml`), not repeated here. That OpenAPI contract is generated from this file's own decisions (§2, §4), including the `503`-vs-`409` distinction and the `Idempotency-Key` replay semantics verbatim; where the two disagree, this file is the authority and the OpenAPI contract has a bug. `registrationCancel` in that contract is flagged there as an inferred endpoint — this file never narrates a cancellation flow, only creation (§4) and expiry (§3). See `../api/README.md` for the toolchain.
