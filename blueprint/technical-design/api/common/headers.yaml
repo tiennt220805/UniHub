@@ -39,3 +39,16 @@ CorrelationIdResponse:
   schema:
     type: string
     format: uuid
+
+RetryAfter:
+  description: >-
+    Seconds to wait before retrying. Backs two distinct `503`/`429`
+    situations in this API, both transient and safe to retry after the
+    stated delay: a coordination-layer unavailability (a Redis seat-lock or
+    the shared `paymentGateway` circuit breaker,
+    `../../modules/registration.md` §2 / `../../modules/payment.md` §2-§3),
+    or a rate limit (`../../platform/distributed-coordination.md` §3's
+    `RRateLimiter`). The two mechanisms are unrelated — this header shape
+    is the only thing they share.
+  schema:
+    type: integer

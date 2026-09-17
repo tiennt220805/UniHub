@@ -91,20 +91,17 @@ payments:
         description: >-
           `paymentGateway` circuit `OPEN`, or the gateway call timed out
           (`../../modules/payment.md` §3) — no `payments` row created,
-          seat-hold untouched, safe to retry.
+          seat-hold untouched, safe to retry. **`Retry-After`'s value is
+          inferred — flagged as an assumption.** Not specified in
+          `payment.md`; set here to the breaker's own
+          `wait-duration-in-open-state` (30s, `payment.md` §2) as the
+          natural value, by analogy with `createRegistration`'s
+          `Retry-After` being tied to its own lock's wait budget — but
+          unlike that endpoint, `payment.md` never actually prescribes this
+          header for this path.
         headers:
           Retry-After:
-            description: >-
-              **Value inferred — flagged as an assumption.** Not specified
-              in `payment.md`; set here to the breaker's own
-              `wait-duration-in-open-state` (30s, `payment.md` §2) as the
-              natural value, by analogy with `createRegistration`'s
-              `Retry-After` being tied to its own lock's wait budget — but
-              unlike that endpoint, `payment.md` never actually prescribes
-              this header for this path.
-            schema:
-              type: integer
-              example: 30
+            $ref: '../common/headers.yaml#/RetryAfter'
         content:
           application/problem+json:
             schema:

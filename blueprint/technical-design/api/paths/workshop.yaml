@@ -86,6 +86,22 @@ workshops:
           application/problem+json:
             schema:
               $ref: '../common/error.yaml'
+      '429':
+        description: >-
+          Per-IP global rate limit exceeded
+          (`../../platform/distributed-coordination.md` §3 — 100 requests /
+          60s, key `unihub:ratelimit:global-ip:{ipAddress}`), explicitly
+          named there as the limiter catching "catalog scraping." Applies
+          even though this endpoint requires no authentication — the
+          per-IP limiter is exactly the layer that covers an unauthenticated
+          caller.
+        headers:
+          Retry-After:
+            $ref: '../common/headers.yaml#/RetryAfter'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
   post:
     operationId: createWorkshop
     summary: Create a workshop (lands in DRAFT)
@@ -173,6 +189,23 @@ workshopById:
           No workshop with this id — or the workshop is `DRAFT` and the
           caller (unauthenticated, or authenticated without
           `WORKSHOP_CREATE`/`WORKSHOP_EDIT`) isn't permitted to see it.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '429':
+        description: >-
+          Per-IP global rate limit exceeded
+          (`../../platform/distributed-coordination.md` §3 — 100 requests /
+          60s). **Endpoint-level scope inferred — flagged as an
+          assumption:** `distributed-coordination.md` §3 names "catalog
+          scraping" as the limiter's target without distinguishing the
+          list endpoint from the detail endpoint; this file treats
+          repeatedly fetching workshop details as part of the same
+          scraping surface `listWorkshops` is explicitly named for.
+        headers:
+          Retry-After:
+            $ref: '../common/headers.yaml#/RetryAfter'
         content:
           application/problem+json:
             schema:

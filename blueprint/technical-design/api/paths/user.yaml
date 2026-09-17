@@ -94,6 +94,21 @@ login:
           application/problem+json:
             schema:
               $ref: '../common/error.yaml'
+      '429':
+        description: >-
+          Per-IP global rate limit exceeded
+          (`../../platform/distributed-coordination.md` §3 — 100 requests /
+          60s, key `unihub:ratelimit:global-ip:{ipAddress}`), explicitly
+          named there as the limiter catching "credential-stuffing against
+          login" — unauthenticated abuse a per-user limiter can't see
+          because there's no authenticated user yet.
+        headers:
+          Retry-After:
+            $ref: '../common/headers.yaml#/RetryAfter'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
 
 syncRuns:
   get:

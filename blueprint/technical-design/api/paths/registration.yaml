@@ -90,15 +90,29 @@ registrations:
           application/problem+json:
             schema:
               $ref: '../common/error.yaml'
+      '429':
+        description: >-
+          Per-user registration-attempt rate limit exceeded
+          (`../../platform/distributed-coordination.md` §3 — 5 requests /
+          10s, key `unihub:ratelimit:registration:{userId}`). Distinct from
+          the `503` below: this is the caller's own request budget, not
+          contention over a specific workshop's seat.
+        headers:
+          Retry-After:
+            $ref: '../common/headers.yaml#/RetryAfter'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
       '503':
         description: >-
           Seat-lock contention or Redis unreachable
           (`../../modules/registration.md` §2) — transient, safe to retry.
+          Per-workshop coordination-layer unavailability, not the caller's
+          own request rate — see `429` above for that distinction.
         headers:
           Retry-After:
-            description: Seconds to wait before retrying, per `../../modules/registration.md` §2's 2-second `tryLock` wait budget.
-            schema:
-              type: integer
+            $ref: '../common/headers.yaml#/RetryAfter'
         content:
           application/problem+json:
             schema:
@@ -250,8 +264,7 @@ registrationCancel:
         description: Seat-lock contention or Redis unreachable — same coordination layer as createRegistration.
         headers:
           Retry-After:
-            schema:
-              type: integer
+            $ref: '../common/headers.yaml#/RetryAfter'
         content:
           application/problem+json:
             schema:
