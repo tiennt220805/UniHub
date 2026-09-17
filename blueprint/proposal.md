@@ -4,6 +4,39 @@
 
 ---
 
+## Table of Contents
+
+- [1. Title Page / Project Information](#1-title-page-project-information)
+- [2. Executive Summary](#2-executive-summary)
+- [3. Background & Problem Statement](#3-background-problem-statement)
+- [4. Objectives](#4-objectives)
+  - [4.1 Business Objectives](#41-business-objectives)
+  - [4.2 Technical Objectives](#42-technical-objectives)
+- [5. Scope](#5-scope)
+  - [5.1 In-Scope](#51-in-scope)
+  - [5.2 Out-of-Scope](#52-out-of-scope)
+- [6. Assumptions](#6-assumptions)
+- [7. Stakeholders & User Roles](#7-stakeholders-user-roles)
+- [8. Proposed Solution Overview](#8-proposed-solution-overview)
+- [9. System Architecture](#9-system-architecture)
+- [10. Technology Decisions](#10-technology-decisions)
+- [11. Key Technical Challenges & Proposed Solutions](#11-key-technical-challenges-proposed-solutions)
+  - [11.1 Preventing Overbooking](#111-preventing-overbooking)
+  - [11.2 Payment Idempotency](#112-payment-idempotency)
+  - [11.3 Resilience to Payment Gateway Failures](#113-resilience-to-payment-gateway-failures)
+  - [11.4 Offline Check-in and Reconciliation](#114-offline-check-in-and-reconciliation)
+  - [11.5 Coordinating Scheduled Background Work](#115-coordinating-scheduled-background-work)
+- [12. Non-Functional Requirements & Success Criteria](#12-non-functional-requirements-success-criteria)
+- [13. Testing & QA Strategy](#13-testing-qa-strategy)
+- [14. Deployment & DevOps Strategy](#14-deployment-devops-strategy)
+- [15. Project Timeline & Milestones](#15-project-timeline-milestones)
+- [16. Risk Assessment & Mitigation](#16-risk-assessment-mitigation)
+- [17. Expected Deliverables](#17-expected-deliverables)
+- [18. Conclusion](#18-conclusion)
+- [19. References](#19-references)
+
+---
+
 ## 1. Title Page / Project Information
 
 | Field                    | Detail                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |

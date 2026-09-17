@@ -14,6 +14,19 @@ Both this token and the QR e-ticket use the JOSE (JSON Object Signing and Encryp
 
 ---
 
+## Table of Contents
+
+- [Architecture Decision Record](#architecture-decision-record)
+  - [ADR Mini: JWT Signing Algorithm & Session Lifecycle](#adr-mini-jwt-signing-algorithm-session-lifecycle)
+- [1. Two Tokens, Two Trust Boundaries, Two Algorithm Choices](#1-two-tokens-two-trust-boundaries-two-algorithm-choices)
+- [2. Auth JWT — Claim Shape](#2-auth-jwt-claim-shape)
+- [3. Auth JWT — Signing, Verification & Key Storage](#3-auth-jwt-signing-verification-key-storage)
+- [4. Auth JWT — TTL, Lifecycle & Revocation](#4-auth-jwt-ttl-lifecycle-revocation)
+- [5. Failure Modes & Fail-Safe Behavior](#5-failure-modes-fail-safe-behavior)
+- [6. Reference Table](#6-reference-table)
+
+---
+
 ## Architecture Decision Record
 
 Reached through the `spec-driven-development` gated workflow: 2–4 alternatives were explored with a trade-off matrix, the human made the call at the Phase 3 Decision Gate, and the reasoning was captured here verbatim rather than left to live only in `SPEC.md` (which is a working document for the next task, not a durable record). Every section from §2 onward specifies this decision in physical detail; this section is the permanent record of *why* it was chosen over its rejected alternatives.

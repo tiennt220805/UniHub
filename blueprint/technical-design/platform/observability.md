@@ -10,6 +10,23 @@ This file is the physical-level completion of `architecture.md` §1.2/§2.2/§3 
 
 ---
 
+## Table of Contents
+
+- [Architecture Decision Records (ADRs)](#architecture-decision-records-adrs)
+  - [ADR Mini: Tracing Instrumentation Mechanism](#adr-mini-tracing-instrumentation-mechanism)
+  - [ADR Mini: Correlation ID Identity](#adr-mini-correlation-id-identity)
+  - [ADR Mini: Trace Backend](#adr-mini-trace-backend)
+  - [ADR Mini: Alerting Rule Engine](#adr-mini-alerting-rule-engine)
+- [1. Correlation ID & Distributed Trace Propagation](#1-correlation-id-distributed-trace-propagation)
+- [2. Distributed Tracing Wiring](#2-distributed-tracing-wiring)
+- [3. Metrics Catalog — Golden Signals](#3-metrics-catalog-golden-signals)
+- [4. Metrics Catalog — Custom Business/Domain Metrics](#4-metrics-catalog-custom-businessdomain-metrics)
+- [5. Health Probes — Liveness & Readiness](#5-health-probes-liveness-readiness)
+- [6. Alerting Rules Catalog](#6-alerting-rules-catalog)
+- [7. Reference Table](#7-reference-table)
+
+---
+
 ## Architecture Decision Records (ADRs)
 
 All four decisions below were reached through the `spec-driven-development` gated workflow: 2–4 alternatives were explored with a trade-off matrix, the human made the call at the Phase 3 Decision Gate, and the reasoning was captured here verbatim rather than left to live only in `SPEC.md` (a working document for the next task, not a durable record). Every section from §1 onward specifies these four decisions in physical detail; this section is the permanent record of *why* they were chosen over their rejected alternatives.

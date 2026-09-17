@@ -10,6 +10,19 @@ This file is the physical-level completion of `architecture.md` §2.3/§4.3 (the
 
 ---
 
+## Table of Contents
+
+- [Architecture Decision Record](#architecture-decision-record)
+  - [ADR Mini: Notification Channel Pluggability Mechanism](#adr-mini-notification-channel-pluggability-mechanism)
+- [1. Data Model — What This Module Owns](#1-data-model-what-this-module-owns)
+- [2. Pluggable Channel Architecture](#2-pluggable-channel-architecture)
+- [3. Lifecycle Events — Consumption & Dispatch](#3-lifecycle-events-consumption-dispatch)
+- [4. Template Rendering](#4-template-rendering)
+- [5. Failure Modes & Fail-Safe Behavior](#5-failure-modes-fail-safe-behavior)
+- [6. Reference Table](#6-reference-table)
+
+---
+
 ## Architecture Decision Record
 
 ### ADR Mini: Notification Channel Pluggability Mechanism

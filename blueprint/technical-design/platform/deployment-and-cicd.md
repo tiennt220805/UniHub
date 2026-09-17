@@ -10,6 +10,25 @@ All configuration in this document targets a single Kubernetes namespace, `unihu
 
 ---
 
+## Table of Contents
+
+- [Architecture Decision Records (ADRs)](#architecture-decision-records-adrs)
+  - [ADR Mini: CI/CD Automation Boundary](#adr-mini-cicd-automation-boundary)
+  - [ADR Mini: Kubernetes Manifest Management](#adr-mini-kubernetes-manifest-management)
+  - [ADR Mini: Resource Profile Strategy](#adr-mini-resource-profile-strategy)
+  - [ADR Mini: Migration & Seed Data Mechanism](#adr-mini-migration-seed-data-mechanism)
+  - [ADR Mini: CI Job Structuring](#adr-mini-ci-job-structuring)
+  - [ADR Mini: Container Packaging Strategy](#adr-mini-container-packaging-strategy)
+- [1. Container Packaging & Build Strategy](#1-container-packaging-build-strategy)
+- [2. Kubernetes Topology — Kustomize Base](#2-kubernetes-topology-kustomize-base)
+- [3. Resource Profile Overlays — Dev vs. Load-Test Scale](#3-resource-profile-overlays-dev-vs-load-test-scale)
+- [4. Database Migration & Seed Data — Flyway as a Kubernetes Job](#4-database-migration-seed-data-flyway-as-a-kubernetes-job)
+- [5. CI Pipeline — GitHub Actions](#5-ci-pipeline-github-actions)
+- [6. Local Development vs. CI vs. Minikube PoC — Environment Matrix](#6-local-development-vs-ci-vs-minikube-poc-environment-matrix)
+- [7. Reference Table](#7-reference-table)
+
+---
+
 ## Architecture Decision Records (ADRs)
 
 ### ADR Mini: CI/CD Automation Boundary

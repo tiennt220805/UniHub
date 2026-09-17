@@ -12,6 +12,22 @@ Both this ticket signature and the auth JWT use the JOSE (JSON Object Signing an
 
 ---
 
+## Table of Contents
+
+- [Architecture Decision Record](#architecture-decision-record)
+  - [ADR Mini: QR E-Ticket Signing Algorithm & Key Distribution/Rotation](#adr-mini-qr-e-ticket-signing-algorithm-key-distributionrotation)
+- [1. Data Model — What This Module Owns](#1-data-model-what-this-module-owns)
+- [2. Two Tokens, Two Trust Boundaries, Two Algorithm Choices](#2-two-tokens-two-trust-boundaries-two-algorithm-choices)
+- [3. QR E-Ticket — Payload Format](#3-qr-e-ticket-payload-format)
+- [4. QR E-Ticket — Signing at Issuance](#4-qr-e-ticket-signing-at-issuance)
+- [5. Why ECDSA, Not RSA — the QR Capacity Constraint](#5-why-ecdsa-not-rsa-the-qr-capacity-constraint)
+- [6. Verification Key Distribution & Rotation](#6-verification-key-distribution-rotation)
+- [7. Offline Scan Sync & Reconciliation](#7-offline-scan-sync-reconciliation)
+- [8. Failure Modes & Fail-Safe Behavior](#8-failure-modes-fail-safe-behavior)
+- [9. Reference Table](#9-reference-table)
+
+---
+
 ## Architecture Decision Record
 
 Reached through the `spec-driven-development` gated workflow: 2–4 alternatives were explored with a trade-off matrix, the human made the call at the Phase 3 Decision Gate, and the reasoning was captured here verbatim rather than left to live only in `SPEC.md` (a working document for the next task, not a durable record).

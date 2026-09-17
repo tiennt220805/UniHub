@@ -12,6 +12,20 @@ File ingestion in this document targets a Kubernetes-mounted shared volume, not 
 
 ---
 
+## Table of Contents
+
+- [1. RBAC Data Model — What This Module Owns](#1-rbac-data-model-what-this-module-owns)
+- [2. Ingestion & File Handling](#2-ingestion-file-handling)
+- [3. Pipeline Stages (Two-Pass)](#3-pipeline-stages-two-pass)
+- [4. Validation & Duplicate Classification Rules](#4-validation-duplicate-classification-rules)
+- [5. Sync Run Bookkeeping (`legacy_sync_runs`)](#5-sync-run-bookkeeping-legacy_sync_runs)
+- [6. Error-Quarantine Table (`legacy_sync_errors`)](#6-error-quarantine-table-legacy_sync_errors)
+- [7. Fault Isolation from Live Traffic](#7-fault-isolation-from-live-traffic)
+- [8. Upsert Idempotency & Concurrent-Run Safety](#8-upsert-idempotency-concurrent-run-safety)
+- [9. Reference Table](#9-reference-table)
+
+---
+
 ## 1. RBAC Data Model — What This Module Owns
 
 **Rationale:** `architecture.md` §5.1 requires access control built on permissions, never role names — a User is assigned one or more Roles, a Role bundles a set of Permissions, and every API-layer check asks "does this user have permission X." This module is the sole writer of all five tables that realize that model (`CLAUDE.md`'s module-ownership table): `users`, `roles`, `permissions`, and the `user_roles`/`role_permissions` junctions.

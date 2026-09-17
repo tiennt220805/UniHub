@@ -12,6 +12,16 @@ All configuration in this document targets Redis via the Redisson client (per `C
 
 ---
 
+## Table of Contents
+
+- [1. Redis Topology & Deployment](#1-redis-topology-deployment)
+- [2. Distributed Lock: Scheduled Job Coordination](#2-distributed-lock-scheduled-job-coordination)
+- [3. Rate Limiting](#3-rate-limiting)
+- [4. Failure Modes & Fail-Safe Behavior (All Redis-Backed Subsystems)](#4-failure-modes-fail-safe-behavior-all-redis-backed-subsystems)
+- [5. Key Format & Tuning-Parameter Reference Table](#5-key-format-tuning-parameter-reference-table)
+
+---
+
 ## 1. Redis Topology & Deployment
 
 **Rationale:** `architecture.md` §4.2 already established why cache, lock, and rate-limit share one deployment instead of three — all three are cheap, short-lived, and fail safely, so splitting them across separate stateful components would be complexity without a corresponding benefit. This section only adds the physical shape of that one deployment.

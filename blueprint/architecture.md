@@ -2,6 +2,39 @@
 
 ---
 
+## Table of Contents
+
+- [1. Overall Architecture Overview](#1-overall-architecture-overview)
+  - [1.1 Architectural Style](#11-architectural-style)
+  - [1.2 Core Components](#12-core-components)
+  - [1.3 Communication Protocols](#13-communication-protocols)
+  - [1.4 Resilience Strategy](#14-resilience-strategy)
+- [2. C4 Diagrams](#2-c4-diagrams)
+  - [2.1. Level 1 — System Context](#21-level-1-system-context)
+  - [2.2. Level 2 — Container](#22-level-2-container)
+  - [2.3. Level 3 — Component (Backend API)](#23-level-3-component-backend-api)
+- [3. High-Level Architecture Diagram](#3-high-level-architecture-diagram)
+- [4. Data & Messaging Architecture](#4-data-messaging-architecture)
+  - [4.1 PostgreSQL Read/Write Splitting & Consistency Trade-offs](#41-postgresql-readwrite-splitting-consistency-trade-offs)
+  - [4.2 Redis Coordination & Caching Topology](#42-redis-coordination-caching-topology)
+  - [4.3 RabbitMQ Asynchronous Messaging Topology](#43-rabbitmq-asynchronous-messaging-topology)
+  - [4.4 Object Storage (AWS S3) Access Pattern](#44-object-storage-aws-s3-access-pattern)
+  - [4.5 Idempotency Store](#45-idempotency-store)
+  - [4.6 Distributed Scheduled Job Coordination](#46-distributed-scheduled-job-coordination)
+- [5. Security & Access Control Architecture](#5-security-access-control-architecture)
+  - [5.1 Fine-Grained Role-Based Access Control (RBAC) Model](#51-fine-grained-role-based-access-control-rbac-model)
+  - [5.2 Stateless Authentication & JWT Claims Lifecycle](#52-stateless-authentication-jwt-claims-lifecycle)
+  - [5.3 QR Code E-Ticket Security & Integrity](#53-qr-code-e-ticket-security-integrity)
+  - [5.4 Network & Data Protection Boundaries](#54-network-data-protection-boundaries)
+  - [5.5 Audit Logging for Sensitive Operations](#55-audit-logging-for-sensitive-operations)
+  - [5.6 Security Guarantees Summary](#56-security-guarantees-summary)
+- [6. Database Architecture](#6-database-architecture)
+  - [6.1 Domain Model Overview & Data Integrity](#61-domain-model-overview-data-integrity)
+  - [6.2 Schema Evolution & Migration Strategy](#62-schema-evolution-migration-strategy)
+  - [6.3 Data Lifecycle & Retention Summary](#63-data-lifecycle-retention-summary)
+
+---
+
 ## 1. Overall Architecture Overview
 
 ### 1.1 Architectural Style

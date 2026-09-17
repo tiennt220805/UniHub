@@ -10,6 +10,36 @@ All SQL in this document targets PostgreSQL (the Master; DDL runs once, ahead of
 
 ---
 
+## Table of Contents
+
+- [1. Conventions](#1-conventions)
+- [2. User Module](#2-user-module)
+  - [2.1 `users`](#21-users)
+  - [2.2 `roles`](#22-roles)
+  - [2.3 `permissions`](#23-permissions)
+  - [2.4 `user_roles`](#24-user_roles)
+  - [2.5 `role_permissions`](#25-role_permissions)
+- [3. Workshop Module](#3-workshop-module)
+  - [3.1 `workshops`](#31-workshops)
+- [4. Registration Module](#4-registration-module)
+  - [4.1 `registrations`](#41-registrations)
+- [5. Payment Module](#5-payment-module)
+  - [5.1 `payments`](#51-payments)
+- [6. Check-in Module](#6-check-in-module)
+  - [6.1 `check_in_scans`](#61-check_in_scans)
+  - [6.2 `attendances`](#62-attendances)
+- [7. Notification Module](#7-notification-module)
+  - [7.1 `notifications`](#71-notifications)
+- [8. Technical Pattern Entities](#8-technical-pattern-entities)
+  - [8.1 `idempotency_keys`](#81-idempotency_keys)
+  - [8.2 `event_publications`](#82-event_publications)
+  - [8.3 `audit_events`](#83-audit_events)
+- [9. Consolidated Entity-Relationship Diagram](#9-consolidated-entity-relationship-diagram)
+- [10. DDL Appendix](#10-ddl-appendix)
+- [11. Traceability Matrix](#11-traceability-matrix)
+
+---
+
 ## 1. Conventions
 
 These apply to every table below; they're stated once here rather than repeated per entity.

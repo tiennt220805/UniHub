@@ -10,6 +10,24 @@ This file is the physical-level completion of `proposal.md` §11.3 (Resilience t
 
 ---
 
+## Table of Contents
+
+- [Architecture Decision Records (ADRs)](#architecture-decision-records-adrs)
+  - [ADR Mini: Circuit Breaker Scope for Payment Gateway](#adr-mini-circuit-breaker-scope-for-payment-gateway)
+  - [ADR Mini: Payment Webhook Endpoint Design](#adr-mini-payment-webhook-endpoint-design)
+- [1. Data Model — What This Module Owns](#1-data-model-what-this-module-owns)
+- [2. Resilience4j Configuration Model](#2-resilience4j-configuration-model)
+- [3. Sync Charge Path — Decorators & Fallback](#3-sync-charge-path-decorators-fallback)
+- [4. Recovery Detection (Shared `HALF_OPEN`)](#4-recovery-detection-shared-half_open)
+- [5. Async Reconciliation Sweep — Decorators & Fallback](#5-async-reconciliation-sweep-decorators-fallback)
+- [6. Payment Reconciliation Task](#6-payment-reconciliation-task)
+- [7. Payment Webhook Endpoint](#7-payment-webhook-endpoint)
+- [8. Idempotent Payment-Charge](#8-idempotent-payment-charge)
+- [9. Fault Isolation Boundary & Failure Modes](#9-fault-isolation-boundary-failure-modes)
+- [10. Reference Table](#10-reference-table)
+
+---
+
 ## Architecture Decision Records (ADRs)
 
 Reached through the `spec-driven-development` gated workflow: 2–4 alternatives were explored with a trade-off matrix, the human made the call at the Phase 3 Decision Gate, and the reasoning was captured here verbatim rather than left to live only in `SPEC.md` (a working document for the next task, not a durable record).

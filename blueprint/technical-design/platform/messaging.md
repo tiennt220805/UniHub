@@ -12,6 +12,16 @@ All configuration in this document targets RabbitMQ via Spring AMQP (per `CLAUDE
 
 ---
 
+## Table of Contents
+
+- [1. Broker Topology & Deployment](#1-broker-topology-deployment)
+- [2. Exchange & Queue Design](#2-exchange-queue-design)
+- [3. Async Audit Event Publishing](#3-async-audit-event-publishing)
+- [4. Retry, Dead-Lettering & Idempotent Consumption](#4-retry-dead-lettering-idempotent-consumption)
+- [5. Reference Table](#5-reference-table)
+
+---
+
 ## 1. Broker Topology & Deployment
 
 **Rationale:** `architecture.md` §4.3 already established why one broker carries all of this instead of several — every one of these five jobs is fundamentally the same problem (decouple *when work happens* from *when it was triggered*), so splitting them across multiple brokers would be complexity without a corresponding benefit.

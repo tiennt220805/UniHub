@@ -10,6 +10,17 @@ This file is the physical-level completion of `architecture.md` §4.2 (the seat-
 
 ---
 
+## Table of Contents
+
+- [1. Data Model — What This Module Owns](#1-data-model-what-this-module-owns)
+- [2. Distributed Lock & Transaction: Seat Reservation](#2-distributed-lock-transaction-seat-reservation)
+- [3. Seat-Hold Expiry](#3-seat-hold-expiry)
+- [4. Idempotent Registration-Create](#4-idempotent-registration-create)
+- [5. Failure Modes & Fail-Safe Behavior](#5-failure-modes-fail-safe-behavior)
+- [6. Reference Table](#6-reference-table)
+
+---
+
 ## 1. Data Model — What This Module Owns
 
 **Rationale:** `architecture.md` §6.1 names `Registration` as this module's sole entity — it calls Workshop for capacity, Payment for paid tickets, User for identity, but never writes those modules' tables directly (`architecture.md` §1.1's module-boundary discipline, extended to schema). Exact columns are in `../platform/database-schema.md` §4.1; this section narrates why the ones central to this file's later sections look the way they do.

@@ -12,6 +12,26 @@ All object-storage configuration in this document targets AWS S3 (PoC) / MinIO (
 
 ---
 
+## Table of Contents
+
+- [Architecture Decision Records (ADRs)](#architecture-decision-records-adrs)
+  - [ADR Mini: Object Storage Backend Across Environments](#adr-mini-object-storage-backend-across-environments)
+  - [ADR Mini: PDF Upload & Access Pattern](#adr-mini-pdf-upload-access-pattern)
+  - [ADR Mini: AI Summarization Service Integration Contract](#adr-mini-ai-summarization-service-integration-contract)
+- [1. Data Model — What This Module Owns](#1-data-model-what-this-module-owns)
+- [2. Cache-Aside: Workshop Catalog](#2-cache-aside-workshop-catalog)
+- [3. Summarization Job — Message Flow](#3-summarization-job-message-flow)
+- [4. Object Storage Backend Per Environment](#4-object-storage-backend-per-environment)
+- [5. Bucket & Key Structure](#5-bucket-key-structure)
+- [6. File Constraints](#6-file-constraints)
+- [7. Presigned PUT Issuance & Upload Confirmation](#7-presigned-put-issuance-upload-confirmation)
+- [8. Post-Upload Verification](#8-post-upload-verification)
+- [9. AI Summarization Service — Integration Contract](#9-ai-summarization-service-integration-contract)
+- [10. Failure Modes & Fail-Safe Behavior](#10-failure-modes-fail-safe-behavior)
+- [11. Reference Table](#11-reference-table)
+
+---
+
 ## Architecture Decision Records (ADRs)
 
 All three decisions below were reached through the `spec-driven-development` gated workflow: 2–4 alternatives were explored with a trade-off matrix, the human made the call at the Phase 3 Decision Gate, and the reasoning was captured here verbatim rather than left to live only in `SPEC.md` (a working document for the next task, not a durable record).
