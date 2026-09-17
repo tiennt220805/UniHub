@@ -7,7 +7,7 @@
 - `docs/requirement.md` — the SRS. Source of truth for *what* the system must do.
 - `blueprint/proposal.md` — *why* these decisions (business case, scope, tech choices, risks).
 - `blueprint/architecture.md` — *how* (C4 diagrams, data/messaging topology, security architecture, database architecture). This is the authoritative design reference — treat it like a spec section per the Context Hierarchy: load only the section relevant to the task at hand, not the whole 900+ line file.
-- `blueprint/technical-design/` — reserved for physical-level detail (DDL, Redis key formats, TTLs, retry policy) that `architecture.md` explicitly says does *not* belong at the macro level. Currently empty; populate it file-by-file as each subsystem is implemented, don't pre-write it all.
+- `blueprint/technical-design/` — physical-level detail (DDL, Redis key formats, TTLs, retry policy) that `architecture.md` explicitly says does *not* belong at the macro level. Organized as `platform/` (cross-cutting mechanisms shared by multiple modules — schema, Redis, RabbitMQ, auth, observability, deployment) and `modules/` (one file per business module — user, workshop, registration, payment, checkin, notification — narrating that module's full story end to end, linking into `platform/` for shared mechanisms rather than re-deriving them). Populated; keep this split when adding new physical-level detail rather than reverting to one file per infra concern.
 
 When asked to implement a feature, first find the relevant section in `architecture.md`/`proposal.md` and treat its "Guarantees" as non-negotiable acceptance criteria — the "Trade-offs" subsections tell you which limitations are deliberate and should *not* be "fixed" as a drive-by.
 

@@ -217,7 +217,7 @@ flowchart TB
 
 - **One outage, two very different consequences.** Cache, lock, and rate limit all share one Redis deployment — so a Redis outage hits all three at once. But the impact isn't equal. Lose the cache, and reads fall back to the Replica: slower, still correct. Lose the lock, and the system can't safely admit concurrent seat reservations at all. So the rule is simple: if coordination goes down, registration writes get **rejected**, not allowed to proceed uncoordinated — the same fail-safe boundary from Section 1.4, applied here.
 - **Freshness vs. database load.** Cached data doesn't live forever — it expires, and organizer writes (cancel, reschedule) invalidate it explicitly, so a cancelled workshop can't keep showing as available. This is the mirror image of Section 4.1's trade-off: staleness here is a deliberate design choice, not a replication artifact, and squeezing it too tight just pushes load back onto the database the cache exists to protect.
-- **Lock duration is a balancing act.** Too short, and a slow-but-legitimate operation can lose the lock mid-flight, letting a second instance start concurrently. Too long, and a crashed instance blocks everyone else from ever acquiring it. We manage this with a bounded lease — the exact duration is a tuning parameter documented in `technical-design/anti-overbooking.md`, not an architectural decision.
+- **Lock duration is a balancing act.** Too short, and a slow-but-legitimate operation can lose the lock mid-flight, letting a second instance start concurrently. Too long, and a crashed instance blocks everyone else from ever acquiring it. We manage this with a bounded lease — the exact duration is a tuning parameter documented in `technical-design/modules/registration.md` (the seat-reservation lock), not an architectural decision.
 
 **Consistency Guarantees**
 
@@ -444,7 +444,7 @@ flowchart TB
 
 - Exactly one instance executes a given scheduled job per cycle — never zero (barring a coordination-layer outage) and never more than one.
 - A skipped cycle is always recovered by the next scheduled tick — none of these jobs depend on every single cycle succeeding.
-- This pattern only governs _when and how many_ instances run a job — it says nothing about the job's own internal correctness. That belongs to the job's own file, e.g. `technical-design/student-sync.md`.
+- This pattern only governs _when and how many_ instances run a job — it says nothing about the job's own internal correctness. That belongs to the job's own file, e.g. `technical-design/modules/user.md` (the nightly student sync).
 
 ---
 
@@ -779,7 +779,7 @@ None of these limits are oversights — they're the same fault-isolation instinc
 
 Section 2.3 split the Backend API into six modules, but never said which module owns which piece of data. Without that, nothing stops one module's code from reaching into another module's table directly — quietly breaking the boundaries Section 2.3 already drew. So: name the entities, and give each one exactly one module allowed to write it.
 
-Not every entity means the same thing, either. Some represent the actual business — a Workshop, a Registration, a Payment. Others exist purely to make a guarantee work — an Idempotency Key means nothing to a student or an Organizer; it exists because Section 4.5 needs somewhere to record "this request already happened." Keeping these two kinds of entities separate matters: **Core Domain Entities** are what `technical-design/database-schema.md` will spend most of its detail on. **Technical Pattern Entities** are supporting infrastructure for guarantees this document already made elsewhere.
+Not every entity means the same thing, either. Some represent the actual business — a Workshop, a Registration, a Payment. Others exist purely to make a guarantee work — an Idempotency Key means nothing to a student or an Organizer; it exists because Section 4.5 needs somewhere to record "this request already happened." Keeping these two kinds of entities separate matters: **Core Domain Entities** are what `technical-design/platform/database-schema.md` will spend most of its detail on. **Technical Pattern Entities** are supporting infrastructure for guarantees this document already made elsewhere.
 
 **Model**
 
