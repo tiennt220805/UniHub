@@ -4,10 +4,10 @@ info:
   version: v1
   description: >-
     HTTP contract for the UniHub Backend API — a stateless Spring Boot
-    Modular Monolith (`../../../CLAUDE.md`) consumed by the Web Application
+    Modular Monolith (`../../CLAUDE.md`) consumed by the Web Application
     (Student + Organizer/Admin) and the Check-in Client (Check-in Staff
     only). This spec formalizes endpoints already narrated in prose across
-    `../modules/*.md`; it does not introduce a second, conflicting contract
+    `../../docs/technical-design/modules/*.md`; it does not introduce a second, conflicting contract
     — see `README.md` for the drift-prevention plan once implementation
     exists.
 
@@ -25,10 +25,10 @@ info:
 servers:
   - url: 'https://{environment}.unihub.local'
     description: >-
-      Single Ingress Controller entry point (`../../architecture.md` §1.2)
+      Single Ingress Controller entry point (`../../docs/architecture.md` §1.2)
       — terminates TLS, load-balances across Backend API instances. This
       PoC has no separate staging/production split
-      (`../../proposal.md` §5.2); `local` (Minikube) and `poc` are the only
+      (`../../docs/proposal.md` §5.2); `local` (Minikube) and `poc` are the only
       two environments.
     variables:
       environment:
@@ -36,22 +36,22 @@ servers:
         enum: [local, poc]
 tags:
   - name: Workshop
-    description: Workshop catalog, brochure upload, AI summarization trigger (`../modules/workshop.md`).
+    description: Workshop catalog, brochure upload, AI summarization trigger (`../../docs/technical-design/modules/workshop.md`).
     x-status: drafted
   - name: Registration
-    description: Seat reservation, the system's highest-risk correctness path (`../modules/registration.md`).
+    description: Seat reservation, the system's highest-risk correctness path (`../../docs/technical-design/modules/registration.md`).
     x-status: drafted
   - name: User
-    description: Identity, RBAC, legacy student sync (`../modules/user.md`).
+    description: Identity, RBAC, legacy student sync (`../../docs/technical-design/modules/user.md`).
     x-status: drafted
   - name: Payment
-    description: Payment Gateway integration, idempotent charge, reconciliation (`../modules/payment.md`).
+    description: Payment Gateway integration, idempotent charge, reconciliation (`../../docs/technical-design/modules/payment.md`).
     x-status: drafted
   - name: Check-in
-    description: Offline QR verification key distribution, scan-batch sync/reconciliation (`../modules/checkin.md`).
+    description: Offline QR verification key distribution, scan-batch sync/reconciliation (`../../docs/technical-design/modules/checkin.md`).
     x-status: drafted
   - name: Notification
-    description: In-app notification inbox (dispatch itself is async/event-driven, not a synchronous API — `../modules/notification.md`).
+    description: In-app notification inbox (dispatch itself is async/event-driven, not a synchronous API — `../../docs/technical-design/modules/notification.md`).
     x-status: drafted
 security:
   - bearerAuth: []

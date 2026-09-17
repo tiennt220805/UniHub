@@ -1,20 +1,20 @@
 NotificationType:
   type: string
   enum: [REGISTRATION_CONFIRMED, WORKSHOP_CANCELLED, WORKSHOP_RESCHEDULED]
-  description: '`../../platform/database-schema.md` §7.1 — drives which template is rendered at dispatch time (`../../modules/notification.md` §4). Not exhaustive; extended as new notification-triggering events are added.'
+  description: '`../../../docs/technical-design/platform/database-schema.md` §7.1 — drives which template is rendered at dispatch time (`../../../docs/technical-design/modules/notification.md` §4). Not exhaustive; extended as new notification-triggering events are added.'
 
 NotificationDeliveryStatus:
   type: string
   enum: [PENDING, SENT, FAILED]
   description: >-
-    `../../platform/database-schema.md` §7.1. **Delivery status, not read
+    `../../../docs/technical-design/platform/database-schema.md` §7.1. **Delivery status, not read
     status** — this schema has no concept of "the student has seen this
     notification." See `Notification.description` below for why.
 
 RelatedEntityType:
   type: string
   enum: [WORKSHOP, REGISTRATION]
-  description: '`../../platform/database-schema.md` §7.1.'
+  description: '`../../../docs/technical-design/platform/database-schema.md` §7.1.'
 
 Notification:
   type: object
@@ -22,9 +22,9 @@ Notification:
     One row from the in-app inbox. **Two things this response deliberately
     cannot provide, flagged rather than papered over:**
 
-    1. **No rendered content (subject/body text).** `../../platform/
+    1. **No rendered content (subject/body text).** `../../../docs/technical-design/platform/
     database-schema.md` §7.1's `notifications` table has no content/body
-    column — `../../modules/notification.md` §4 renders a template into
+    column — `../../../docs/technical-design/modules/notification.md` §4 renders a template into
     text once, at dispatch time, and hands it directly to the channel's
     `send()`; nothing about that rendered text is persisted. This endpoint
     can only return the structured fields the row actually stores
@@ -37,7 +37,7 @@ Notification:
     not this contract's authority to do — flagged for a human decision.
 
     2. **No read/unread state.** There is no `read`/`read_at` column in
-    `../../platform/database-schema.md` §7.1 — `status` tracks delivery
+    `../../../docs/technical-design/platform/database-schema.md` §7.1 — `status` tracks delivery
     (`PENDING`/`SENT`/`FAILED`), never whether the recipient has seen it.
     A "mark as read" operation is not represented anywhere in this schema
     for the same reason: nothing to write it into.
@@ -61,14 +61,14 @@ Notification:
       format: date-time
       description: >-
         Non-null if and only if `status` is `SENT`
-        (`../../modules/notification.md` §3's consumer sets `status`/
+        (`../../../docs/technical-design/modules/notification.md` §3's consumer sets `status`/
         `sentAt` together, and only a successful `send()` result is
         `SENT` — a `FAILED` result leaves `sentAt` unset). Structurally
         enforced below via `if`/`then`/`else`.
     createdAt:
       type: string
       format: date-time
-      description: When the triggering lifecycle event was consumed and this row was created (`../../modules/notification.md` §3), not when it was sent.
+      description: When the triggering lifecycle event was consumed and this row was created (`../../../docs/technical-design/modules/notification.md` §3), not when it was sent.
   if:
     properties:
       status:

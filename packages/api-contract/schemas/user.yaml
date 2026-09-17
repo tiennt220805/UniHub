@@ -13,7 +13,7 @@ LoginRequest:
 LoginResponse:
   type: object
   description: >-
-    `../../platform/auth-and-identity.md` §2's claim shape deliberately
+    `../../../docs/technical-design/platform/auth-and-identity.md` §2's claim shape deliberately
     excludes "UI-convenience fields (display name, email, etc.)" from the
     token itself — "anything the client needs to render... belongs in the
     login endpoint's response body, issued once at login alongside the
@@ -22,10 +22,10 @@ LoginResponse:
   properties:
     accessToken:
       type: string
-      description: The HS256 auth JWT (`../../platform/auth-and-identity.md` §3) — opaque to the client, carries the resolved `permissions[]` claim.
+      description: The HS256 auth JWT (`../../../docs/technical-design/platform/auth-and-identity.md` §3) — opaque to the client, carries the resolved `permissions[]` claim.
     expiresIn:
       type: integer
-      description: Seconds until expiry — the fixed 30-minute access-token TTL (`../../platform/auth-and-identity.md` §4).
+      description: Seconds until expiry — the fixed 30-minute access-token TTL (`../../../docs/technical-design/platform/auth-and-identity.md` §4).
       example: 1800
     user:
       $ref: '#/UserSummary'
@@ -33,7 +33,7 @@ LoginResponse:
 UserSummary:
   type: object
   description: >-
-    Exactly the fields `../../platform/auth-and-identity.md` §2 names as
+    Exactly the fields `../../../docs/technical-design/platform/auth-and-identity.md` §2 names as
     belonging in the response body, not the token — nothing beyond that is
     added here. That section names three things by example: "the user's
     name, a greeting, which role labels apply" — `fullName`/`email` cover
@@ -53,7 +53,7 @@ UserSummary:
       items:
         type: string
       description: >-
-        `roles.name` (`../../platform/database-schema.md` §2.2) for every
+        `roles.name` (`../../../docs/technical-design/platform/database-schema.md` §2.2) for every
         role assigned to this user — display labels only, e.g. for a
         "Signed in as: Organizer" UI treatment. **Never used for an
         authorization decision anywhere** — `auth-and-identity.md` §2 is
@@ -66,19 +66,19 @@ UserSummary:
 LegacySyncRunStatus:
   type: string
   enum: [RUNNING, COMPLETED, FAILED]
-  description: '`../../modules/user.md` §5.'
+  description: '`../../../docs/technical-design/modules/user.md` §5.'
 
 LegacySyncFailureReason:
   type: string
   enum: [FILE_NOT_FOUND, FILE_UNREADABLE, PIPELINE_ERROR]
-  description: '`../../modules/user.md` §5.'
+  description: '`../../../docs/technical-design/modules/user.md` §5.'
 
 LegacySyncRun:
   type: object
   description: >-
     One row per nightly sync cycle — every cycle, successful or failed,
-    leaves exactly one of these (`../../modules/user.md` §5). Field-level
-    source is `../../platform/database-schema.md` §2.6.
+    leaves exactly one of these (`../../../docs/technical-design/modules/user.md` §5). Field-level
+    source is `../../../docs/technical-design/platform/database-schema.md` §2.6.
   required: [id, exportDate, status, startedAt, rowsProcessed, rowsCreated, rowsUpdated, rowsQuarantined]
   properties:
     id:
@@ -87,7 +87,7 @@ LegacySyncRun:
     exportDate:
       type: string
       format: date
-      description: The export's own date, not the run's start time — what the filename convention keys off (`../../modules/user.md` §2).
+      description: The export's own date, not the run's start time — what the filename convention keys off (`../../../docs/technical-design/modules/user.md` §2).
     status:
       $ref: '#/LegacySyncRunStatus'
     failureReason:
@@ -99,7 +99,7 @@ LegacySyncRun:
         below for the other).
     failureDetail:
       type: [string, 'null']
-      description: Free-text detail (e.g. the parse error message) alongside the coded `failureReason` (`../../modules/user.md` §5). No iff-rule enforced here — nothing in `user.md` states `failureDetail` is always present whenever `failureReason` is, only that it's captured "for `FILE_UNREADABLE`."
+      description: Free-text detail (e.g. the parse error message) alongside the coded `failureReason` (`../../../docs/technical-design/modules/user.md` §5). No iff-rule enforced here — nothing in `user.md` states `failureDetail` is always present whenever `failureReason` is, only that it's captured "for `FILE_UNREADABLE`."
     startedAt:
       type: string
       format: date-time
@@ -107,7 +107,7 @@ LegacySyncRun:
       type: [string, 'null']
       description: >-
         Non-null if and only if `status` is not `RUNNING`
-        (`../../modules/user.md` §5's three `UPDATE` statements each set
+        (`../../../docs/technical-design/modules/user.md` §5's three `UPDATE` statements each set
         this alongside a terminal `status`; the initial `INSERT` sets
         neither). Structurally enforced below.
     rowsProcessed:
@@ -160,14 +160,14 @@ LegacySyncRunListResponse:
 LegacySyncErrorReasonCode:
   type: string
   enum: [MALFORMED_ROW, INVALID_FIELD, DUPLICATE_IN_FILE]
-  description: '`../../modules/user.md` §4/§6.'
+  description: '`../../../docs/technical-design/modules/user.md` §4/§6.'
 
 LegacySyncError:
   type: object
   description: >-
     One quarantined record — a row rejected by the pipeline, never written
-    to `users` (`../../modules/user.md` §6). Field-level source is
-    `../../platform/database-schema.md` §2.7.
+    to `users` (`../../../docs/technical-design/modules/user.md` §6). Field-level source is
+    `../../../docs/technical-design/platform/database-schema.md` §2.7.
   required: [id, syncRunId, rowNumber, rawRow, reasonCode, reviewed, createdAt]
   properties:
     id:
@@ -180,14 +180,14 @@ LegacySyncError:
       type: integer
     rawRow:
       type: string
-      description: The full original CSV line, verbatim — lets an admin see exactly what the legacy system sent without re-opening the source file (`../../modules/user.md` §6).
+      description: The full original CSV line, verbatim — lets an admin see exactly what the legacy system sent without re-opening the source file (`../../../docs/technical-design/modules/user.md` §6).
     reasonCode:
       $ref: '#/LegacySyncErrorReasonCode'
     reasonDetail:
       type: [string, 'null']
     reviewed:
       type: boolean
-      description: Plain triage flag, not a workflow state machine (`../../modules/user.md` §6) — no reviewer identity or timestamp is recorded, a deliberate scope cut, not an oversight.
+      description: Plain triage flag, not a workflow state machine (`../../../docs/technical-design/modules/user.md` §6) — no reviewer identity or timestamp is recorded, a deliberate scope cut, not an oversight.
     createdAt:
       type: string
       format: date-time
@@ -209,4 +209,4 @@ ResolveLegacySyncErrorRequest:
   properties:
     reviewed:
       type: boolean
-      description: Toggles the triage flag directly — no reviewer identity or timestamp is captured alongside this write (`../../modules/user.md` §6's deliberate scope cut).
+      description: Toggles the triage flag directly — no reviewer identity or timestamp is captured alongside this write (`../../../docs/technical-design/modules/user.md` §6's deliberate scope cut).

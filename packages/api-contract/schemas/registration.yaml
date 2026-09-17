@@ -5,7 +5,7 @@ Registration:
     only to the owning student (`getRegistration`, `createRegistration`) —
     never in a list response (`RegistrationSummary`), since a signed ticket
     payload has no reason to be broadcast to an Organizer's reporting view.
-    Field-level source is `../../platform/database-schema.md` §4.1.
+    Field-level source is `../../../docs/technical-design/platform/database-schema.md` §4.1.
   required: [id, workshopId, userId, ticketType, status, createdAt]
   properties:
     id:
@@ -29,7 +29,7 @@ Registration:
       description: >-
         Non-null if and only if `status` is `RESERVED`
         (`database-schema.md` §4.1 CHECK constraint). The 15-minute deadline
-        after which `../../modules/registration.md` §3's expiry mechanism
+        after which `../../../docs/technical-design/modules/registration.md` §3's expiry mechanism
         releases the seat automatically. Structurally enforced below via
         `if`/`then`/`else`, same technique as `Workshop.price`/`isPaid` —
         unlike `ticketCode`/`qrPayload` below, this field's condition really
@@ -43,7 +43,7 @@ Registration:
       type: [string, 'null']
       description: >-
         Set once `status` becomes `CONFIRMED`. The signed JWS token
-        (`../../modules/checkin.md`) the Web Application renders as a QR
+        (`../../../docs/technical-design/modules/checkin.md`) the Web Application renders as a QR
         code for the student to present at check-in.
     createdAt:
       type: string
@@ -96,8 +96,8 @@ RegistrationStatus:
   type: string
   enum: [RESERVED, CONFIRMED, CANCELLED, EXPIRED]
   description: >-
-    `../../platform/database-schema.md` §4.1 /
-    `../../modules/registration.md` §1. `RESERVED`: seat held pending
+    `../../../docs/technical-design/platform/database-schema.md` §4.1 /
+    `../../../docs/technical-design/modules/registration.md` §1. `RESERVED`: seat held pending
     payment. `CONFIRMED`: free ticket confirmed immediately, or paid ticket
     confirmed after payment success. `EXPIRED`: the 15-minute hold lapsed.
     `CANCELLED`: released by the student or the Organizer before the event.
@@ -116,7 +116,7 @@ RegistrationListResponse:
 CreateRegistrationRequest:
   type: object
   description: >-
-    `../../modules/registration.md` §2/§4. `ticketType` is intentionally
+    `../../../docs/technical-design/modules/registration.md` §2/§4. `ticketType` is intentionally
     absent from this request — the server derives it from the target
     workshop's `isPaid` field; a client cannot request a `FREE` registration
     for a paid workshop or vice versa.

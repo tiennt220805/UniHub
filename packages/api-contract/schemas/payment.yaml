@@ -1,10 +1,10 @@
 Payment:
   type: object
   description: >-
-    Field-level source is `../../platform/database-schema.md` §5.1. A row
+    Field-level source is `../../../docs/technical-design/platform/database-schema.md` §5.1. A row
     is created `PENDING` at charge-initiation and resolved later by
     whichever of {webhook, reconciliation sweep} reaches it first
-    (`../../modules/payment.md` §1) — **the charge-initiation response
+    (`../../../docs/technical-design/modules/payment.md` §1) — **the charge-initiation response
     itself never carries a final `SUCCEEDED`/`FAILED` outcome**, only
     `PENDING`. No push/SSE mechanism is documented anywhere in this corpus,
     so a client observes resolution by polling `getPayment`.
@@ -27,7 +27,7 @@ Payment:
     gateway:
       type: string
       example: STRIPE
-      description: Sandbox mode only (`../../proposal.md` §5.2).
+      description: Sandbox mode only (`../../../docs/proposal.md` §5.2).
     gatewayTransactionId:
       type: [string, 'null']
       description: >-
@@ -40,13 +40,13 @@ Payment:
         PENDING" rule, this field's set-vs-null timing genuinely depends on
         gateway behavior this corpus doesn't pin down further, so
         overconstraining it here would assert more than
-        `../../modules/payment.md` §1 actually guarantees.
+        `../../../docs/technical-design/modules/payment.md` §1 actually guarantees.
     status:
       $ref: '#/PaymentStatus'
     initiatedAt:
       type: string
       format: date-time
-      description: What the reconciliation sweep's ">15 minutes in PENDING" check measures from (`../../modules/payment.md` §6).
+      description: What the reconciliation sweep's ">15 minutes in PENDING" check measures from (`../../../docs/technical-design/modules/payment.md` §6).
     resolvedAt:
       type: [string, 'null']
       format: date-time
@@ -54,7 +54,7 @@ Payment:
         Non-null if and only if `status` has left `PENDING`
         (`database-schema.md` §5.1). Structurally enforced below via
         `if`/`then`/`else`, same technique as
-        `../../api/schemas/registration.yaml#/Registration`'s
+        `../schemas/registration.yaml#/Registration`'s
         `holdExpiresAt` — a clean two-way "iff" against the current
         `status` value.
     createdAt:
@@ -80,13 +80,13 @@ Payment:
 PaymentStatus:
   type: string
   enum: [PENDING, SUCCEEDED, FAILED, CANCELLED]
-  description: '`../../platform/database-schema.md` §5.1 / `../../modules/payment.md` §1.'
+  description: '`../../../docs/technical-design/platform/database-schema.md` §5.1 / `../../../docs/technical-design/modules/payment.md` §1.'
 
 CreatePaymentChargeRequest:
   type: object
   description: >-
     **Body shape is inferred — flagged as an assumption.**
-    `../../modules/payment.md` never specifies this request's fields beyond
+    `../../../docs/technical-design/modules/payment.md` never specifies this request's fields beyond
     "every `POST /api/v1/payments/charge` request carries a client-generated
     `Idempotency-Key` header" (§8). `paymentMethodToken` is modeled as an
     opaque token from the gateway's own client-side SDK (e.g. Stripe.js),
@@ -101,7 +101,7 @@ CreatePaymentChargeRequest:
     registrationId:
       type: string
       format: uuid
-      description: Must reference a `RESERVED` registration the caller owns (`../../modules/registration.md` §1) — a `PENDING`/other-status registration is a `409`.
+      description: Must reference a `RESERVED` registration the caller owns (`../../../docs/technical-design/modules/registration.md` §1) — a `PENDING`/other-status registration is a `409`.
     paymentMethodToken:
       type: string
       description: Opaque payment-method token from the gateway's client-side SDK. Never raw card data.

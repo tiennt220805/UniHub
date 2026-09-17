@@ -4,8 +4,8 @@ IdempotencyKey:
   required: true
   description: >-
     Client-generated key guarding exactly-once execution of this write
-    (`../../modules/registration.md` §4, `../../modules/payment.md` §8,
-    `../../platform/database-schema.md` §8.1). A retried request carrying the
+    (`../../../docs/technical-design/modules/registration.md` §4, `../../../docs/technical-design/modules/payment.md` §8,
+    `../../../docs/technical-design/platform/database-schema.md` §8.1). A retried request carrying the
     same key returns the original recorded result verbatim — the underlying
     business transaction is never re-run, not even as a no-op re-check.
     Present on this parameter list only on the specific write operations that
@@ -21,7 +21,7 @@ CorrelationIdRequest:
   in: header
   required: false
   description: >-
-    Optional client-supplied correlation id (`../../platform/observability.md`
+    Optional client-supplied correlation id (`../../../docs/technical-design/platform/observability.md`
     §1) — propagated through distributed tracing and echoed back on both
     success and error responses under the same header name. If the caller
     omits it, the server generates one and returns it via the
@@ -33,7 +33,7 @@ CorrelationIdRequest:
 CorrelationIdResponse:
   description: >-
     The correlation id that traced this request end to end
-    (`../../platform/observability.md` §1) — the value to search for in logs
+    (`../../../docs/technical-design/platform/observability.md` §1) — the value to search for in logs
     or traces, and the same value carried in `error.yaml`'s `correlationId`
     field on a non-2xx response.
   schema:
@@ -46,8 +46,8 @@ RetryAfter:
     situations in this API, both transient and safe to retry after the
     stated delay: a coordination-layer unavailability (a Redis seat-lock or
     the shared `paymentGateway` circuit breaker,
-    `../../modules/registration.md` §2 / `../../modules/payment.md` §2-§3),
-    or a rate limit (`../../platform/distributed-coordination.md` §3's
+    `../../../docs/technical-design/modules/registration.md` §2 / `../../../docs/technical-design/modules/payment.md` §2-§3),
+    or a rate limit (`../../../docs/technical-design/platform/distributed-coordination.md` §3's
     `RRateLimiter`). The two mechanisms are unrelated — this header shape
     is the only thing they share.
   schema:

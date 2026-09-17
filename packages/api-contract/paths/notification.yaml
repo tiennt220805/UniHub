@@ -4,7 +4,7 @@ notifications:
     summary: List the caller's in-app notification inbox
     description: >-
       **Inferred route — flagged as an assumption.**
-      `../../modules/notification.md`'s own scope note confirms this
+      `../../../docs/technical-design/modules/notification.md`'s own scope note confirms this
       endpoint's *existence* ("the JWT that authenticates the in-app
       notification inbox's own read endpoint" is explicitly out of that
       file's scope, implying the endpoint itself is in scope somewhere) but

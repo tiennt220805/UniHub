@@ -19,7 +19,7 @@ registrations:
     operationId: createRegistration
     summary: Register for a workshop (reserve or confirm a seat)
     description: >-
-      `../../modules/registration.md` §2/§4 — this system's single
+      `../../../docs/technical-design/modules/registration.md` §2/§4 — this system's single
       highest-risk correctness path. No `x-required-permission` — any
       authenticated user may register for a workshop; there is no
       capability-style permission for "being a student," only ownership of
@@ -83,9 +83,9 @@ registrations:
       '409':
         description: >-
           Lock acquired, workshop is sold out
-          (`../../modules/registration.md` §2) — or the caller already has
+          (`../../../docs/technical-design/modules/registration.md` §2) — or the caller already has
           an active (`RESERVED`/`CONFIRMED`) registration for this workshop
-          (`../../platform/database-schema.md` §4.1's partial unique index).
+          (`../../../docs/technical-design/platform/database-schema.md` §4.1's partial unique index).
         content:
           application/problem+json:
             schema:
@@ -93,7 +93,7 @@ registrations:
       '429':
         description: >-
           Per-user registration-attempt rate limit exceeded
-          (`../../platform/distributed-coordination.md` §3 — 5 requests /
+          (`../../../docs/technical-design/platform/distributed-coordination.md` §3 — 5 requests /
           10s, key `unihub:ratelimit:registration:{userId}`). Distinct from
           the `503` below: this is the caller's own request budget, not
           contention over a specific workshop's seat.
@@ -107,7 +107,7 @@ registrations:
       '503':
         description: >-
           Seat-lock contention or Redis unreachable
-          (`../../modules/registration.md` §2) — transient, safe to retry.
+          (`../../../docs/technical-design/modules/registration.md` §2) — transient, safe to retry.
           Per-workshop coordination-layer unavailability, not the caller's
           own request rate — see `429` above for that distinction.
         headers:
@@ -121,7 +121,7 @@ registrations:
     operationId: listMyRegistrations
     summary: List the caller's own registrations
     description: >-
-      "My registrations" (`../../platform/database-schema.md` §4.1's
+      "My registrations" (`../../../docs/technical-design/platform/database-schema.md` §4.1's
       `(user_id)` index note). Always scoped to the authenticated caller —
       there is no query parameter to list another user's registrations from
       this endpoint.
@@ -201,7 +201,7 @@ registrationCancel:
     summary: Cancel an active registration
     description: >-
       **Inferred endpoint — flagged as an assumption.**
-      `../../platform/database-schema.md` §4.1 defines `CANCELLED` as a
+      `../../../docs/technical-design/platform/database-schema.md` §4.1 defines `CANCELLED` as a
       real status value, but no document in this corpus narrates the HTTP
       trigger or transaction shape for cancellation the way §3 narrates
       hold-expiry in full. Modeled here as reusing §3's own pattern —
@@ -220,7 +220,7 @@ registrationCancel:
       Revisit this endpoint when a design note fixes cancellation's own
       rules (e.g. a cutoff time before the workshop start, whether a paid
       ticket's cancellation refunds anything — payment refund flows are
-      `../../modules/payment.md`'s concern, undocumented there too — or an
+      `../../../docs/technical-design/modules/payment.md`'s concern, undocumented there too — or an
       Organizer-cancellation capability).
     tags: [Registration]
     parameters:
@@ -278,7 +278,7 @@ workshopRegistrations:
       Reporting view backing `docs/requirement.md` §1.3.3's "clear, visual
       reports and statistics on registration counts" — this endpoint
       supplies the underlying data; aggregation/visualization is a frontend
-      concern. Backed by `../../platform/database-schema.md` §4.1's
+      concern. Backed by `../../../docs/technical-design/platform/database-schema.md` §4.1's
       `(workshop_id)` index, documented there as existing for exactly this
       reporting purpose.
     tags: [Registration]

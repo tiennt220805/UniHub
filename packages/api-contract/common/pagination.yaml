@@ -14,7 +14,7 @@ SizeParam:
   required: false
   description: >-
     Page size. Capped at 100 to bound a single response's payload and the
-    underlying PostgreSQL Replica query cost (`../../../architecture.md`
+    underlying PostgreSQL Replica query cost (`../../../docs/architecture.md`
     §4.1) — no list endpoint in this API allows an unbounded scan.
   schema:
     type: integer

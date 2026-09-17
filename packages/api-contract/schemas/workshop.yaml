@@ -2,9 +2,9 @@ Workshop:
   type: object
   description: >-
     Full workshop detail. Field-level source is
-    `../../platform/database-schema.md` §3.1; the split between this body and
+    `../../../docs/technical-design/platform/database-schema.md` §3.1; the split between this body and
     `WorkshopSummary` mirrors the two-TTL cache-aside representation narrated
-    in `../../modules/workshop.md` §2 (slow-changing detail vs. volatile
+    in `../../../docs/technical-design/modules/workshop.md` §2 (slow-changing detail vs. volatile
     seat/status fields), merged into one response here since the client has
     no reason to see them as two separate fetches.
   required:
@@ -31,7 +31,7 @@ Workshop:
     aiSummary:
       type: [string, 'null']
       description: >-
-        Generated from the uploaded brochure (`../../modules/workshop.md`
+        Generated from the uploaded brochure (`../../../docs/technical-design/modules/workshop.md`
         §9). `null` until the AI Summarization Service returns, or if the
         brochure failed post-upload verification (§8) — the two cases are
         indistinguishable at this field by design (`workshop.md` §8).
@@ -55,10 +55,10 @@ Workshop:
       minimum: 0
       description: >-
         Near-real-time, not real-time — up to 3 seconds stale
-        (`../../modules/workshop.md` §2's `seats` cache-key TTL). The actual
+        (`../../../docs/technical-design/modules/workshop.md` §2's `seats` cache-key TTL). The actual
         accept/reject decision for a registration attempt never depends on
         this displayed value; it is re-checked transactionally at write time
-        (`../../modules/registration.md` §2).
+        (`../../../docs/technical-design/modules/registration.md` §2).
     isPaid:
       type: boolean
     price:
@@ -75,7 +75,7 @@ Workshop:
     hasBrochure:
       type: boolean
       description: >-
-        `true` once `brochure_s3_key` is set (`../../modules/workshop.md`
+        `true` once `brochure_s3_key` is set (`../../../docs/technical-design/modules/workshop.md`
         §7). There is no brochure-download URL anywhere in this API — a
         client-facing download path is confirmed out of scope
         (`workshop.md` §7's ADR).
@@ -109,7 +109,7 @@ WorkshopSummary:
   type: object
   description: >-
     Catalog list-view projection — deliberately thinner than `Workshop`,
-    matching `../../modules/workshop.md` §2's
+    matching `../../../docs/technical-design/modules/workshop.md` §2's
     `unihub:cache:workshop:list:{filterHash}` shape. A browsing list of
     dozens of rows doesn't carry every detail field.
   required: [id, title, location, startTime, status]
@@ -131,7 +131,7 @@ WorkshopStatus:
   type: string
   enum: [DRAFT, PUBLISHED, CANCELLED, COMPLETED]
   description: >-
-    `../../platform/database-schema.md` §3.1. Reschedule is a field update
+    `../../../docs/technical-design/platform/database-schema.md` §3.1. Reschedule is a field update
     (`startTime`/`endTime` via `PATCH`), never a status value.
 
 WorkshopListResponse:
@@ -150,7 +150,7 @@ CreateWorkshopRequest:
   description: >-
     Creates a workshop in `DRAFT` status (`database-schema.md` §3.1's
     default). Brochure upload is a separate, subsequent step against the
-    created `id` (`../../modules/workshop.md` §7) — never part of this
+    created `id` (`../../../docs/technical-design/modules/workshop.md` §7) — never part of this
     request, since the presigned-upload key format requires a `workshop_id`
     that doesn't exist yet at this point.
   required: [title, speakerName, location, startTime, endTime, capacity, isPaid]
@@ -289,13 +289,13 @@ UpdateWorkshopRequest:
 
 BrochureUploadUrlResponse:
   type: object
-  description: '`../../modules/workshop.md` §7 issuance step.'
+  description: '`../../../docs/technical-design/modules/workshop.md` §7 issuance step.'
   required: [uploadUrl, expiresAt]
   properties:
     uploadUrl:
       type: string
       format: uri
-      description: Presigned S3/MinIO PUT URL, scoped to exactly one key, 10-minute TTL (`../../modules/workshop.md` §7).
+      description: Presigned S3/MinIO PUT URL, scoped to exactly one key, 10-minute TTL (`../../../docs/technical-design/modules/workshop.md` §7).
     expiresAt:
       type: string
       format: date-time

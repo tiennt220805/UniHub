@@ -42,7 +42,7 @@ properties:
     type: string
     format: uuid
     description: >-
-      Echoes the request's `X-Correlation-Id` (`../../platform/observability.md`
+      Echoes the request's `X-Correlation-Id` (`../../../docs/technical-design/platform/observability.md`
       §1) — the value to hand an operator when reporting this error. Always
       present, even when the client never supplied one, since the server
       generates one for every request.

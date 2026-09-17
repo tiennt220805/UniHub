@@ -11,7 +11,7 @@ payments:
     operationId: chargePayment
     summary: Initiate a payment charge for a RESERVED registration
     description: >-
-      `../../modules/payment.md` §3/§8. No `x-required-permission` — any
+      `../../../docs/technical-design/modules/payment.md` §3/§8. No `x-required-permission` — any
       authenticated user may charge, but only for a registration they
       themselves own (see `403` below); there is no capability-style
       permission for "being a student," same as `createRegistration`.
@@ -81,7 +81,7 @@ payments:
         description: >-
           The registration is not `RESERVED` (already `CONFIRMED`,
           `CANCELLED`, or `EXPIRED`) — or a `payments` row already exists
-          for it (`../../platform/database-schema.md` §5.1's
+          for it (`../../../docs/technical-design/platform/database-schema.md` §5.1's
           `registration_id UNIQUE` constraint).
         content:
           application/problem+json:
@@ -90,7 +90,7 @@ payments:
       '503':
         description: >-
           `paymentGateway` circuit `OPEN`, or the gateway call timed out
-          (`../../modules/payment.md` §3) — no `payments` row created,
+          (`../../../docs/technical-design/modules/payment.md` §3) — no `payments` row created,
           seat-hold untouched, safe to retry. **`Retry-After`'s value is
           inferred — flagged as an assumption.** Not specified in
           `payment.md`; set here to the breaker's own
@@ -156,14 +156,14 @@ paymentGatewayWebhook:
     operationId: handlePaymentGatewayWebhook
     summary: Payment Gateway webhook callback
     description: >-
-      `../../modules/payment.md` §7, verbatim route and model — this
+      `../../../docs/technical-design/modules/payment.md` §7, verbatim route and model — this
       system's fast path for payment resolution, complementing (never
       replacing) the reconciliation sweep's 15-minute-late backstop (§6).
 
       **Authentication is deliberately not `bearerAuth` — the only
       operation in this API that isn't.** The caller is the Payment
       Gateway, not a UniHub user; it holds no UniHub session and
-      `../platform/auth-and-identity.md`'s entire model (resolved
+      `../../../docs/technical-design/platform/auth-and-identity.md`'s entire model (resolved
       permissions, `hasAuthority`) assumes an authenticated *user*, which
       doesn't apply here. Trust is established instead by verifying the
       gateway's signature header (`Stripe-Signature`) as an HMAC over the
@@ -171,7 +171,7 @@ paymentGatewayWebhook:
       secret — never by re-serializing the parsed payload, which risks a
       whitespace/key-ordering mismatch that fails verification for a
       legitimate request. **Exempt from per-user/per-IP rate limiting**
-      (`../../platform/distributed-coordination.md` §3) — the gateway is a
+      (`../../../docs/technical-design/platform/distributed-coordination.md` §3) — the gateway is a
       known, trusted, high-volume caller by design, not a traffic-abuse
       risk.
 
@@ -199,7 +199,7 @@ paymentGatewayWebhook:
         application/json:
           schema:
             type: object
-            description: Opaque gateway event payload; only `gateway_transaction_id`-equivalent and outcome fields are read (`../../modules/payment.md` §7).
+            description: Opaque gateway event payload; only `gateway_transaction_id`-equivalent and outcome fields are read (`../../../docs/technical-design/modules/payment.md` §7).
     responses:
       '200':
         description: >-

@@ -1,16 +1,27 @@
-# API Documentation — OpenAPI Contract
+# @unihub/api-contract — OpenAPI Contract
 
-This directory is the physical-level API contract completing `architecture.md`'s
-container/module boundaries and `technical-design/modules/*.md`'s narrated
+This package is the physical-level API contract completing `architecture.md`'s
+container/module boundaries and `docs/technical-design/modules/*.md`'s narrated
 flows. Those sources establish *that* each module owns a set of HTTP
 operations, *that* auth is a bearer JWT carrying resolved permissions, and
-*that* specific writes are idempotent under retry — this directory is where
+*that* specific writes are idempotent under retry — this package is where
 those become a concrete, machine-readable HTTP contract: paths, request/
 response bodies, status codes, headers.
 
 Nothing here overrides `architecture.md` or a `modules/*.md` file — where this
 spec and those disagree, the narrative document is the authority and this
 spec has a bug.
+
+**Lives outside `docs/`, deliberately.** Unlike the prose design corpus, this
+contract is a code-adjacent, tooling-consumed artifact — linted/bundled by
+Redocly CLI today, and eventually the shared dependency both `apps/web` and
+`apps/mobile` generate a typed client from (via `orval`) and the source
+`apps/backend`'s own `springdoc`-generated spec is diff-checked against in CI.
+Standard practice in a polyglot monorepo: the Java backend can't `import` an
+npm package the way `apps/web`/`apps/mobile` will, so this only ever becomes a
+real build dependency for the two TypeScript apps — the backend's
+relationship to it stays a CI conformance check on the raw `openapi.yaml`,
+never a code import.
 
 ## Status: all six modules drafted
 
@@ -43,25 +54,29 @@ sync with it.
 ## Structure
 
 ```
-api/
+packages/api-contract/
 ├── openapi.yaml        # root: info, servers, security, tags, $ref aggregation
 ├── common/              # shared components — auth scheme, error shape, headers, pagination
 ├── paths/{module}.yaml  # one file per module — its HTTP operations
 └── schemas/{module}.yaml # one file per module — its request/response bodies
 ```
 
-Mirrors the `platform/` + `modules/` split already used elsewhere in
-`technical-design/` — a module's path/schema file is that module's contract,
-`common/` is the cross-cutting mechanism every module shares (the same
-relationship `auth-and-identity.md` or `distributed-coordination.md` has to
-`modules/*.md`).
+Mirrors the `platform/` + `modules/` split used in `docs/technical-design/` —
+a module's path/schema file is that module's contract, `common/` is the
+cross-cutting mechanism every module shares (the same relationship
+`auth-and-identity.md` or `distributed-coordination.md` has to
+`modules/*.md`) — even though this package now sits outside `docs/` entirely
+(see the root note above for why).
 
 ## Toolchain
 
-No `package.json` is committed — this repo has no build scaffolding yet
-(`CLAUDE.md`: "no application source code exists yet"), and introducing Node
-tooling for a docs-only concern before implementation starts would be
-scope creep. Run everything via `npx`:
+No `package.json` is committed yet — this repo has no build scaffolding at
+all as of this writing (`CLAUDE.md`: "no application source code exists
+yet"), and introducing Node tooling before `apps/web`/`apps/mobile` exist to
+actually consume it would be scope creep. This directory's `packages/`
+placement is a forward-looking claim on its eventual role (an npm workspace
+member once a root `package.json`/workspace config exists), not a statement
+that the workspace wiring exists today. Run everything via `npx` until then:
 
 ```bash
 # Lint every file for broken $ref, missing descriptions, style issues

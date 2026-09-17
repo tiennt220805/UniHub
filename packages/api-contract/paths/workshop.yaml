@@ -15,7 +15,7 @@ workshops:
       topic, speaker, or location. Public — no authentication required.
       Returns only `PUBLISHED` workshops; `DRAFT`/`CANCELLED`/`COMPLETED`
       rows never appear here regardless of caller. Backed by
-      `../../modules/workshop.md` §2's `unihub:cache:workshop:list:{filterHash}`
+      `../../../docs/technical-design/modules/workshop.md` §2's `unihub:cache:workshop:list:{filterHash}`
       cache key (30s TTL, natural-expiry-only staleness — accepted per that
       section's own trade-off).
     tags: [Workshop]
@@ -89,7 +89,7 @@ workshops:
       '429':
         description: >-
           Per-IP global rate limit exceeded
-          (`../../platform/distributed-coordination.md` §3 — 100 requests /
+          (`../../../docs/technical-design/platform/distributed-coordination.md` §3 — 100 requests /
           60s, key `unihub:ratelimit:global-ip:{ipAddress}`), explicitly
           named there as the limiter catching "catalog scraping." Applies
           even though this endpoint requires no authentication — the
@@ -156,13 +156,13 @@ workshopById:
     description: >-
       `docs/requirement.md` §1.3.1: "full speaker and location information,
       along with real-time updated seat availability." Merges
-      `../../modules/workshop.md` §2's `detail` (300s TTL) and `seats` (3s
+      `../../../docs/technical-design/modules/workshop.md` §2's `detail` (300s TTL) and `seats` (3s
       TTL) cache reads into one response. Public — no authentication
       required — **for a `PUBLISHED`/`CANCELLED`/`COMPLETED` workshop only**,
       the same visibility rule `listWorkshops` applies. A `DRAFT` workshop is
       never returned to an unauthenticated caller, or to one lacking
       `WORKSHOP_CREATE`/`WORKSHOP_EDIT`: `workshops` has no per-row owner
-      column (`../../platform/database-schema.md` §3.1), so this endpoint
+      column (`../../../docs/technical-design/platform/database-schema.md` §3.1), so this endpoint
       cannot check "is this caller the workshop's own Organizer," only
       whether the caller holds a permission broad enough to manage any
       workshop. A `DRAFT` workshop requested by a caller without that
@@ -196,7 +196,7 @@ workshopById:
       '429':
         description: >-
           Per-IP global rate limit exceeded
-          (`../../platform/distributed-coordination.md` §3 — 100 requests /
+          (`../../../docs/technical-design/platform/distributed-coordination.md` §3 — 100 requests /
           60s). **Endpoint-level scope inferred — flagged as an
           assumption:** `distributed-coordination.md` §3 names "catalog
           scraping" as the limiter's target without distinguishing the
@@ -219,7 +219,7 @@ workshopById:
       `startTime`/`endTime` set — `database-schema.md` §3.1 confirms
       reschedule is a field update, not a status transition. Triggers
       `WORKSHOP_RESCHEDULED` notifications to registered students
-      (`../../modules/notification.md`) when `startTime`/`endTime` changes;
+      (`../../../docs/technical-design/modules/notification.md`) when `startTime`/`endTime` changes;
       notification dispatch mechanics are that module's concern, not this
       contract's.
     tags: [Workshop]
@@ -276,7 +276,7 @@ workshopPublish:
       **Inferred endpoint — flagged as an assumption, not directly narrated
       anywhere in this corpus.** `database-schema.md` §3.1 defines `DRAFT` as
       the creation-time default and `PUBLISHED` as a distinct status, and
-      `../../modules/workshop.md` §7 states brochure upload happens "against
+      `../../../docs/technical-design/modules/workshop.md` §7 states brochure upload happens "against
       a workshop already created in DRAFT status," but no document specifies
       the mechanic that actually moves a row from `DRAFT` to `PUBLISHED`.
       Modeled as its own action (not folded into `updateWorkshop`) because
@@ -334,7 +334,7 @@ workshopCancel:
       to all affected students, with no manual action required." This
       operation performs the status transition and the same-transaction
       outbox write (`architecture.md` §4.3); the Notification module's own
-      dispatch of `WORKSHOP_CANCELLED` (`../../modules/notification.md`) is
+      dispatch of `WORKSHOP_CANCELLED` (`../../../docs/technical-design/modules/notification.md`) is
       out of scope for this file.
     tags: [Workshop]
     x-required-permission: WORKSHOP_EDIT
@@ -381,7 +381,7 @@ workshopBrochureUploadUrl:
     operationId: requestBrochureUploadUrl
     summary: Issue a presigned brochure-upload URL
     description: >-
-      `../../modules/workshop.md` §7 issuance step, verbatim endpoint path.
+      `../../../docs/technical-design/modules/workshop.md` §7 issuance step, verbatim endpoint path.
       PDF bytes travel directly from the Organizer's browser to S3/MinIO —
       never through the Backend API (`workshop.md`'s PDF Upload & Access
       Pattern ADR).
@@ -440,7 +440,7 @@ workshopBrochureUploadConfirm:
     operationId: confirmBrochureUpload
     summary: Confirm a completed brochure upload
     description: >-
-      `../../modules/workshop.md` §7 confirmation step, verbatim endpoint
+      `../../../docs/technical-design/modules/workshop.md` §7 confirmation step, verbatim endpoint
       path — called by the Organizer's browser immediately after a
       successful `PUT` to the presigned URL. Server-side `HeadObject`
       against the issued key is what makes this trustworthy, not the

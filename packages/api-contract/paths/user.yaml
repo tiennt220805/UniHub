@@ -20,7 +20,7 @@ login:
     summary: Authenticate and receive an access token
     description: >-
       **Inferred route — flagged as an assumption.** No document in this
-      corpus fixes this endpoint's literal path; `../../platform/auth-and-
+      corpus fixes this endpoint's literal path; `../../../docs/technical-design/platform/auth-and-
       identity.md` §4 confirms its *existence* ("On expiry: `401`, client
       re-authenticates via the login endpoint") without naming it. Request/
       response shapes are grounded directly in that file's §2 (claim vs.
@@ -37,20 +37,20 @@ login:
 
       **First-login password setup for legacy-synced accounts is an
       unresolved gap this endpoint does not attempt to close.**
-      `../../platform/database-schema.md` §2.1 states a synced student's
+      `../../../docs/technical-design/platform/database-schema.md` §2.1 states a synced student's
       `password_hash` is `NULL` until they "complete first-login setup,"
       but no document anywhere specifies *how* a student with no password
       yet authenticates in order to set one — no magic-link, OTP, or
       SMS/email verification mechanism is designed anywhere in this corpus
       (the Notification module's `type` CHECK constraint,
-      `../../platform/database-schema.md` §7.1, has no
+      `../../../docs/technical-design/platform/database-schema.md` §7.1, has no
       `ACCOUNT_SETUP`-shaped value). Inventing that mechanism here would be
       designing a feature no requirement or architecture document has
       actually specified — flagged for a human decision, not silently
       built.
 
       **A second, equally unresolved gap: no endpoint anywhere in this
-      spec suspends or reactivates a user.** `../../platform/auth-and-
+      spec suspends or reactivates a user.** `../../../docs/technical-design/platform/auth-and-
       identity.md` §4 states the operational procedure for flipping
       `users.status` to `SUSPENDED` "is an Ops Runbook / API Contracts
       concern, out of scope for this file" — an explicit forward-reference
@@ -89,7 +89,7 @@ login:
             schema:
               $ref: '../common/error.yaml'
       '401':
-        description: Invalid credentials, or the account is `SUSPENDED` (`../../platform/database-schema.md` §2.1) — deliberately indistinguishable, see above.
+        description: Invalid credentials, or the account is `SUSPENDED` (`../../../docs/technical-design/platform/database-schema.md` §2.1) — deliberately indistinguishable, see above.
         content:
           application/problem+json:
             schema:
@@ -97,7 +97,7 @@ login:
       '429':
         description: >-
           Per-IP global rate limit exceeded
-          (`../../platform/distributed-coordination.md` §3 — 100 requests /
+          (`../../../docs/technical-design/platform/distributed-coordination.md` §3 — 100 requests /
           60s, key `unihub:ratelimit:global-ip:{ipAddress}`), explicitly
           named there as the limiter catching "credential-stuffing against
           login" — unauthenticated abuse a per-user limiter can't see
@@ -115,7 +115,7 @@ syncRuns:
     operationId: listSyncRuns
     summary: List nightly legacy-student-sync run history
     description: >-
-      `../../modules/user.md` §5's "run history" — `STUDENT_SYNC_VIEW`
+      `../../../docs/technical-design/modules/user.md` §5's "run history" — `STUDENT_SYNC_VIEW`
       covers "read quarantined records and run history" per §6. Retained
       indefinitely server-side (§5); this endpoint is a plain paginated
       read over that history, newest first.
@@ -196,7 +196,7 @@ syncErrors:
     operationId: listQuarantinedRecords
     summary: List quarantined legacy-sync records
     description: >-
-      `../../modules/user.md` §6 — rows the pipeline rejected, never
+      `../../../docs/technical-design/modules/user.md` §6 — rows the pipeline rejected, never
       written to `users`. Filterable by `syncRunId` and `reviewed` so an
       admin can, for example, pull only the unreviewed backlog across all
       runs.
@@ -245,7 +245,7 @@ syncErrorById:
     operationId: resolveQuarantinedRecord
     summary: Toggle a quarantined record's reviewed flag
     description: >-
-      `../../modules/user.md` §6 — `STUDENT_SYNC_RESOLVE`, split from
+      `../../../docs/technical-design/modules/user.md` §6 — `STUDENT_SYNC_RESOLVE`, split from
       `STUDENT_SYNC_VIEW` on purpose (viewing and acting are separate
       capabilities). No reviewer identity or timestamp is captured by this
       write — a deliberate scope cut (§6), not this endpoint under-

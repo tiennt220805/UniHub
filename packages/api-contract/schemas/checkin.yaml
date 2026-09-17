@@ -2,7 +2,7 @@ VerificationKeyResponse:
   type: object
   description: >-
     A single JWK (JSON Web Key) representing the current active ECDSA
-    (`ES256`/P-256) public key (`../../modules/checkin.md` §6). Exactly one
+    (`ES256`/P-256) public key (`../../../docs/technical-design/modules/checkin.md` §6). Exactly one
     key, never a set — the Check-in Client caches and overwrites, never
     accumulates, matching §6's "rotation is a total, not partial,
     revocation" guarantee. No `kid`: this corpus's single-cached-key model
@@ -26,10 +26,10 @@ VerificationKeyResponse:
 ScanEvent:
   type: object
   description: >-
-    One offline scan, as queued on-device (`../../modules/checkin.md` §7).
+    One offline scan, as queued on-device (`../../../docs/technical-design/modules/checkin.md` §7).
     `scannedBy` is deliberately absent — derived server-side from the
     caller's own authenticated session, the same server-derivation
-    discipline `../../api/schemas/registration.yaml#/CreateRegistrationRequest`
+    discipline `../schemas/registration.yaml#/CreateRegistrationRequest`
     applies to `ticketType`. The Check-in Client authenticates its staff
     user once per session (§6); every scan in that session's synced batch
     is attributed to that same user, never client-asserted per scan.
@@ -39,7 +39,7 @@ ScanEvent:
       type: string
       format: uuid
       description: >-
-        Client-generated on-device (`../../platform/database-schema.md`
+        Client-generated on-device (`../../../docs/technical-design/platform/database-schema.md`
         §6.1) — this, not an `Idempotency-Key` header, is what makes a
         resynced batch safe to retry: re-submitting a scan with the same
         `id` is a natural no-op at the database's primary key, not the
@@ -50,9 +50,9 @@ ScanEvent:
       maxLength: 64
       description: >-
         Resolved server-side to a `registrations.id` at sync time
-        (`../../modules/checkin.md` §7). Bounded to
+        (`../../../docs/technical-design/modules/checkin.md` §7). Bounded to
         `registrations.ticket_code`'s own `VARCHAR(64)`
-        (`../../platform/database-schema.md` §4.1) — an over-length value
+        (`../../../docs/technical-design/platform/database-schema.md` §4.1) — an over-length value
         can never resolve to a real ticket, so it's rejected here rather
         than only failing a lookup server-side.
     workshopId:
@@ -62,14 +62,14 @@ ScanEvent:
         **Informational only — not persisted, not currently validated
         server-side. Flagged as an assumption**, the same way
         `syncScanBatch` itself is flagged in `../paths/checkin.yaml`.
-        `../../modules/checkin.md` §7's on-device model lists `workshop_id`
+        `../../../docs/technical-design/modules/checkin.md` §7's on-device model lists `workshop_id`
         as one of the fields the Check-in Client stores locally per scan
         (alongside `ticket_code`, staff identity, `device_id`,
         `scanned_at`), so requiring it here is faithful to what the device
         actually has on hand. But §7's *sync* model only ever resolves
         `ticketCode` → `registrations.id` and never mentions using
         `workshop_id`, and `check_in_scans`
-        (`../../platform/database-schema.md` §6.1) has no `workshop_id`
+        (`../../../docs/technical-design/platform/database-schema.md` §6.1) has no `workshop_id`
         column to write it into — so as specified today, this field is
         accepted and then dropped. A plausible future use is a defensive
         cross-check (does this scan's claimed workshop match the resolved
@@ -89,7 +89,7 @@ ScanEvent:
         Identifies the physical Check-in Client device — reconciliation
         compares scans across devices by this field. Bounded to
         `check_in_scans.device_id`'s own `VARCHAR(100)`
-        (`../../platform/database-schema.md` §6.1).
+        (`../../../docs/technical-design/platform/database-schema.md` §6.1).
 
 SyncScanBatchRequest:
   type: object
@@ -101,7 +101,7 @@ SyncScanBatchRequest:
       maxItems: 500
       description: >-
         **`maxItems` value inferred — flagged as an assumption**; not
-        specified in `../../modules/checkin.md` §7. Bounded because
+        specified in `../../../docs/technical-design/modules/checkin.md` §7. Bounded because
         `syncScanBatch` (`../paths/checkin.yaml`) processes every scan
         synchronously and inline against Postgres within this one request
         — an unbounded array here would mean an unbounded number of
@@ -133,10 +133,10 @@ CheckInScanOutcome:
   type: string
   enum: [ACCEPTED, REJECTED_DUPLICATE, REJECTED_INVALID]
   description: >-
-    `../../platform/database-schema.md` §6.1. Not immutable at the
+    `../../../docs/technical-design/platform/database-schema.md` §6.1. Not immutable at the
     database layer — a later-syncing batch with an earlier `scannedAt` can
     flip a previously `ACCEPTED` scan to `REJECTED_DUPLICATE`
-    (`../../modules/checkin.md` §7's overtake transaction) — but the value
+    (`../../../docs/technical-design/modules/checkin.md` §7's overtake transaction) — but the value
     returned in `SyncScanBatchResponse` reflects only the outcome as of
     *this* sync call, not a live subscription to later revisions.
 
@@ -154,7 +154,7 @@ AttendanceSummary:
   description: >-
     Reporting projection for `docs/requirement.md` §1.3.3's "real-time
     check-in rates" — one row per registration that has a winning scan
-    (`../../platform/database-schema.md` §6.2). Rate/percentage math against
+    (`../../../docs/technical-design/platform/database-schema.md` §6.2). Rate/percentage math against
     a workshop's total registrations is a frontend concern; this is the
     underlying data.
   required: [registrationId, checkedInAt]
@@ -165,7 +165,7 @@ AttendanceSummary:
     checkedInAt:
       type: string
       format: date-time
-      description: Denormalized copy of the winning scan's `scannedAt` (`../../platform/database-schema.md` §6.2).
+      description: Denormalized copy of the winning scan's `scannedAt` (`../../../docs/technical-design/platform/database-schema.md` §6.2).
 
 AttendanceListResponse:
   type: object
