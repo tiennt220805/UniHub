@@ -353,7 +353,7 @@ The project is delivered incrementally, with each phase building on a working sy
 - **Observability Configuration** — dashboards visualizing system health metrics.
 - **Automated Test Suite** — unit and integration tests, including the concurrency-sensitive scenarios described in Section 11.
 - **API Documentation** — endpoint contracts, request/response shapes, and access-control requirements per endpoint.
-- **This Proposal Document** (`blueprint/proposal.md`) and the source `docs/requirement.md`, maintained as the project's reference documents at this stage.
+- **This Proposal Document** (`docs/proposal.md`) and the source `docs/requirement.md`, maintained as the project's reference documents at this stage.
 
 ---
 

@@ -2,12 +2,13 @@
 
 ## Project Status
 
-**Design stage — no application source code exists yet.** This repo currently holds only the requirements/design corpus (`docs/`, `blueprint/`). There is no Gradle build, no Spring Boot module, no Dockerfiles, no CI config. Do not assume any of that scaffolding exists — check before referencing a path or command.
+**Design stage — no application source code exists yet.** This repo currently holds only the requirements/design corpus, all under `docs/`. There is no Gradle build, no Spring Boot module, no Dockerfiles, no CI config. Do not assume any of that scaffolding exists — check before referencing a path or command.
 
 - `docs/requirement.md` — the SRS. Source of truth for *what* the system must do.
-- `blueprint/proposal.md` — *why* these decisions (business case, scope, tech choices, risks).
-- `blueprint/architecture.md` — *how* (C4 diagrams, data/messaging topology, security architecture, database architecture). This is the authoritative design reference — treat it like a spec section per the Context Hierarchy: load only the section relevant to the task at hand, not the whole 900+ line file.
-- `blueprint/technical-design/` — physical-level detail (DDL, Redis key formats, TTLs, retry policy) that `architecture.md` explicitly says does *not* belong at the macro level. Organized as `platform/` (cross-cutting mechanisms shared by multiple modules — schema, Redis, RabbitMQ, auth, observability, deployment) and `modules/` (one file per business module — user, workshop, registration, payment, checkin, notification — narrating that module's full story end to end, linking into `platform/` for shared mechanisms rather than re-deriving them). Populated; keep this split when adding new physical-level detail rather than reverting to one file per infra concern.
+- `docs/proposal.md` — *why* these decisions (business case, scope, tech choices, risks).
+- `docs/architecture.md` — *how* (C4 diagrams, data/messaging topology, security architecture, database architecture). This is the authoritative design reference — treat it like a spec section per the Context Hierarchy: load only the section relevant to the task at hand, not the whole 900+ line file.
+- `docs/technical-design/` — physical-level detail (DDL, Redis key formats, TTLs, retry policy) that `architecture.md` explicitly says does *not* belong at the macro level. Organized as `platform/` (cross-cutting mechanisms shared by multiple modules — schema, Redis, RabbitMQ, auth, observability, deployment), `modules/` (one file per business module — user, workshop, registration, payment, checkin, notification — narrating that module's full story end to end, linking into `platform/` for shared mechanisms rather than re-deriving them), and `api/` (the OpenAPI 3.1 HTTP contract — see `docs/technical-design/api/README.md` for its own toolchain and key decisions). Populated; keep this split when adding new physical-level detail rather than reverting to one file per infra concern.
+- `docs/testing/` — test strategy and QA documentation (coverage targets per module, which invariants require Testcontainers integration coverage vs. unit tests). Not yet populated as of this writing.
 
 When asked to implement a feature, first find the relevant section in `architecture.md`/`proposal.md` and treat its "Guarantees" as non-negotiable acceptance criteria — the "Trade-offs" subsections tell you which limitations are deliberate and should *not* be "fixed" as a drive-by.
 
@@ -76,6 +77,6 @@ These are correctness guarantees the architecture was explicitly designed around
 
 - Don't add microservice splits, new modules, or infrastructure components beyond what `architecture.md`/`proposal.md` specify — module boundaries are drawn so a future split is *possible*, not something to do preemptively now.
 - Don't relax any guarantee in "Non-Negotiable Invariants" above to fix a bug faster — if a fix seems to require that, stop and flag it; it likely means the bug is elsewhere.
-- Don't write physical-level design decisions (schema DDL, Redis key naming, TTL values, retry counts) directly into `architecture.md` — that belongs in `blueprint/technical-design/`, which stays at implementation-detail level.
+- Don't write physical-level design decisions (schema DDL, Redis key naming, TTL values, retry counts) directly into `architecture.md` — that belongs in `docs/technical-design/`, which stays at implementation-detail level.
 - Real financial settlement and production cloud deployment are explicitly **out of scope** (`proposal.md` §5.2) — don't build toward them. The Mobile App itself *is* in scope and gets built; only publishing a signed build to the Apple App Store / Google Play Store is out of scope — distribution stays on non-store channels (e.g. Expo preview/internal builds).
 - When a task touches a "Known Limit" documented in `architecture.md` §5.6 or a trade-off elsewhere in the doc, treat it as a deliberate, already-discussed decision — surface it to the user rather than silently "fixing" it.

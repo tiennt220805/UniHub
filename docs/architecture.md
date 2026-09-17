@@ -147,7 +147,7 @@ The **Observability Stack** and **External Services** sit at the edges of the di
 ## 4. Data & Messaging Architecture
 
 > [!NOTE]
-> This section stays at the Macro Overview standard: **Rationale**, **System-level Topology**, **Trade-offs**, and **Consistency Guarantees**. Physical schema (DDL, indexing), Redis key naming formats, TTL values, message payload shapes, and retry/circuit-breaker policy specifics are implementation-level detail and belong in the corresponding files under [`blueprint/technical-design/`](./technical-design/).
+> This section stays at the Macro Overview standard: **Rationale**, **System-level Topology**, **Trade-offs**, and **Consistency Guarantees**. Physical schema (DDL, indexing), Redis key naming formats, TTL values, message payload shapes, and retry/circuit-breaker policy specifics are implementation-level detail and belong in the corresponding files under [`docs/technical-design/`](./technical-design/).
 
 ### 4.1 PostgreSQL Read/Write Splitting & Consistency Trade-offs
 
