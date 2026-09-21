@@ -18,6 +18,7 @@ All configuration in this document targets a single Kubernetes namespace, `unihu
   - [ADR Mini: Resource Profile Strategy](#adr-mini-resource-profile-strategy)
   - [ADR Mini: Migration & Seed Data Mechanism](#adr-mini-migration-seed-data-mechanism)
   - [ADR Mini: CI Job Structuring](#adr-mini-ci-job-structuring)
+  - [ADR Mini: Contract-Diff Mechanism](#adr-mini-contract-diff-mechanism)
   - [ADR Mini: Container Packaging Strategy](#adr-mini-container-packaging-strategy)
 - [1. Container Packaging & Build Strategy](#1-container-packaging-build-strategy)
 - [2. Kubernetes Topology — Kustomize Base](#2-kubernetes-topology-kustomize-base)
@@ -81,15 +82,28 @@ All configuration in this document targets a single Kubernetes namespace, `unihu
 
 ### ADR Mini: CI Job Structuring
 
-**Context:** `docs/requirement.md` §3.3 lists an ordered CI sequence (lint, unit tests, integration tests, package+push) but does not specify how that ordering is enforced. This document additionally requires that test execution be structurally separated from artifact publishing, not just sequentially ordered.
+**Context:** `docs/requirement.md` §3.3 lists an ordered CI sequence (lint, unit tests, integration tests, package+push) but does not specify how that ordering is enforced. This document additionally requires that test execution be structurally separated from artifact publishing, not just sequentially ordered. `CLAUDE.md` and `packages/api-contract/README.md`'s own "Key decisions" table extend that base sequence with one more gate once backend code exists: the `springdoc`-generated OpenAPI spec is diff-checked against the hand-written contract in `packages/api-contract`, and — per the README's own words — "a mismatch is a build failure, not a silent drift." `docs/testing/strategy/test-strategy.md` §4 already documents this as its own stage 4 (Contract diff); this ADR is where that extension actually lands in the job graph, not a competing decision.
 
-**Decision:** A single GitHub Actions workflow file with sequential jobs — `lint` → `unit-test` → `integration-test` (Testcontainers: Postgres, Redis, RabbitMQ, MinIO) → `build-and-push` — connected via `needs:`. The `build-and-push` job additionally runs only on a `push` event to `main` (never on a pull request), and only if every upstream job in the graph succeeded.
+**Decision:** A single GitHub Actions workflow file with sequential jobs — `lint` → `unit-test` → `integration-test` (Testcontainers: Postgres, Redis, RabbitMQ, MinIO) → `contract-diff` → `build-and-push` — connected via `needs:`. The `build-and-push` job additionally runs only on a `push` event to `main` (never on a pull request), and only if every upstream job in the graph succeeded. `contract-diff`'s own mechanism is a separate ADR below, since it involves tool choices `integration-test`'s job doesn't.
 
 **Consequences:**
-- A failed lint/unit/integration job structurally blocks `build-and-push` via the job dependency graph — not merely step ordering within one job, which could be bypassed by a misplaced `continue-on-error` or a step-reordering mistake.
+- A failed lint/unit/integration/contract-diff job structurally blocks `build-and-push` via the job dependency graph — not merely step ordering within one job, which could be bypassed by a misplaced `continue-on-error` or a step-reordering mistake.
 - One workflow file remains the single source of truth for the whole pipeline, with no cross-workflow triggering to reason about.
+- `contract-diff` runs after `integration-test`, not in parallel with it — it's cheap relative to the Testcontainers job, and ordering it last among the test-gate jobs means a contract mismatch never wastes the time of a run that was already going to fail on lint/unit/integration anyway.
 
 **Trade-offs accepted (user's own reasoning):** two separate workflow files cross-triggered via `workflow_run` were rejected — that level of pipeline decoupling is disproportionate for one developer maintaining one repository, and adds triggering complexity with no corresponding benefit here.
+
+### ADR Mini: Contract-Diff Mechanism
+
+**Context:** `packages/api-contract/README.md`'s "Contract authority once implementation starts" decision commits to diffing a `springdoc`-generated spec against the hand-written one in CI, but names no concrete generation or diff tooling — that choice belongs here, at the CI-implementation level, not in the contract package itself.
+
+**Decision:** `org.springdoc:springdoc-openapi-gradle-plugin`'s `generateOpenApiDocs` Gradle task produces the backend's generated spec — it boots a minimal Spring context to read the controller annotations, not the fully-wired application, so it needs no Postgres/Redis/RabbitMQ and can run as its own lightweight job rather than piggybacking on `integration-test`'s Testcontainers setup. The hand-written multi-file spec is resolved to a single file first via the same `npx @redocly/cli bundle` command `packages/api-contract/README.md` already documents for local use — no second bundling mechanism invented for CI. The two resulting single-file specs are compared with `oasdiff diff` (`tufin/oasdiff`, run via its published Docker image so no local Go toolchain is required), and the job fails on any reported difference — matching the README's "a mismatch is a build failure" language literally, not narrowed to only breaking changes.
+
+**Consequences:**
+- The generated spec never touches a real database or broker — `contract-diff` stays fast and has nothing in common with `integration-test`'s infrastructure needs beyond both running on the same JDK.
+- Failing on *any* diff, not just breaking changes, means a purely additive or cosmetic change to the hand-written spec (a new optional field, a clarified description) also requires the backend annotations to be updated in the same change before CI passes — a stricter bar than a breaking-changes-only check, chosen because the README already establishes the hand-written spec as authoritative and *any* drift from it, additive or not, means the two have silently diverged on what the real contract is.
+
+**Trade-offs accepted:** `oasdiff` and the `springdoc-openapi-gradle-plugin` task name are this document's own tool picks — `CLAUDE.md` names `springdoc` generically but neither a specific plugin nor a diff tool. Flagged here the same way this document flags its Dockerfile-vs-buildpack and its `generateOpenApiDocs`-vs-hitting-a-live-`/v3/api-docs`-endpoint choices: a live-endpoint approach was rejected because it would require standing up the full application (defeating the "lightweight job" goal above) just to read spec metadata that the annotations already contain statically.
 
 ### ADR Mini: Container Packaging Strategy
 
@@ -742,7 +756,7 @@ flowchart LR
 
 ## 5. CI Pipeline — GitHub Actions
 
-**Rationale:** implements the CI Job Structuring ADR and `docs/requirement.md` §3.3's ordered CI sequence, with `integration-test` using Testcontainers against real Postgres/Redis/RabbitMQ/MinIO — never in-memory fakes (`CLAUDE.md`).
+**Rationale:** implements the CI Job Structuring ADR and `docs/requirement.md` §3.3's ordered CI sequence, with `integration-test` using Testcontainers against real Postgres/Redis/RabbitMQ/MinIO — never in-memory fakes (`CLAUDE.md`) — extended with the `contract-diff` job the Contract-Diff Mechanism ADR above adds on top of that base sequence, per `packages/api-contract/README.md`'s own commitment and `docs/testing/strategy/test-strategy.md` §4's stage 4.
 
 **Model:**
 
@@ -786,8 +800,28 @@ jobs:
       # `services:` stanza is needed, unlike a fixed-sidecar-container setup.
       - run: ./gradlew integrationTest --no-daemon
 
-  build-and-push:
+  contract-diff:
     needs: integration-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { java-version: '21', distribution: 'temurin' }
+      # Boots a minimal Spring context to read the controller annotations —
+      # not the fully-wired application, so no Postgres/Redis/RabbitMQ/MinIO
+      # needed here (Contract-Diff Mechanism ADR above).
+      - run: ./gradlew generateOpenApiDocs --no-daemon
+      # Resolve both specs to a single file each before diffing — the
+      # hand-written one is multi-file by design (packages/api-contract's
+      # own platform/+modules/ split), and the generated one already is.
+      - run: npx --yes @redocly/cli bundle packages/api-contract/openapi.yaml -o /tmp/hand-written.yaml
+      - run: cp build/openapi.json /tmp/generated.json
+      - run: |
+          docker run --rm -v /tmp:/specs tufin/oasdiff:latest diff \
+            /specs/hand-written.yaml /specs/generated.json --fail-on-diff
+
+  build-and-push:
+    needs: contract-diff
     # No separate branch check needed: the workflow's own `on.push.branches`
     # trigger (above) already restricts every `push` event this job can see
     # to `main` — `github.event_name == 'push'` is the whole condition.
@@ -814,11 +848,12 @@ jobs:
 | `lint` | Every push + PR | — | Checkstyle + formatting, per `docs/requirement.md` §3.3 step 1. |
 | `unit-test` | Every push + PR | `lint` success | Fast, no-infrastructure tests. |
 | `integration-test` | Every push + PR | `unit-test` success | Testcontainers-backed Postgres/Redis/RabbitMQ/MinIO — real infrastructure, per `CLAUDE.md`. |
-| `build-and-push` | **Only** `push` to `main` | `integration-test` success | The only job that can publish an artifact — structurally unreachable from a PR or from any failed upstream job. |
+| `contract-diff` | Every push + PR | `integration-test` success | Diffs the `springdoc`-generated spec against `packages/api-contract`'s hand-written one; fails on any difference, per that package's README (Contract-Diff Mechanism ADR above). |
+| `build-and-push` | **Only** `push` to `main` | `contract-diff` success | The only job that can publish an artifact — structurally unreachable from a PR or from any failed upstream job. |
 
 `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are GitHub Actions repository secrets, injected by the Actions runtime — never committed to the workflow file itself, consistent with `CLAUDE.md`'s secrets invariant extended to CI configuration.
 
-**Trade-offs:** every push to a PR branch pays the full `lint` → `unit-test` → `integration-test` cost even though its `build-and-push` job will never run (the `if:` condition excludes anything but a `main` push) — accepted because catching a failure on a PR, before merge, is the entire point of running CI on PRs at all; skipping the expensive `integration-test` job for PRs would defeat that.
+**Trade-offs:** every push to a PR branch pays the full `lint` → `unit-test` → `integration-test` → `contract-diff` cost even though its `build-and-push` job will never run (the `if:` condition excludes anything but a `main` push) — accepted because catching a failure on a PR, before merge, is the entire point of running CI on PRs at all; skipping the expensive `integration-test` job (or the cheaper `contract-diff` job right after it) for PRs would defeat that.
 
 **Guarantees:** `build-and-push` cannot execute unless every job ahead of it in the `needs:` graph succeeded, and never executes at all on a pull request — there is no path by which an untested change reaches Docker Hub.
 
@@ -833,7 +868,7 @@ jobs:
 | | **Local Development** | **CI Runner (GitHub Actions)** | **Minikube PoC** |
 |---|---|---|---|
 | Postgres / Redis / RabbitMQ / MinIO | Docker Compose (developer's own convenience, outside this document's Kustomize scope) or a local Minikube profile | Testcontainers — ephemeral, started/stopped per test run (§5) | In-cluster Deployments/StatefulSets from `base/` (§2) |
-| Backend API | Run directly via `./gradlew bootRun`, pointed at Docker Compose services | Not run as a long-lived process — only exercised via `unit-test`/`integration-test` | Runs as the `backend-api` Deployment (§2/§3) |
+| Backend API | Run directly via `./gradlew bootRun`, pointed at Docker Compose services | Not run as a long-lived process — only exercised via `unit-test`/`integration-test`/`contract-diff`'s `generateOpenApiDocs` (a minimal Spring context, not the full application) | Runs as the `backend-api` Deployment (§2/§3) |
 | Migrations | Flyway Gradle plugin (`./gradlew flywayMigrate`) against the local Compose Postgres | Flyway runs as part of the Testcontainers-backed integration test lifecycle (each test's own ephemeral Postgres) | `flyway-migrate` Kubernetes Job (§4), gating the Deployment rollout |
 | Config/secrets source | Local `.env` file (git-ignored, never committed) | GitHub Actions repository secrets (`DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`) | Kubernetes ConfigMap (`backend-api-config`) + Secret created via `kubectl create secret` (§2) — never a committed file |
 | Manifest/overlay used | None — Kustomize is not part of the local-dev inner loop | None — CI never applies Kubernetes manifests | `overlays/dev` for daily use, `overlays/loadtest` for a dedicated load-test session (§3) |
@@ -859,6 +894,6 @@ Every manifest file, overlay, workflow job, and script target in one place, mirr
 | Migration Job manifest | `k8s/jobs/flyway-migrate-job.yaml` | One-shot Flyway container, gates Deployment rollout (§4) |
 | Seed migration file | `src/main/resources/db/migration/V2__seed_default_roles_permissions.sql` | Idempotent default roles/permissions (§4) |
 | Deploy automation | `Makefile` (`migrate`, `deploy-dev`, `deploy-loadtest` targets) | The only place deployment to Minikube happens (§4, CI/CD Automation Boundary ADR) |
-| CI workflow | `.github/workflows/ci.yml` | `lint` → `unit-test` → `integration-test` → `build-and-push` job graph (§5) |
+| CI workflow | `.github/workflows/ci.yml` | `lint` → `unit-test` → `integration-test` → `contract-diff` → `build-and-push` job graph (§5) |
 | CI secrets | `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (GitHub Actions repository secrets) | Docker Hub authentication for `build-and-push`, never committed (§5) |
 | Runtime Secret template | `k8s/base/secret.example.yaml` | Shape-only reference; real Secret created via `kubectl create secret generic` (§2) |
