@@ -65,15 +65,17 @@ Sections 2–5 below are the concrete catalog — every row cites the `technical
 
 **3.1 — Anti-overbooking (INV-06, `architecture.md` §4.2/§6.1, `proposal.md` §11.1):**
 
+**A note before the table, because this is easy to misread:** the "lock step skipped" rows below are a **defense-in-depth** test — the lock's *acquisition step itself* is never called (a stand-in for an application bug that bypasses it), while Redis remains fully reachable. This is a different question from *"what if Redis is actually unreachable"* — that's a fail-safe/availability question, not a data-race question, and `architecture.md` §4.2 already answers it: an unreachable coordination layer means the request is **rejected outright**, never allowed to fall through to the DB uncoordinated (INV-08). That fail-safe behavior is a fault-injection scenario, out of scope for a decision table shaped around lock/version/constraint state — it belongs to `../non-functional/resilience-testing.md`, referenced here, not re-derived. Do not read the rows below as "Redis is down and the DB catches it anyway" — that reading contradicts INV-08; the correct reading is "the lock step never ran, and the DB still caught it."
+
 | Redis lock acquired? | Optimistic version matches? | DB check constraint satisfied? | Outcome |
 |---|---|---|---|
 | Yes | Yes | Yes | Accept |
 | Yes | No (concurrent writer won) | — | Reject — retry or 409, caller's choice |
 | No (lock contention) | — | — | Reject — 409 immediately, no DB round-trip attempted |
-| N/A (lock layer disabled — the deliberate test case) | Yes | Yes | Accept — proves the DB layer alone still holds |
-| N/A (lock layer disabled) | Yes (attempted bypass at raw SQL level) | No | Reject — the check constraint is the true final backstop |
+| N/A — lock acquisition step skipped by the test itself, Redis otherwise reachable (defense-in-depth case, see note above) | Yes | Yes | Accept — proves the DB layer alone still holds even if the application never called the lock at all |
+| N/A — lock acquisition step skipped by the test itself, Redis otherwise reachable | Yes (attempted bypass at raw SQL level) | No | Reject — the check constraint is the true final backstop |
 
-This table **is** `test-plan.md` Phase 3's three test variants (full-stack, lock-disabled, DB-only) — those three integration tests are this table's three "lock" columns held constant while the row varies. Read them together, not as unrelated tests.
+This table **is** `test-plan.md` Phase 3's three test variants (full-stack, lock-disabled, DB-only) — those three integration tests are this table's three "lock" columns held constant while the row varies. Read them together, not as unrelated tests. The fourth variant implied by INV-08 (Redis genuinely unreachable) is a separate resilience test, not a fourth row here — see the note above.
 
 **3.2 — Payment resolution race (INV-04, INV-10, `payment.md` §6–§7):**
 
@@ -120,6 +122,8 @@ This table **is** `test-plan.md` Phase 3's three test variants (full-stack, lock
 | Seat-hold TTL (`registrations.hold_expires_at`) | 15 minutes | Just under 15:00 elapsed (still `RESERVED`, not yet swept) / exactly at 15:00 / just past 15:00 (must be `EXPIRED` on next sweep tick) — via injectable `Clock`, see `mocking-guidelines.md` §3 | `requirement.md` §1.3.1, INV-07 |
 | Payment reconciliation threshold (`payments.initiated_at`) | 15 minutes | Same three-point boundary as above, same mechanism | `payment.md` §6, INV-04 |
 | Seat capacity (`workshops.capacity`/`seats_taken`) | Per-workshop, caller-defined | `seats_taken = capacity - 1` (last seat available — must accept exactly one more) / `seats_taken = capacity` (must reject) / an attempted write that would push `seats_taken > capacity` (must be physically impossible, not just rejected — the check constraint's job) | INV-06, `proposal.md` §11.1 |
+| Rate limit — per-user registration attempts (`unihub:ratelimit:registration:{userId}`) | 5 requests / 10s | 4th request in the window (accept) / 5th request in the window (accept, boundary) / 6th request in the same window (reject, `429`) / 1st request after the window rolls over (accept again) | `distributed-coordination.md` §3, INV-17 |
+| Rate limit — per-IP global API traffic (`unihub:ratelimit:global-ip:{ipAddress}`) | 100 requests / 60s | 99th request in the window (accept) / 100th request in the window (accept, boundary) / 101st request in the same window (reject, `429`) / 1st request after the window rolls over (accept again) | `distributed-coordination.md` §3, INV-17 |
 
 **Guarantees:** every VARCHAR/maxItems/TTL bound tested this way stays synchronized with `database-schema.md`/`packages/api-contract` by construction — if a future schema change moves a bound, the corresponding test (asserting the *old* boundary) fails immediately instead of silently testing a stale limit.
 
@@ -146,5 +150,5 @@ This table **is** `test-plan.md` Phase 3's three test variants (full-stack, lock
 |---|---|---|
 | State Transition entities catalogued | 6 | §2 |
 | Decision tables catalogued | 4 | §3 |
-| Boundary/equivalence bounds catalogued | 7 | §4 |
+| Boundary/equivalence bounds catalogued | 9 | §4 |
 | Pairwise dimension-sets catalogued | 2 | §5 |

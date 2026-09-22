@@ -10,9 +10,10 @@ This file is the physical-level completion of the fixture/seed-data side of `moc
 
 - [1. Test Data Builders](#1-test-data-builders)
 - [2. Baseline Defaults & Single-Field Override Discipline](#2-baseline-defaults-single-field-override-discipline)
-- [3. Data Isolation Across Tests](#3-data-isolation-across-tests)
-- [4. Uniqueness & Collision Avoidance](#4-uniqueness-collision-avoidance)
-- [5. Reference Table](#5-reference-table)
+- [3. Fixtures for Technical Pattern Entities](#3-fixtures-for-technical-pattern-entities)
+- [4. Data Isolation Across Tests](#4-data-isolation-across-tests)
+- [5. Uniqueness & Collision Avoidance](#5-uniqueness-collision-avoidance)
+- [6. Reference Table](#6-reference-table)
 
 ---
 
@@ -50,6 +51,8 @@ var registration = aReservedRegistration()
 | `aPendingPayment()` | Valid registration reference, `initiatedAt = now`, `resolvedAt = null` | `payment.md` §1 |
 | `aPublishedWorkshop()` | `capacity = 100` (this builder's own round-number choice — `workshops.capacity` has no schema `DEFAULT`, per `database-schema.md` §3.1, so any legal positive value is equally valid; 100 is picked only for readability), `seatsTaken = 0` (schema `DEFAULT 0`), `isPaid = false` (schema `DEFAULT false`) | `database-schema.md` §3.1 |
 | `anAcceptedScan()` | Valid ticket, `scannedAt = now`, `outcome = ACCEPTED` | `checkin.md` §7 |
+| `anActiveUser()` | Random `email` per build, `passwordHash` set — a directly-provisioned account, not a legacy-synced one (`legacyStudentId = null`), `fullName` set, `status = ACTIVE` (schema `DEFAULT 'ACTIVE'`) | `database-schema.md` §2.1 |
+| `aRunningLegacySyncRun()` | `exportDate = today`, `status = RUNNING` (schema `DEFAULT 'RUNNING'`), `failureReason = null`, `startedAt = now`, `finishedAt = null`, all four row counters `= 0` (schema `DEFAULT 0`) | `database-schema.md` §2.6 |
 
 A test that needs the seat-capacity boundary from `test-design-techniques.md` §4 overrides only `seatsTaken`:
 
@@ -62,7 +65,25 @@ var lastSeat = aPublishedWorkshop().withCapacity(10).withSeatsTaken(9).build(); 
 
 ---
 
-## 3. Data Isolation Across Tests
+## 3. Fixtures for Technical Pattern Entities
+
+**Rationale:** `architecture.md` §6.1 names Idempotency Key, Event Publication, and Audit Event as cross-cutting Technical Pattern Entities, not business data — `CLAUDE.md` is explicit that they shouldn't be modeled like domain objects. Tests proving INV-02 (idempotency, same-transaction write), INV-10 (outbox atomicity), and INV-14 (audit fail-open) all need a legal row in one of these three tables, but none of them fit §1/§2's `a<State><Entity>()` pattern uniformly: only `event_publications` actually has a status column (`PENDING`/`PUBLISHED`); `idempotency_keys` and `audit_events` don't. This section is where the three get fixture guidance without forcing a builder shape onto the two that don't have a state to name.
+
+**Model:**
+
+| Entity | Fixture approach | Why it differs from §1/§2's pattern | Source |
+|---|---|---|---|
+| `idempotency_keys` | No `a<State>...()` builder — a plain factory taking `scope`, `idempotencyKey`, `responseStatus`, `responseBody` as **required arguments**, e.g. `anIdempotencyKeyRecord("PAYMENT_CHARGE", key, 200, storedBody)` | The entire point of an idempotency test is correlating a specific key with a specific prior request/response — defaulting these fields randomly (§1's usual "random by default" rule) would defeat the fixture's purpose, not just be irrelevant to it | `database-schema.md` §8.1 |
+| `event_publications` | Has a status column, so it *does* follow §1/§2's convention: `aPendingEventPublication(aggregateType, aggregateId, eventType, payload)` / `aPublishedEventPublication(...)` | Fits the existing pattern directly — the one exception to this section needing special-case guidance | `database-schema.md` §8.2 |
+| `audit_events` | No `a<State>...()` builder — a single baseline `anAuditEvent()` (valid `actorUserId` FK, `action`/`targetType`/`targetId` set, `occurredAt = now`) | No status/outcome column to name a state after; one baseline is enough since audit-fail-open tests (INV-14) care about whether the row gets written at all, not about a state machine on the row itself | `database-schema.md` §8.3 |
+
+**A rule specific to `event_publications`:** for an outbox-atomicity test (INV-10), this fixture must be inserted as part of the *same* setup/transaction as the business row it announces — never built and inserted independently beforehand. The builder's job here is unchanged from §1's rule (produce a legal row, decide nothing about the outcome); the test itself owns pairing it with the business write it accompanies.
+
+**Guarantees:** the same §1 rule applies to all three — none of these fixtures decides an outcome, performs an assertion, or encodes business logic; they only construct a row that satisfies the schema's own constraints (`database-schema.md` §8's `UNIQUE (scope, idempotency_key)`, the `PENDING`/`PUBLISHED` check on `event_publications.status`, and the `NOT NULL` columns on `audit_events`).
+
+---
+
+## 4. Data Isolation Across Tests
 
 **Rationale:** `../strategy/test-strategy.md` §5 (Environment Strategy) reuses ephemeral Testcontainers per run, not per test — so nothing prevents one test's committed rows from being visible to the next test unless isolation is deliberate. Most tests want isolation; the anti-overbooking concurrency tests (`test-design-techniques.md` §3.1, INV-06) are the deliberate exception, and conflating the two isolation strategies breaks the exception.
 
@@ -78,9 +99,9 @@ var lastSeat = aPublishedWorkshop().withCapacity(10).withSeatsTaken(9).build(); 
 
 ---
 
-## 4. Uniqueness & Collision Avoidance
+## 5. Uniqueness & Collision Avoidance
 
-**Rationale:** several tables carry uniqueness constraints beyond the primary key — `registrations.ticket_code UNIQUE`, and the partial index `UNIQUE (workshop_id, user_id) WHERE status IN ('RESERVED', 'CONFIRMED')` (`database-schema.md` §4.1) that stops a student holding two simultaneous active registrations for the same workshop. A builder that reuses a fixed value for these fields across tests produces flaky, order-dependent failures — a test passes alone and fails only when run alongside another test that happened to claim the same value first.
+**Rationale:** several tables carry uniqueness constraints beyond the primary key — `registrations.ticket_code UNIQUE`, the partial index `UNIQUE (workshop_id, user_id) WHERE status IN ('RESERVED', 'CONFIRMED')` (`database-schema.md` §4.1) that stops a student holding two simultaneous active registrations for the same workshop, and `users.email UNIQUE` (`database-schema.md` §2.1). A builder that reuses a fixed value for these fields across tests produces flaky, order-dependent failures — a test passes alone and fails only when run alongside another test that happened to claim the same value first. `legacy_sync_runs` (added to §2 in D1) carries no uniqueness constraint beyond its primary key — its only indexes are on `export_date` and `status` — so it needs no row here.
 
 **Model:**
 
@@ -88,18 +109,20 @@ var lastSeat = aPublishedWorkshop().withCapacity(10).withSeatsTaken(9).build(); 
 |---|---|---|
 | `ticketCode` | Random per build (e.g. UUID-derived, respecting `VARCHAR(64)`) | Never, unless the test specifically targets the `UNIQUE` constraint itself (in which case, building two rows with the same explicit `ticketCode` *is* the test) |
 | `(workshopId, userId)` pair for an active registration | A fresh `userId` per build by default | When a test specifically targets the "no two simultaneous active registrations" partial-unique-index rule — build two `RESERVED`/`CONFIRMED` rows sharing both fields deliberately, and assert the second write is rejected |
+| `anActiveUser()`'s `email` | Random per build (e.g. UUID-derived local part) | Never, unless the test specifically targets the `UNIQUE (email)` constraint itself — building two users with the same explicit `email` *is* that test |
 | Any other builder field with a uniqueness constraint discovered later | Same rule: random by default, an explicit shared value only when the constraint itself is what's under test | Keeps the default path collision-free without needing a per-test-run reset of shared counters |
 
 **Guarantees:** running the same Integration test class in parallel with itself (a different instance, same Testcontainers-backed DB, per `../strategy/test-strategy.md` §5's per-run-not-per-test container lifecycle) never fails on an accidental unique-constraint collision — only a test that deliberately constructs one, as its actual assertion, can trigger that constraint.
 
 ---
 
-## 5. Reference Table
+## 6. Reference Table
 
 | Item | Value | Section |
 |---|---|---|
 | Builder naming | `a<State><Entity>()`, e.g. `aReservedRegistration()` | §1 |
 | Baseline defaults | Fixed, documented once per entity | §2 |
-| Ordinary test isolation | `@Transactional` rollback | §3 |
-| Concurrency/cross-transaction test isolation | Explicit setup/teardown — never `@Transactional` rollback | §3 |
-| Collision-prone fields | Random by default (`ticketCode`, active-registration `(workshopId, userId)` pair) | §4 |
+| Technical Pattern Entity fixtures | Required-argument factory (Idempotency Key), state builder (Event Publication), single baseline (Audit Event) | §3 |
+| Ordinary test isolation | `@Transactional` rollback | §4 |
+| Concurrency/cross-transaction test isolation | Explicit setup/teardown — never `@Transactional` rollback | §4 |
+| Collision-prone fields | Random by default (`ticketCode`, active-registration `(workshopId, userId)` pair, `anActiveUser()`'s `email`) | §5 |
