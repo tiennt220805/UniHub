@@ -82,7 +82,7 @@ This file is the physical-level completion of `proposal.md` §13 (Testing & QA S
 | Unit | Small — single process, no I/O | JUnit 5 + Mockito | ~65% | `../test-levels/unit-testing.md` |
 | Integration | Medium — localhost, real Postgres/Redis/RabbitMQ via Testcontainers | JUnit 5 + Testcontainers | ~25% | `../test-levels/integration-testing.md` |
 | Contract | Medium — schema diff, no runtime infra | springdoc + OpenAPI diff vs. `packages/api-contract` | not measured as a test-case share (see note below) | `../test-levels/contract-testing.md` |
-| E2E | Large — full stack, browser | tool not yet chosen | ~5% | `../test-levels/e2e-testing.md` |
+| E2E | Large — full stack, browser | Playwright | ~5% | `../test-levels/e2e-testing.md` |
 | Load / adversarial-concurrency | Large — deployed instance, external driver | K6 / JMeter | not part of the per-push suite (§4) | `../non-functional/performance-load.md` |
 
 The elevated Integration share (~25% vs. a typical ~15%) is intentional: it is the tier carrying the anti-overbooking, idempotency, and outbox invariants that a mock cannot verify.
@@ -106,7 +106,7 @@ The elevated Integration share (~25% vs. a typical ~15%) is intentional: it is t
 | 3. Integration tests (Testcontainers) | Every push/PR to `main` | Yes | 100% pass |
 | 4. Contract diff (OpenAPI vs. `packages/api-contract`) | Every push/PR to `main`, from Phase 1 onward — wired in as soon as the first real backend OpenAPI output exists (User/Workshop endpoints), not deferred to Phase 7 (`test-plan.md` §1) | Yes | Zero unreviewed drift |
 | 5. Docker package/push | Every push/PR to `main`, from Phase 7 onward (the K8s/CI-CD phase — `test-plan.md` §1) | Yes (final step, once reached) | Steps 1–4 must pass first |
-| E2E | Not yet decided — candidate: pre-release only, not per-push | No (open item) | — |
+| E2E (Playwright) | Pre-release only, tied to `test-plan.md` §1 Phase 7's Minikube smoke-test deliverable (`../test-levels/e2e-testing.md` §3) | No — evidence gate for Phase 7+ sign-off, not a per-push CI gate | Full Playwright suite passes against a fresh Minikube deploy |
 | Load / adversarial-concurrency (K6/JMeter) | Dedicated sessions only (§5), scheduled per `test-plan.md` (first local, smoke-only draft in Phase 3 — not an evidence gate; full-topology evidence run in Phase 8) | No — evidence gate for a phase, not a per-push CI gate | 0% overbooking; full success-criteria table (§12) at Phase 8 |
 
 **Guarantees:** steps 1–5 are the only gates a routine commit must clear. Load testing intentionally never runs on every push — `proposal.md` §16's resource-consumption risk row already decided this (full topology reserved for dedicated sessions) — so its absence from the per-push pipeline is a documented trade-off, not a gap.

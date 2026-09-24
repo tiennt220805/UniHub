@@ -18,6 +18,7 @@ All configuration in this document targets a single Kubernetes namespace, `unihu
   - [ADR Mini: Resource Profile Strategy](#adr-mini-resource-profile-strategy)
   - [ADR Mini: Migration & Seed Data Mechanism](#adr-mini-migration-seed-data-mechanism)
   - [ADR Mini: CI Job Structuring](#adr-mini-ci-job-structuring)
+  - [ADR Mini: Coverage Verification Mechanism](#adr-mini-coverage-verification-mechanism)
   - [ADR Mini: Contract-Diff Mechanism](#adr-mini-contract-diff-mechanism)
   - [ADR Mini: Container Packaging Strategy](#adr-mini-container-packaging-strategy)
 - [1. Container Packaging & Build Strategy](#1-container-packaging-build-strategy)
@@ -93,17 +94,31 @@ All configuration in this document targets a single Kubernetes namespace, `unihu
 
 **Trade-offs accepted (user's own reasoning):** two separate workflow files cross-triggered via `workflow_run` were rejected — that level of pipeline decoupling is disproportionate for one developer maintaining one repository, and adds triggering complexity with no corresponding benefit here.
 
+### ADR Mini: Coverage Verification Mechanism
+
+**Context:** `docs/testing/strategy/test-strategy.md` §4 states ≥80% coverage on core business-logic services as a blocking gate on the `unit-test` stage, and `docs/requirement.md` §3.2 states the same figure. Neither document names a concrete coverage tool, and — until this ADR — the `unit-test` job below only ran `./gradlew test`, with no coverage measurement or enforcement step at all: the 80% figure was a documented promise with nothing in the actual pipeline checking it. `docs/testing/test-levels/unit-testing.md` §3 flagged this gap and proposed the fix this ADR formalizes.
+
+**Decision:** `org.jacoco` (JaCoCo), via Gradle's `jacoco` plugin, with a `jacocoTestCoverageVerification` rule scoped to core business-logic packages only (`com.unihub.*.service.*`, `com.unihub.*.domain.*`), excluding DTOs/config/mappers/the generated `packages/api-contract` client — the same exclusion list `test-strategy.md` §4 already defines in prose. `check.dependsOn jacocoTestCoverageVerification`, and the `unit-test` job runs it as a second step immediately after `./gradlew test`.
+
+**Consequences:**
+- A PR that drops core business-logic line coverage below 80% fails the `unit-test` job directly — the same job `test-strategy.md` §4 already names as the coverage gate, not a separate, easily-bypassed check.
+- Coverage is measured only over Unit-test execution, consistent with `docs/testing/test-levels/unit-testing.md`'s scope — the `integration-test` job's Testcontainers-backed tests are not folded into this same coverage number, since `test-strategy.md` §4's 80% figure is stated specifically against Unit-level business-logic tests.
+
+**Trade-offs accepted:** JaCoCo's package-level `includes`/`excludes` pattern is this document's own concrete scoping mechanism — `CLAUDE.md` and `test-strategy.md` describe "core business-logic services" only in prose; translating that into `com.unihub.*.service.*`/`com.unihub.*.domain.*` glob patterns is an assumption about the eventual package layout, flagged here the same way this document flags its other inferred specifics, to be corrected once real module packages exist if the layout differs.
+
 ### ADR Mini: Contract-Diff Mechanism
 
-**Context:** `packages/api-contract/README.md`'s "Contract authority once implementation starts" decision commits to diffing a `springdoc`-generated spec against the hand-written one in CI, but names no concrete generation or diff tooling — that choice belongs here, at the CI-implementation level, not in the contract package itself.
+**Context:** `packages/api-contract/README.md`'s "Contract authority once implementation starts" decision commits to diffing a `springdoc`-generated spec against the hand-written one in CI, but names no concrete generation or diff tooling — that choice belongs here, at the CI-implementation level, not in the contract package itself. `docs/testing/test-levels/contract-testing.md` §4 flagged a gap in this ADR's first version: `packages/api-contract` already describes all six business modules, but the *generated* spec only ever contains whatever controllers exist in code at a given point in `docs/testing/strategy/test-plan.md`'s phased rollout — a full-spec-vs-full-spec diff would report every not-yet-implemented module's paths as "missing" and fail unconditionally until all six modules are built, contradicting that phased rollout entirely. This ADR's Decision below now includes the fix for that gap, not just the original mechanism.
 
-**Decision:** `org.springdoc:springdoc-openapi-gradle-plugin`'s `generateOpenApiDocs` Gradle task produces the backend's generated spec — it boots a minimal Spring context to read the controller annotations, not the fully-wired application, so it needs no Postgres/Redis/RabbitMQ and can run as its own lightweight job rather than piggybacking on `integration-test`'s Testcontainers setup. The hand-written multi-file spec is resolved to a single file first via the same `npx @redocly/cli bundle` command `packages/api-contract/README.md` already documents for local use — no second bundling mechanism invented for CI. The two resulting single-file specs are compared with `oasdiff diff` (`tufin/oasdiff`, run via its published Docker image so no local Go toolchain is required), and the job fails on any reported difference — matching the README's "a mismatch is a build failure" language literally, not narrowed to only breaking changes.
+**Decision:** `org.springdoc:springdoc-openapi-gradle-plugin`'s `generateOpenApiDocs` Gradle task produces the backend's generated spec — it boots a minimal Spring context to read the controller annotations, not the fully-wired application, so it needs no Postgres/Redis/RabbitMQ/MinIO and can run as its own lightweight job rather than piggybacking on `integration-test`'s Testcontainers setup. The hand-written multi-file spec is resolved to a single file first via the same `npx @redocly/cli bundle` command `packages/api-contract/README.md` already documents for local use, bundled to JSON rather than YAML so the next step can filter it with `jq`. **Before diffing**, the bundled hand-written spec's `paths` object is filtered down to only the paths already present in the generated spec — `jq --argjson impl "$(jq '.paths | keys' generated.json)" '.paths |= with_entries(select(.key as $p | $impl | index($p) != null))'` — so a module with no controller yet contributes nothing to either side of the comparison, while a path that *is* implemented still gets compared in full. The two resulting specs are compared with `oasdiff diff` (`tufin/oasdiff`, run via its published Docker image so no local Go toolchain is required), and the job fails on any reported difference — matching the README's "a mismatch is a build failure" language literally, not narrowed to only breaking changes, for every path both specs now describe.
 
 **Consequences:**
 - The generated spec never touches a real database or broker — `contract-diff` stays fast and has nothing in common with `integration-test`'s infrastructure needs beyond both running on the same JDK.
-- Failing on *any* diff, not just breaking changes, means a purely additive or cosmetic change to the hand-written spec (a new optional field, a clarified description) also requires the backend annotations to be updated in the same change before CI passes — a stricter bar than a breaking-changes-only check, chosen because the README already establishes the hand-written spec as authoritative and *any* drift from it, additive or not, means the two have silently diverged on what the real contract is.
+- Failing on *any* diff, not just breaking changes, means a purely additive or cosmetic change to the hand-written spec for an *already-implemented* module (a new optional field, a clarified description) also requires the backend annotations to be updated in the same change before CI passes — a stricter bar than a breaking-changes-only check, chosen because the README already establishes the hand-written spec as authoritative and *any* drift from it, additive or not, means the two have silently diverged on what the real contract is.
+- A path implemented in code but genuinely absent from the hand-written spec (an undocumented endpoint) is **not** filtered out by the `jq` step above — it only removes hand-written-only paths, never generated-only ones — so `contract-diff` still fails on undocumented endpoints exactly as before this fix.
+- A module can go from "not yet implemented" (silently excluded from the diff) to "implemented" (fully diffed, any drift blocking) with no separate flag to flip — the filter step re-derives the implemented set from the generated spec on every run.
 
-**Trade-offs accepted:** `oasdiff` and the `springdoc-openapi-gradle-plugin` task name are this document's own tool picks — `CLAUDE.md` names `springdoc` generically but neither a specific plugin nor a diff tool. Flagged here the same way this document flags its Dockerfile-vs-buildpack and its `generateOpenApiDocs`-vs-hitting-a-live-`/v3/api-docs`-endpoint choices: a live-endpoint approach was rejected because it would require standing up the full application (defeating the "lightweight job" goal above) just to read spec metadata that the annotations already contain statically.
+**Trade-offs accepted:** `oasdiff`, the `springdoc-openapi-gradle-plugin` task name, and the `jq`-based path-filtering step are this document's own tool picks and scripting choices — `CLAUDE.md` names `springdoc` generically but neither a specific plugin nor a diff tool, and names nothing about phased-rollout filtering at all. The `jq` filter expression above is this document's own inferred script, flagged the same way this document flags its other inferred specifics (e.g. the Coverage Verification ADR's package-glob patterns) — to be verified against the real `jq` version and the real generated-spec shape once the first backend controller exists, not assumed correct from this design-stage description alone. A live-endpoint approach (hitting a running app's `/v3/api-docs` instead of the static `generateOpenApiDocs` task) was rejected because it would require standing up the full application (defeating the "lightweight job" goal above) just to read spec metadata that the annotations already contain statically.
 
 ### ADR Mini: Container Packaging Strategy
 
@@ -756,7 +771,7 @@ flowchart LR
 
 ## 5. CI Pipeline — GitHub Actions
 
-**Rationale:** implements the CI Job Structuring ADR and `docs/requirement.md` §3.3's ordered CI sequence, with `integration-test` using Testcontainers against real Postgres/Redis/RabbitMQ/MinIO — never in-memory fakes (`CLAUDE.md`) — extended with the `contract-diff` job the Contract-Diff Mechanism ADR above adds on top of that base sequence, per `packages/api-contract/README.md`'s own commitment and `docs/testing/strategy/test-strategy.md` §4's stage 4.
+**Rationale:** implements the CI Job Structuring ADR and `docs/requirement.md` §3.3's ordered CI sequence, with `integration-test` using Testcontainers against real Postgres/Redis/RabbitMQ/MinIO — never in-memory fakes (`CLAUDE.md`) — extended with the `unit-test` job's coverage-verification step (Coverage Verification Mechanism ADR above) and the `contract-diff` job (Contract-Diff Mechanism ADR above, including its phased-rollout path filter) on top of that base sequence, per `packages/api-contract/README.md`'s own commitment and `docs/testing/strategy/test-strategy.md` §4's stages 2 and 4.
 
 **Model:**
 
@@ -787,6 +802,11 @@ jobs:
       - uses: actions/setup-java@v4
         with: { java-version: '21', distribution: 'temurin' }
       - run: ./gradlew test --no-daemon
+      # Fails the job if core business-logic package coverage drops below
+      # 80% (Coverage Verification Mechanism ADR above) — the actual
+      # enforcement of the figure docs/requirement.md §3.2 only states in
+      # prose otherwise.
+      - run: ./gradlew jacocoTestCoverageVerification --no-daemon
 
   integration-test:
     needs: unit-test
@@ -811,14 +831,29 @@ jobs:
       # not the fully-wired application, so no Postgres/Redis/RabbitMQ/MinIO
       # needed here (Contract-Diff Mechanism ADR above).
       - run: ./gradlew generateOpenApiDocs --no-daemon
-      # Resolve both specs to a single file each before diffing — the
-      # hand-written one is multi-file by design (packages/api-contract's
-      # own platform/+modules/ split), and the generated one already is.
-      - run: npx --yes @redocly/cli bundle packages/api-contract/openapi.yaml -o /tmp/hand-written.yaml
       - run: cp build/openapi.json /tmp/generated.json
+      # Resolve the hand-written multi-file spec to a single file — bundled
+      # to JSON, not YAML, so the filter step below can use jq on both
+      # specs uniformly.
+      - run: npx --yes @redocly/cli bundle packages/api-contract/openapi.yaml -o /tmp/hand-written-full.json
+      # Phased rollout (docs/testing/strategy/test-plan.md) means most
+      # modules have no controller yet — diffing the full 6-module
+      # hand-written spec against a partial generated spec would report
+      # every not-yet-built module's paths as "missing" and fail
+      # unconditionally until all 6 modules exist. Filtering the
+      # hand-written spec down to only the paths the generated spec
+      # already has turns an unbuilt module into a no-op for this job
+      # instead of a permanent false failure — a path that *is*
+      # implemented still gets a full shape diff below; one that isn't
+      # yet, doesn't count against this job (Contract-Diff Mechanism ADR
+      # above).
+      - run: |
+          jq --argjson impl "$(jq '.paths | keys' /tmp/generated.json)" \
+             '.paths |= with_entries(select(.key as $p | $impl | index($p) != null))' \
+             /tmp/hand-written-full.json > /tmp/hand-written.json
       - run: |
           docker run --rm -v /tmp:/specs tufin/oasdiff:latest diff \
-            /specs/hand-written.yaml /specs/generated.json --fail-on-diff
+            /specs/hand-written.json /specs/generated.json --fail-on-diff
 
   build-and-push:
     needs: contract-diff
@@ -846,16 +881,16 @@ jobs:
 | Job | Runs on | Gated by | Purpose |
 |---|---|---|---|
 | `lint` | Every push + PR | — | Checkstyle + formatting, per `docs/requirement.md` §3.3 step 1. |
-| `unit-test` | Every push + PR | `lint` success | Fast, no-infrastructure tests. |
+| `unit-test` | Every push + PR | `lint` success | Fast, no-infrastructure tests, plus JaCoCo coverage verification (≥80% on core business-logic packages — Coverage Verification Mechanism ADR above). |
 | `integration-test` | Every push + PR | `unit-test` success | Testcontainers-backed Postgres/Redis/RabbitMQ/MinIO — real infrastructure, per `CLAUDE.md`. |
-| `contract-diff` | Every push + PR | `integration-test` success | Diffs the `springdoc`-generated spec against `packages/api-contract`'s hand-written one; fails on any difference, per that package's README (Contract-Diff Mechanism ADR above). |
+| `contract-diff` | Every push + PR | `integration-test` success | Diffs the `springdoc`-generated spec against `packages/api-contract`'s hand-written one, filtered to already-implemented paths only; fails on any difference in an implemented path or on any undocumented endpoint, per that package's README (Contract-Diff Mechanism ADR above). |
 | `build-and-push` | **Only** `push` to `main` | `contract-diff` success | The only job that can publish an artifact — structurally unreachable from a PR or from any failed upstream job. |
 
 `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are GitHub Actions repository secrets, injected by the Actions runtime — never committed to the workflow file itself, consistent with `CLAUDE.md`'s secrets invariant extended to CI configuration.
 
 **Trade-offs:** every push to a PR branch pays the full `lint` → `unit-test` → `integration-test` → `contract-diff` cost even though its `build-and-push` job will never run (the `if:` condition excludes anything but a `main` push) — accepted because catching a failure on a PR, before merge, is the entire point of running CI on PRs at all; skipping the expensive `integration-test` job (or the cheaper `contract-diff` job right after it) for PRs would defeat that.
 
-**Guarantees:** `build-and-push` cannot execute unless every job ahead of it in the `needs:` graph succeeded, and never executes at all on a pull request — there is no path by which an untested change reaches Docker Hub.
+**Guarantees:** `build-and-push` cannot execute unless every job ahead of it in the `needs:` graph succeeded, and never executes at all on a pull request — there is no path by which an untested change reaches Docker Hub. Core business-logic coverage below 80% and any contract drift on an already-implemented endpoint each independently block that path — neither is a promise left unenforced in this pipeline.
 
 ---
 
@@ -873,9 +908,10 @@ jobs:
 | Config/secrets source | Local `.env` file (git-ignored, never committed) | GitHub Actions repository secrets (`DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`) | Kubernetes ConfigMap (`backend-api-config`) + Secret created via `kubectl create secret` (§2) — never a committed file |
 | Manifest/overlay used | None — Kustomize is not part of the local-dev inner loop | None — CI never applies Kubernetes manifests | `overlays/dev` for daily use, `overlays/loadtest` for a dedicated load-test session (§3) |
 | Mesh (Istio) | Not present — mTLS is a cluster-only concern | Not present | Present via namespace-level `istio-injection` label (§2) |
+| E2E verification (Playwright) | Not run — no deployed stack to point it at in this environment | Not run — `.github/workflows/ci.yml` (§5) has no `e2e` job; `docs/testing/test-levels/e2e-testing.md` §3 keeps this off the per-push path deliberately | The only environment the full Playwright suite runs against — manually, immediately after `make deploy-dev`/`make deploy-loadtest` succeeds, as part of the phase-7-onward smoke-test deliverable (`docs/testing/strategy/test-plan.md` §1) |
 | Triggered by | Developer, manually | `push`/`pull_request` to `main` (§5) | Developer running `make deploy-dev` / `make deploy-loadtest` (§4), manually, per the CI/CD Automation Boundary ADR |
 
-**Guarantees:** no environment silently diverges in *mechanism* — every environment that runs a migration uses Flyway; every environment that needs Postgres/Redis/RabbitMQ/MinIO uses the same images the others do (Testcontainers and the Kustomize base both pull the same `postgres:16-alpine`, etc.); only *scale* and *automation trigger* differ, per the table above.
+**Guarantees:** no environment silently diverges in *mechanism* — every environment that runs a migration uses Flyway; every environment that needs Postgres/Redis/RabbitMQ/MinIO uses the same images the others do (Testcontainers and the Kustomize base both pull the same `postgres:16-alpine`, etc.); only *scale* and *automation trigger* differ, per the table above. E2E verification is the one row that isn't a *mechanism* difference so much as a *presence* difference — Minikube PoC is the only environment with a full deployed stack (frontend + backend + all four infra containers together) for a real browser to exercise at all.
 
 ---
 
@@ -894,6 +930,9 @@ Every manifest file, overlay, workflow job, and script target in one place, mirr
 | Migration Job manifest | `k8s/jobs/flyway-migrate-job.yaml` | One-shot Flyway container, gates Deployment rollout (§4) |
 | Seed migration file | `src/main/resources/db/migration/V2__seed_default_roles_permissions.sql` | Idempotent default roles/permissions (§4) |
 | Deploy automation | `Makefile` (`migrate`, `deploy-dev`, `deploy-loadtest` targets) | The only place deployment to Minikube happens (§4, CI/CD Automation Boundary ADR) |
-| CI workflow | `.github/workflows/ci.yml` | `lint` → `unit-test` → `integration-test` → `contract-diff` → `build-and-push` job graph (§5) |
+| E2E verification | Playwright, run manually against Minikube PoC after `make deploy-dev`/`make deploy-loadtest` | Phase 7-onward smoke-test evidence gate — deliberately **not** a `.github/workflows/ci.yml` job (`docs/testing/strategy/test-strategy.md` §4, `docs/testing/test-levels/e2e-testing.md` §3) |
+| CI workflow | `.github/workflows/ci.yml` | `lint` → `unit-test` → `integration-test` → `contract-diff` → `build-and-push` job graph (§5) — no `e2e` job, by the decision above |
+| Coverage verification | JaCoCo, `jacocoTestCoverageVerification` (≥80% line, `com.unihub.*.service.*`/`com.unihub.*.domain.*`) | Second step of `unit-test`, enforces `docs/requirement.md` §3.2's coverage figure (§5, Coverage Verification Mechanism ADR) |
+| Contract-diff phased-rollout filter | `jq` path-intersection filter, `/tmp/hand-written.json` vs. `/tmp/generated.json` | Third step of `contract-diff`, before `oasdiff diff` — excludes not-yet-implemented modules from the comparison (§5, Contract-Diff Mechanism ADR) |
 | CI secrets | `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (GitHub Actions repository secrets) | Docker Hub authentication for `build-and-push`, never committed (§5) |
 | Runtime Secret template | `k8s/base/secret.example.yaml` | Shape-only reference; real Secret created via `kubectl create secret generic` (§2) |

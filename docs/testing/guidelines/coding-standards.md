@@ -27,10 +27,10 @@ This file is the physical-level completion of `../strategy/test-strategy.md` §3
 |---|---|---|
 | Package | `src/test/java/com/unihub/<module>/...` mirrors `src/main/java/com/unihub/<module>/...` exactly | The class under test and its test live at the same package depth — no separate navigation scheme to learn |
 | Unit test suffix | `*Test.java` (e.g. `RegistrationServiceTest.java`) | Picked up by Gradle's default `test` task |
-| Integration test suffix | `*IT.java` (e.g. `RegistrationConcurrencyIT.java`) | A distinct Gradle source set/task (`integrationTest`) filters on this suffix, so `./gradlew test` (fast, no Testcontainers) and `./gradlew integrationTest` (slower, spins up Postgres/Redis/RabbitMQ) stay independently runnable — the actual `unit-test`/`integration-test` CI jobs already wired to exactly these two Gradle tasks in `../../technical-design/platform/deployment-and-cicd.md` §5, not a convention invented fresh here — matching `../strategy/test-strategy.md` §4's Testcontainers-per-run-per-tier model |
+| Integration test suffix | `*IT.java` (e.g. `RegistrationConcurrencyIT.java`) | A distinct Gradle source set/task (`integrationTest`) filters on this suffix, so `./gradlew test` (fast, no Testcontainers) and `./gradlew integrationTest` (slower, spins up Postgres/Redis/RabbitMQ/MinIO) stay independently runnable — the actual `unit-test`/`integration-test` CI jobs already wired to exactly these two Gradle tasks in `../../technical-design/platform/deployment-and-cicd.md` §5, not a convention invented fresh here — matching `../strategy/test-strategy.md` §4's Testcontainers-per-run-per-tier model |
 | One test class per production class | `WorkshopService` → `WorkshopServiceTest`; concurrency/cross-cutting scenarios (e.g. the anti-overbooking three-variant table in `test-design-techniques.md` §3.1) get their own named IT class instead of being folded into a single service's test class | A concurrency scenario spans more than one service's write path — forcing it into one class's test file misrepresents what it's actually proving |
 
-**Guarantees:** `./gradlew test` never touches Testcontainers and never talks to a real Postgres/Redis/RabbitMQ — a `*Test` class that needs real infrastructure is misnamed and belongs in `*IT` instead.
+**Guarantees:** `./gradlew test` never touches Testcontainers and never talks to a real Postgres/Redis/RabbitMQ/MinIO — a `*Test` class that needs real infrastructure is misnamed and belongs in `*IT` instead.
 
 ---
 
