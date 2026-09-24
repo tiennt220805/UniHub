@@ -62,6 +62,8 @@ This file is the physical-level completion of `../strategy/test-strategy.md` §1
 
 Scenarios 1–6 run at Integration level on local Testcontainers — **only scenario 7 (and 1b, 2b) needs Minikube.**
 
+**Scenario 3 is on-demand by design, and is not what proves INV-10/INV-11 for Phase 4.** It checks real *recovery* behavior when RabbitMQ is interrupted (container stop/restart) — additional evidence, stronger than the per-push proof, not a condition for Phase 4's INV-10/INV-11 rows to be `Passing`. Those rows are proven per-push at ordinary Integration level (`integration-testing.md` §4's INV-10 pattern; `test-matrix.md` M-40, M-41).
+
 ### 2.2 Scenario 1 — Payment Gateway dead or slow (INV-05)
 
 - **Inject:** WireMock stub of the gateway (`mocking-guidelines.md` §2), two variants: server stopped (connection refused), and `withFixedDelay` above the sync path's 3 s `TimeLimiter`/client timeout (`payment.md` §3). Drive at least 20 failing `POST /api/v1/payments/charge` calls (the count-based window, `payment.md` §2). **TODO: `payment.md` §2 lists window size and threshold but not `minimumNumberOfCalls` — confirm the pinned configuration evaluates the breaker at 20 calls, not Resilience4j's larger default.**
@@ -83,6 +85,8 @@ This is the scenario `test-design-techniques.md` §3.1's note hands off to this 
 - **Surfaced, not asserted — a design question this scenario exposes** (inference from the cited files, not a stated rule): the hold-expiry consumer takes the same seat lock (`registration.md` §3), so a Redis outage longer than the retry chain (5 s + 30 s + 5 min, `messaging.md` §4) would park those messages, leaving seats unreleased until manual action. **TODO: the corpus states no expected behavior; INV-07 may need a stated outage bound.**
 
 ### 2.4 Scenario 3 — RabbitMQ interruption and recovery (INV-10, INV-11)
+
+**Rationale:** on-demand supplementary evidence of recovery under a real broker interruption; not required for Phase 4's INV-10/INV-11 `Passing` (see §2.1 — those are proven per-push at ordinary Integration level, `test-matrix.md` M-40, M-41).
 
 - **Inject:** against a dedicated RabbitMQ container, (a) stop it while `event_publications` rows are `PENDING` and consumers are mid-processing, then start it; (b) restart it (same container, filesystem kept) with a `hold.reserved` message sitting in the delay queue, using a shortened TTL wherever that value is configuration-sourced (`mocking-guidelines.md` §3; `registration.md` fixes it as a queue argument, so whether it is overridable is **TODO**).
 - **Expected:**

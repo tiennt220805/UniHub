@@ -41,7 +41,7 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 | # | Mục | Loại |
 |---|---|---|
 | D2 | Nâng Semgrep/Dependency-Check lên blocking: ngưỡng severity và khoảng thời gian ổn định chưa định nghĩa | Q |
-| D3 | Gradle task `resilienceTest` cho kịch bản on-demand (kịch bản 3) | Q |
+| D3 | Gradle task `resilienceTest` cho kịch bản on-demand (kịch bản 3) — vẫn cần quyết, nhưng không còn chặn Phase 4 sign-off: M-40/M-41 (INV-11, INV-10 relay) có đường Passing riêng qua Integration level thường (`integration-testing.md` §4); kịch bản 3 chỉ là bằng chứng bổ sung | Q |
 | D4 | Mobile test runner; CI job cho test mobile chưa có | Q |
 | D5 | Hình dạng IT có ≥2 app instance (mở rộng `IntegrationTestSupport` hay tạo base class anh em) | Q |
 | D6 | Tạo secret `NVD_API_KEY`; ghim image Semgrep/Dependency-Check/Gitleaks (hiện là `latest`) | V |
