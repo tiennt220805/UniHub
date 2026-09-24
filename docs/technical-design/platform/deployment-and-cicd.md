@@ -4,7 +4,7 @@ This file is the physical-level completion of `architecture.md` §1.2 (Core Comp
 
 **Why this lives in `platform/`:** it packages and deploys every subsystem this corpus specifies — PostgreSQL (`database-schema.md`), Redis (`distributed-coordination.md`), RabbitMQ (`messaging.md`), MinIO/S3 (`../modules/workshop.md`), JWT/RBAC (`auth-and-identity.md`), and metrics/tracing (`observability.md`) — as one outer envelope: how the Backend API is built into an image, how that image and its dependencies are declared as Kubernetes manifests, how CI verifies a change before it can be packaged, and how a schema/seed migration is applied before any pod starts against it. It does not redesign any subsystem it deploys.
 
-**Scope:** the multi-stage Dockerfile; the Kustomize-based Kubernetes manifest set (base + dev/loadtest overlays); the GitHub Actions CI pipeline; the Flyway-as-a-Kubernetes-Job migration and seed-data mechanism; and the Dev/CI/Minikube-PoC environment matrix. **Out of scope:** the SQL content of any migration beyond the one seed-data file this document names (`database-schema.md` owns schema DDL); Istio's own mTLS/traffic-policy internals beyond the sidecar-injection labeling needed to run under it (`architecture.md` §5.4 already specifies the model); Prometheus/Grafana/OpenTelemetry configuration beyond the ports and ConfigMap values this document wires up as a deployment target (`observability.md` already specifies the metrics/tracing design); JWT secret *contents* or claims structure (`auth-and-identity.md`, already written — this file only specifies that such a secret exists as a Kubernetes Secret, not its value or shape); any production cloud deployment target (`proposal.md` §5.2 excludes this explicitly); and the Mobile App's (Expo) build/distribution pipeline (a separate, non-store-distribution concern from this Backend-API-focused CI/CD document).
+**Scope:** the multi-stage Dockerfile; the Kustomize-based Kubernetes manifest set (base + dev/loadtest overlays); the GitHub Actions CI pipeline (including its security-scan jobs — Gitleaks blocking, Semgrep and Dependency-Check non-blocking); the Flyway-as-a-Kubernetes-Job migration and seed-data mechanism; and the Dev/CI/Minikube-PoC environment matrix. **Out of scope:** the SQL content of any migration beyond the one seed-data file this document names (`database-schema.md` owns schema DDL); Istio's own traffic-policy internals beyond the sidecar-injection labeling and the one namespace-level `PeerAuthentication` this document adds, currently PERMISSIVE (§2, Mesh mTLS Mode ADR) — `architecture.md` §5.4 specifies the model; Prometheus/Grafana/OpenTelemetry configuration beyond the ports and ConfigMap values this document wires up as a deployment target (`observability.md` already specifies the metrics/tracing design); JWT secret *contents* or claims structure (`auth-and-identity.md`, already written — this file only specifies that such a secret exists as a Kubernetes Secret, not its value or shape); any production cloud deployment target (`proposal.md` §5.2 excludes this explicitly); and the Mobile App's (Expo) build/distribution pipeline (a separate, non-store-distribution concern from this Backend-API-focused CI/CD document).
 
 All configuration in this document targets a single Kubernetes namespace, `unihub`, on a local Minikube cluster — consistent with `proposal.md` §5.2's framing of the PoC as local/self-hosted infrastructure, AWS S3 excepted.
 
@@ -21,6 +21,8 @@ All configuration in this document targets a single Kubernetes namespace, `unihu
   - [ADR Mini: Coverage Verification Mechanism](#adr-mini-coverage-verification-mechanism)
   - [ADR Mini: Contract-Diff Mechanism](#adr-mini-contract-diff-mechanism)
   - [ADR Mini: Container Packaging Strategy](#adr-mini-container-packaging-strategy)
+  - [ADR Mini: Mesh mTLS Mode](#adr-mini-mesh-mtls-mode)
+  - [ADR Mini: Security Scan Jobs](#adr-mini-security-scan-jobs)
 - [1. Container Packaging & Build Strategy](#1-container-packaging-build-strategy)
 - [2. Kubernetes Topology — Kustomize Base](#2-kubernetes-topology-kustomize-base)
 - [3. Resource Profile Overlays — Dev vs. Load-Test Scale](#3-resource-profile-overlays-dev-vs-load-test-scale)
@@ -85,11 +87,12 @@ All configuration in this document targets a single Kubernetes namespace, `unihu
 
 **Context:** `docs/requirement.md` §3.3 lists an ordered CI sequence (lint, unit tests, integration tests, package+push) but does not specify how that ordering is enforced. This document additionally requires that test execution be structurally separated from artifact publishing, not just sequentially ordered. `CLAUDE.md` and `packages/api-contract/README.md`'s own "Key decisions" table extend that base sequence with one more gate once backend code exists: the `springdoc`-generated OpenAPI spec is diff-checked against the hand-written contract in `packages/api-contract`, and — per the README's own words — "a mismatch is a build failure, not a silent drift." `docs/testing/strategy/test-strategy.md` §4 already documents this as its own stage 4 (Contract diff); this ADR is where that extension actually lands in the job graph, not a competing decision.
 
-**Decision:** A single GitHub Actions workflow file with sequential jobs — `lint` → `unit-test` → `integration-test` (Testcontainers: Postgres, Redis, RabbitMQ, MinIO) → `contract-diff` → `build-and-push` — connected via `needs:`. The `build-and-push` job additionally runs only on a `push` event to `main` (never on a pull request), and only if every upstream job in the graph succeeded. `contract-diff`'s own mechanism is a separate ADR below, since it involves tool choices `integration-test`'s job doesn't.
+**Decision:** A single GitHub Actions workflow file with sequential jobs — `lint` → `unit-test` → `integration-test` (Testcontainers: Postgres — plus a streaming replica for the INV-03 classes —, Redis, RabbitMQ, MinIO) → `contract-diff` → `build-and-push` — connected via `needs:`. The `build-and-push` job additionally runs only on a `push` event to `main` (never on a pull request), and only if every upstream job in the graph succeeded. `contract-diff`'s own mechanism is a separate ADR below, since it involves tool choices `integration-test`'s job doesn't.
 
 **Consequences:**
 - A failed lint/unit/integration/contract-diff job structurally blocks `build-and-push` via the job dependency graph — not merely step ordering within one job, which could be bypassed by a misplaced `continue-on-error` or a step-reordering mistake.
 - One workflow file remains the single source of truth for the whole pipeline, with no cross-workflow triggering to reason about.
+- The three security-scan jobs (Security Scan Jobs ADR) live in the same file but outside the sequential chain: they `needs:` nothing. Semgrep and Dependency-Check are non-blocking, so nothing waits for them; Gitleaks is blocking, so `build-and-push` `needs:` it alongside `contract-diff`.
 - `contract-diff` runs after `integration-test`, not in parallel with it — it's cheap relative to the Testcontainers job, and ordering it last among the test-gate jobs means a contract mismatch never wastes the time of a run that was already going to fail on lint/unit/integration anyway.
 
 **Trade-offs accepted (user's own reasoning):** two separate workflow files cross-triggered via `workflow_run` were rejected — that level of pipeline decoupling is disproportionate for one developer maintaining one repository, and adds triggering complexity with no corresponding benefit here.
@@ -131,6 +134,56 @@ All configuration in this document targets a single Kubernetes namespace, `unihu
 - The dependency-layer/source-layer split gives the same build-cache benefit Buildpacks/Jib provide automatically, but stated explicitly as a design decision in this document.
 
 **Trade-offs accepted (user's own reasoning):** Buildpacks and Jib were both rejected — this is a design-stage project meant to specify and demonstrate the container-build reasoning (layer caching, non-root user, cgroup-aware JVM sizing) explicitly; delegating that to a buildpack's implicit defaults would hide exactly the mechanics this document exists to make legible.
+
+### ADR Mini: Mesh mTLS Mode
+
+**Status:** the direction is **STRICT**, but it is **not in force**. `base/peer-authentication.yaml` ships `PERMISSIVE` until the three preconditions below are met; they are Phase 7 exit criteria (`docs/testing/strategy/test-plan.md` §1). An earlier version of this ADR decided STRICT outright; that was withdrawn because it would have refused in-cluster clients this document does not yet deploy or handle, and removed the one workaround it had for the Flyway Job (opting out of injection).
+
+**Context:** `architecture.md` §5.4 guarantees that every connection is mutually authenticated and that "there is no plaintext hop anywhere" — but this document, which turns that into manifests, only labeled the namespace for sidecar injection, and deferred the mesh's traffic policy to `architecture.md` §5.4, which states the guarantee without naming a setting. Sidecar injection alone leaves Istio's default mode, which negotiates mTLS between sidecars but still *accepts* plaintext connections — so the guarantee holds only as long as no client chooses to connect in plaintext, and nothing in the manifests prevents it. The gap was found while writing the mTLS test in `docs/testing/non-functional/security-testing.md` (S-19).
+
+**Decision:** the target is a namespace-wide `PeerAuthentication` named `default` in `STRICT` mode, so a connection to any pod in `unihub` that does not present a valid mesh identity is refused rather than downgraded to plaintext. **Until the preconditions are met the object is `PERMISSIVE`**: sidecars still negotiate mTLS, plaintext is still accepted, and `architecture.md` §5.4's "no plaintext hop" is a target, not an enforced guarantee. Switching is a one-line change (`mode: STRICT`), made only when all three boxes are ticked.
+
+**Istio version: 1.24.x.** A decision on paper, made so the manifests, the `apiVersion` below and precondition (b) all target one version. It rests on two assertions from the decision-maker that this blueprint has not verified: that 1.24.x is the stable line to standardize on, and that it supports native sidecar termination for Jobs. Both — and compatibility with the Kubernetes/Minikube version actually installed — are checked at implementation; if they turn out wrong, the blueprint is corrected then.
+
+**Preconditions — all three before switching to STRICT** (each is currently **not met**):
+- [ ] **(a) Ingress path.** `architecture.md` §5.4's diagram has Ingress → mTLS → sidecar, but this document does not deploy the Ingress controller (Minikube's ingress add-on runs it in its own namespace). Either the `ingress-nginx` namespace is sidecar-injected, or the Ingress → `backend-api` path is covered by its own, narrowly scoped `PeerAuthentication` exception — which weakens "no exempted hop" for that one hop and must be recorded as such. Without one of the two, STRICT refuses every external request.
+- [ ] **(b) Flyway Job exits its sidecar.** The namespace is injected, so the Job's pod carries an `istio-proxy` container that, without help, keeps running after Flyway exits — the Job never reaches `complete` and `kubectl wait --for=condition=complete` (§4) times out. **This affects today's PERMISSIVE deploy too, not only STRICT**, and under STRICT the old workaround — `sidecar.istio.io/inject: "false"` on the Job — no longer works, because a non-meshed client is refused. The blueprint's answer is Istio's **native sidecar termination** (built on Kubernetes sidecar containers, which end the proxy when the Job's main container exits), expected to be available on Istio 1.24.x; there is deliberately **no custom `quitquitquit` fallback** in the blueprint. What stays **unmet** is confirming, at implementation, that it works on that Istio version together with the Kubernetes version Minikube provides, and whether it has to be switched on.
+- [ ] **(c) Observability stack.** Prometheus, Grafana and Tempo scrape and receive from `unihub` pods (Actuator on 8080, RabbitMQ's 15692, OTLP), and `architecture.md` §5.4 puts the observability stack in the mesh — but this document does not deploy it (out of scope above). Either it is injected, or the scrape/export ports get a scoped exception. Any other in-cluster client of a `unihub` pod, such as the load-test WireMock stub, falls under the same rule.
+
+**Consequences:**
+- While the mesh is PERMISSIVE, INV-20 (`docs/testing/strategy/test-strategy.md` §2) is pending, the mTLS test S-19 cannot pass, and it must not be reported as Covered in the OWASP map (`docs/testing/non-functional/security-testing.md`).
+- Kubelet `httpGet` probes are expected to keep working under STRICT because Istio rewrites application probes to go through the sidecar by default — verify against the installed version.
+- `PeerAuthentication` uses `apiVersion: security.istio.io/v1`, which Istio 1.22+ serves — covered by the chosen 1.24.x.
+
+**Trade-offs accepted:** enforcing STRICT now was rejected — with (a)–(c) unmet it would refuse the Ingress, the observability stack and the migration Job. The interim leaves the guarantee unenforced, and says so openly rather than presenting a manifest that looks strict. The default mode without any object was rejected only in the sense that an explicit `PERMISSIVE` object makes the intent visible and the later switch a single line. STRICT's eventual cost is on the same footing as `architecture.md` §5.4's stated trade-off that "the mesh is now a dependency of everything."
+
+### ADR Mini: Security Scan Jobs
+
+**Context:** the corpus had no static-analysis, dependency-vulnerability or secret-scanning tool: the only automated code check in the pipeline is `lint` (Checkstyle + Spotless), which checks style, not security, and INV-18 (`docs/testing/strategy/test-strategy.md` §2) named "secret-scanning" without choosing one.
+
+**Decision:** three tools, each its own job in the existing workflow, in parallel with — not inside — the gate chain (they `needs:` nothing):
+- **Gitleaks** (secret scanning, INV-18) is **blocking**: `build-and-push` `needs:` it, and it has no `continue-on-error`.
+- **Semgrep** (SAST) and **OWASP Dependency-Check** (dependency vulnerabilities) are **non-blocking**: `continue-on-error: true`, nothing `needs:` them. They report on every push and pull request and gate neither a merge nor `build-and-push`.
+
+Decided in a review of the testing documents.
+
+**Why Gitleaks is blocking from the start:** INV-18 is Non-Negotiable, and a secret that reaches the repository is not undone by fixing it later (it stays in history, which is why the job scans full history). Secret findings have the fewest legitimate false positives and depend on no external database, and — since no source code exists yet — there is no baseline to triage, so blocking costs nothing today. Justified false positives go in Gitleaks' allowlist, committed and reviewed.
+
+**Why Semgrep and Dependency-Check are non-blocking at first:**
+- *No baseline.* The first runs on real code will surface an unknown volume of findings, some of them false positives. Blocking merges on untriaged noise stalls the critical path of a single-developer delivery (`proposal.md` §16's bandwidth risk).
+- *External dependency (Dependency-Check).* It relies on a remote vulnerability database whose availability and rate limits are outside the project's control (an API key is normally required to avoid throttling); an outage there would block merges for reasons unrelated to the change.
+- *Untuned rules (Semgrep).* The rule sets named in §5 are starting values.
+
+**Conditions to promote Semgrep or Dependency-Check to blocking** (each independently; promotion means removing `continue-on-error` and adding the job to `build-and-push`'s `needs:`):
+1. The baseline is triaged: every existing finding is either fixed or suppressed with a written justification in a committed suppression file (inline `nosemgrep`, Dependency-Check's suppression file).
+2. The tool image is pinned to a version or digest rather than `latest`, so a tool upgrade cannot fail a merge.
+3. A blocking severity threshold has been chosen (for example, High and Critical only). **Not chosen yet.**
+4. The job has run stably for a period the user defines. **Not defined yet.**
+5. For Dependency-Check: the API-key secret is in place and its data is cached, so runtime is bounded.
+
+**Consequences:** INV-18's detection is enforced from the first push. Semgrep and Dependency-Check findings are visible but gate nothing until promoted. Reports are workflow artifacts, never committed (`docs/testing/strategy/test-strategy.md` §6). Gating a *pull-request merge* on Gitleaks additionally needs the manual branch-protection setup in §5.
+
+**Trade-offs accepted:** all three jobs blocking from day one was rejected for Semgrep and Dependency-Check for the reasons above; running any of them inside the `lint` → … → `build-and-push` chain was rejected because a scan finding is then indistinguishable from a test failure and lengthens every gate run. Gitleaks runs on `latest`, the same posture the `oasdiff` step takes; a tool upgrade can therefore start failing merges, and pinning the image is the remedy when that first happens — accepted as a risk rather than pre-empted.
 
 ---
 
@@ -220,6 +273,7 @@ k8s/
 │   ├── rabbitmq-service.yaml
 │   ├── minio-deployment.yaml
 │   ├── minio-service.yaml
+│   ├── peer-authentication.yaml
 │   ├── configmap.yaml
 │   └── secret.example.yaml
 ├── overlays/
@@ -229,7 +283,7 @@ k8s/
     └── flyway-migrate-job.yaml
 ```
 
-`base/kustomization.yaml` is what actually ties the files above into one applied resource set — every manifest is listed explicitly, **except** `secret.example.yaml`, which is deliberately left out:
+`base/kustomization.yaml` is what actually ties the files above into one applied resource set — every manifest is listed explicitly, **except** `secret.example.yaml`, which is deliberately left out — and it also carries the `configMapGenerator` for the Flyway migrations (§4). Kustomize does not glob, so each new migration file is added to that `files:` list as part of adding the migration:
 
 ```yaml
 # k8s/base/kustomization.yaml
@@ -249,7 +303,17 @@ resources:
   - rabbitmq-service.yaml
   - minio-deployment.yaml
   - minio-service.yaml
+  - peer-authentication.yaml
   - configmap.yaml
+configMapGenerator:                    # the migration SQL the Flyway Job mounts (§4)
+  - name: flyway-migrations
+    files:
+      - ../../src/main/resources/db/migration/V1__initial_schema.sql
+      - ../../src/main/resources/db/migration/V2__seed_default_roles_permissions.sql
+    options:
+      disableNameSuffixHash: true      # the Job is applied outside Kustomize and names this ConfigMap literally
+      labels:
+        unihub.io/pre-migration: "true"  # so `make pre-migration` can apply it ahead of the rest (§4)
 # secret.example.yaml is intentionally absent from this list — it is a
 # committed template only (placeholder stringData, shown below). Leaving it
 # out of `resources:` is what guarantees `kubectl apply -k` (any overlay)
@@ -269,6 +333,21 @@ metadata:
   labels:
     istio-injection: enabled
 ```
+
+`base/peer-authentication.yaml` declares the mesh's mTLS mode for the whole namespace (Mesh mTLS Mode ADR above). It has no `selector`, so it applies to every workload in `unihub` — the Backend API, PostgreSQL, Redis, RabbitMQ and MinIO alike. **It is `PERMISSIVE` for now; STRICT is the target, gated by the ADR's three preconditions:**
+
+```yaml
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: unihub
+spec:
+  mtls:
+    mode: PERMISSIVE   # interim; becomes STRICT once ADR preconditions (a)-(c) are met
+```
+
+Injection on its own does not decide this: with no object at all Istio's default is also permissive. The object is kept so the intent is explicit and the later switch is one line. Under `PERMISSIVE` plaintext connections are still accepted, so `architecture.md` §5.4's "no plaintext hop" is not yet enforced.
 
 `base/backend-api-deployment.yaml` — the base carries a conservative default; §3's overlays patch `replicas` and `resources` per profile:
 
@@ -307,7 +386,7 @@ spec:
             periodSeconds: 15
 ```
 
-Probe paths and the Liveness/Readiness split (process-alive vs. dependency-connectivity) are `observability.md`'s design, reused here only as the concrete `httpGet` wiring the Deployment spec needs.
+Probe paths and the Liveness/Readiness split (process-alive vs. PostgreSQL-Master connectivity — `observability.md`'s Readiness Composition ADR; Redis and RabbitMQ are deliberately not Readiness conditions) are `observability.md`'s design, reused here only as the concrete `httpGet` wiring the Deployment spec needs.
 
 `base/configmap.yaml` and `base/secret.example.yaml` are **shape-only** — key names, never real values, per `CLAUDE.md`'s non-negotiable invariant that secrets are never committed:
 
@@ -351,6 +430,7 @@ kind: StatefulSet
 metadata:
   name: postgres-master
   namespace: unihub
+  labels: { unihub.io/pre-migration: "true" }   # applied before the Flyway Job runs (§4)
 spec:
   serviceName: postgres-master
   replicas: 1
@@ -388,6 +468,7 @@ kind: Service
 metadata:
   name: postgres-master
   namespace: unihub
+  labels: { unihub.io/pre-migration: "true" }   # applied before the Flyway Job runs (§4)
 spec:
   clusterIP: None
   selector:
@@ -507,7 +588,7 @@ flowchart TB
 
 **Trade-offs:** the base declares every component the topology needs, including the Postgres Replica, even though `overlays/dev` scales it to zero — this means the base is never itself a directly-deployable set of manifests (it needs an overlay to be sane for any real use), a small departure from Kustomize's more common "base is deployable on its own" convention, accepted because the alternative (two divergent base-like manifest sets) is exactly the drift risk the Kubernetes Manifest Management ADR exists to avoid.
 
-**Guarantees:** every pod in this namespace inherits the mesh's mTLS automatically via the namespace-level `istio-injection` label (`architecture.md` §5.4) — no per-Deployment sidecar configuration is needed or present. No Secret with a real value is ever committed; `secret.example.yaml`'s `stringData` placeholders are never valid credentials.
+**Guarantees:** every pod in this namespace inherits the mesh's mTLS automatically via the namespace-level `istio-injection` label (`architecture.md` §5.4) — no per-Deployment sidecar configuration is needed or present — and `base/peer-authentication.yaml` declares the mode. It is `PERMISSIVE` today, so the mesh *offers* mTLS but does not yet *refuse* plaintext; that enforcement is the STRICT target, gated by the Mesh mTLS Mode ADR's preconditions. No Secret with a real value is ever committed; `secret.example.yaml`'s `stringData` placeholders are never valid credentials.
 
 ---
 
@@ -679,7 +760,7 @@ ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 `roles.name` and `permissions.code` both carry a `UNIQUE NOT NULL` constraint (`database-schema.md` §2.2/§2.3) — `ON CONFLICT DO NOTHING` is exactly what makes this file safe to run against a database that already has these rows, satisfying the idempotency this pipeline requires without a second mechanism. `role_permissions`' composite primary key (`role_id`, `permission_id` — `database-schema.md` §2.5) gives the same `ON CONFLICT` target for the bundling step, so all three inserts share the identical once-only guarantee, in the same file.
 
-The migration SQL is bundled into a ConfigMap at deploy time (via Kustomize's `configMapGenerator`, not committed as a static manifest — its content is generated from the source tree's migration files), then mounted into the Flyway Job:
+The migration SQL is bundled into a ConfigMap at deploy time (via the `configMapGenerator` in `base/kustomization.yaml`, §2 — not committed as a static manifest; its content is generated from the source tree's migration files), then mounted into the Flyway Job. The name is fixed (`disableNameSuffixHash`) because this Job is applied by `kubectl` directly, not through Kustomize, so Kustomize could not rewrite a hashed name inside it:
 
 ```yaml
 # k8s/jobs/flyway-migrate-job.yaml
@@ -726,20 +807,45 @@ spec:
 The `Makefile` (introduced fully in §5) enforces the ordering the ADR requires — Job applied and awaited *before* the Deployment:
 
 ```makefile
-.PHONY: deploy-dev deploy-loadtest
+.PHONY: deploy-dev deploy-loadtest migrate pre-migration
 
+PROFILE ?= dev
+
+# Kustomize refuses files outside the kustomization root by default; the migration SQL lives in
+# src/main/resources/db/migration/ (§2's generator), so the build relaxes that restriction.
+KBUILD = kustomize build --load-restrictor LoadRestrictionsNone
+
+deploy-dev: PROFILE = dev
 deploy-dev: migrate
-	kustomize build k8s/overlays/dev | kubectl apply -f -
+	$(KBUILD) k8s/overlays/dev | kubectl apply -f -
 
+deploy-loadtest: PROFILE = loadtest
 deploy-loadtest: migrate
-	kustomize build k8s/overlays/loadtest | kubectl apply -f -
+	$(KBUILD) k8s/overlays/loadtest | kubectl apply -f -
 
-migrate:
-	kubectl apply -f k8s/namespace.yaml
+# Flyway needs two things the full overlay apply would only create AFTER migrate: a Postgres Master
+# that accepts connections, and the generated flyway-migrations ConfigMap the Job mounts. Applying the
+# whole overlay first would start backend-api against an unmigrated schema (architecture.md §6.2), so
+# pre-migration applies ONLY the objects labeled unihub.io/pre-migration=true — the Postgres Master's
+# StatefulSet and Service, and that ConfigMap — rendered from the same overlay the deploy target applies
+# afterwards (that later full apply then changes nothing). Needs the backend-api-secrets Secret to exist (§2).
+migrate: pre-migration
 	kubectl delete job/flyway-migrate -n unihub --ignore-not-found
 	kubectl apply -f k8s/jobs/flyway-migrate-job.yaml
 	kubectl wait --for=condition=complete --timeout=120s job/flyway-migrate -n unihub
+
+pre-migration:
+	kubectl apply -f k8s/namespace.yaml
+	$(KBUILD) k8s/overlays/$(PROFILE) | kubectl apply -f - -l unihub.io/pre-migration=true
+	@for i in $$(seq 1 60); do \
+	  kubectl exec -n unihub postgres-master-0 -c postgres -- pg_isready -q && exit 0; \
+	  sleep 2; \
+	done; echo "postgres-master did not accept connections within 120s" >&2; exit 1
 ```
+
+**Ordering, and why not simply apply the overlay first.** The first version of this target ran Flyway before anything had been deployed, so on a fresh cluster the Job had neither a Postgres to connect to nor the ConfigMap it mounts. Applying the *whole* overlay first would fix both but start `backend-api` pods before the schema exists — the exact thing `architecture.md` §6.2 forbids. `pre-migration` therefore applies only the labeled subset (Postgres Master + the generated ConfigMap), waits for Postgres to accept connections with a bounded `pg_isready` retry loop (`pg_isready` is present in `postgres:16-alpine`; the Master's StatefulSet defines no readiness probe, so a `Running` pod is not yet a pod that accepts connections), and only then lets `migrate` run the Job.
+
+**Assumption:** the `-l unihub.io/pre-migration=true` filtering, the generator options and the retry loop are inferred from `kubectl`/Kustomize behavior, not exercised against a cluster. The Job's sidecar-exit problem is precondition (b) of the Mesh mTLS Mode ADR and is not addressed by this target.
 
 The `kubectl delete --ignore-not-found` step exists because a Kubernetes `Job`'s spec is immutable — re-applying an already-completed Job with the same name fails without first deleting the old one, which is expected on every redeploy that includes a new migration version.
 
@@ -747,7 +853,10 @@ The `kubectl delete --ignore-not-found` step exists because a Kubernetes `Job`'s
 
 ```mermaid
 flowchart LR
-    Dev["Developer runs\n`make deploy-dev`"] --> DelJob["kubectl delete job/flyway-migrate\n--ignore-not-found"]
+    Dev["Developer runs\n`make deploy-dev`"] --> PG["kubectl apply only objects labeled\nunihub.io/pre-migration=true\n(Postgres Master + flyway-migrations ConfigMap)"]
+    PG --> WaitPG["retry pg_isready\n(bounded, 120s)"]
+    WaitPG -->|"not ready in time"| HaltPG["Halt — Flyway never runs"]
+    WaitPG -->|"accepting connections"| DelJob["kubectl delete job/flyway-migrate\n--ignore-not-found"]
     DelJob --> ApplyJob["kubectl apply\nflyway-migrate-job.yaml"]
     ApplyJob --> Wait["kubectl wait\n--for=condition=complete"]
     Wait -->|"Job failed"| Halt["Halt — Deployment\nnever applied"]
@@ -757,8 +866,8 @@ flowchart LR
     classDef stepStyle fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
     classDef failStyle fill:#FDEDEC,stroke:#B03A2E,color:#78281F
 
-    class Dev,DelJob,ApplyJob,Wait,ApplyOverlay,Rollout stepStyle
-    class Halt failStyle
+    class Dev,PG,WaitPG,DelJob,ApplyJob,Wait,ApplyOverlay,Rollout stepStyle
+    class Halt,HaltPG failStyle
 ```
 
 </div>
@@ -815,7 +924,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { java-version: '21', distribution: 'temurin' }
-      # Testcontainers starts Postgres, Redis, RabbitMQ, and MinIO itself
+      # Testcontainers starts Postgres (plus a streaming replica for the INV-03
+      # test classes only), Redis, RabbitMQ, and MinIO itself
       # against the Docker daemon already present on ubuntu-latest — no
       # `services:` stanza is needed, unlike a fixed-sidecar-container setup.
       - run: ./gradlew integrationTest --no-daemon
@@ -856,7 +966,7 @@ jobs:
             /specs/hand-written.json /specs/generated.json --fail-on-diff
 
   build-and-push:
-    needs: contract-diff
+    needs: [contract-diff, secret-scan-gitleaks]
     # No separate branch check needed: the workflow's own `on.push.branches`
     # trigger (above) already restricts every `push` event this job can see
     # to `main` — `github.event_name == 'push'` is the whole condition.
@@ -876,21 +986,64 @@ jobs:
           tags: |
             unihub/unihub-backend:${{ github.sha }}
             unihub/unihub-backend:latest
+
+  # ---- Security scans (Security Scan Jobs ADR) ----
+  # Semgrep and Dependency-Check: no `needs:` and `continue-on-error: true` — they report on
+  # every push/PR but neither block a merge nor gate build-and-push. Rule sets are starting values.
+  # Gitleaks (last job): also `needs:` nothing, but NOT continue-on-error — build-and-push needs it
+  # (INV-18). Images use `latest`, the same posture as oasdiff above; pin before promoting the others.
+  sast-semgrep:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          docker run --rm -v "$PWD:/src" semgrep/semgrep:latest \
+            semgrep scan --metrics=off --config p/java --config p/typescript \
+            --config p/owasp-top-ten /src
+
+  dependency-check:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          docker run --rm -v "$PWD:/src" -v "$PWD/dc-report:/report" owasp/dependency-check:latest \
+            --scan /src --format HTML --format JSON --out /report --nvdApiKey "$NVD_API_KEY"
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: dependency-check-report, path: dc-report }
+
+  secret-scan-gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }   # full history: a secret committed and later deleted is still leaked
+      - run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest \
+            detect --source /repo --redact --exit-code 1
 ```
 
 | Job | Runs on | Gated by | Purpose |
 |---|---|---|---|
 | `lint` | Every push + PR | — | Checkstyle + formatting, per `docs/requirement.md` §3.3 step 1. |
 | `unit-test` | Every push + PR | `lint` success | Fast, no-infrastructure tests, plus JaCoCo coverage verification (≥80% on core business-logic packages — Coverage Verification Mechanism ADR above). |
-| `integration-test` | Every push + PR | `unit-test` success | Testcontainers-backed Postgres/Redis/RabbitMQ/MinIO — real infrastructure, per `CLAUDE.md`. |
+| `integration-test` | Every push + PR | `unit-test` success | Testcontainers-backed Postgres (plus a streaming replica for INV-03)/Redis/RabbitMQ/MinIO — real infrastructure, per `CLAUDE.md`. |
 | `contract-diff` | Every push + PR | `integration-test` success | Diffs the `springdoc`-generated spec against `packages/api-contract`'s hand-written one, filtered to already-implemented paths only; fails on any difference in an implemented path or on any undocumented endpoint, per that package's README (Contract-Diff Mechanism ADR above). |
-| `build-and-push` | **Only** `push` to `main` | `contract-diff` success | The only job that can publish an artifact — structurally unreachable from a PR or from any failed upstream job. |
+| `build-and-push` | **Only** `push` to `main` | `contract-diff` and `secret-scan-gitleaks` success | The only job that can publish an artifact — structurally unreachable from a PR or from any failed upstream job. |
+| `sast-semgrep` | Every push + PR | — (parallel, non-blocking) | SAST. Findings reported, never gating (Security Scan Jobs ADR). |
+| `dependency-check` | Every push + PR | — (parallel, non-blocking) | Dependency vulnerabilities (OWASP Dependency-Check); HTML/JSON report uploaded as a workflow artifact. |
+| `secret-scan-gitleaks` | Every push + PR | — (parallel; **blocking** — `build-and-push` `needs:` it) | Secret scanning over full history — INV-18's enforcement (Security Scan Jobs ADR). |
 
-`DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are GitHub Actions repository secrets, injected by the Actions runtime — never committed to the workflow file itself, consistent with `CLAUDE.md`'s secrets invariant extended to CI configuration.
+`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` and `NVD_API_KEY` (the vulnerability-database key `dependency-check` uses) are GitHub Actions repository secrets, injected by the Actions runtime — never committed to the workflow file itself, consistent with `CLAUDE.md`'s secrets invariant extended to CI configuration.
 
 **Trade-offs:** every push to a PR branch pays the full `lint` → `unit-test` → `integration-test` → `contract-diff` cost even though its `build-and-push` job will never run (the `if:` condition excludes anything but a `main` push) — accepted because catching a failure on a PR, before merge, is the entire point of running CI on PRs at all; skipping the expensive `integration-test` job (or the cheaper `contract-diff` job right after it) for PRs would defeat that.
 
-**Guarantees:** `build-and-push` cannot execute unless every job ahead of it in the `needs:` graph succeeded, and never executes at all on a pull request — there is no path by which an untested change reaches Docker Hub. Core business-logic coverage below 80% and any contract drift on an already-implemented endpoint each independently block that path — neither is a promise left unenforced in this pipeline.
+**Guarantees:** `build-and-push` cannot execute unless every job ahead of it in the `needs:` graph succeeded, and never executes at all on a pull request — there is no path by which an untested change reaches Docker Hub. Core business-logic coverage below 80% and any contract drift on an already-implemented endpoint each independently block that path — neither is a promise left unenforced in this pipeline. Gitleaks is an additional gate on `build-and-push` (INV-18). Semgrep and Dependency-Check are the deliberate exception: they report but do not block, until each meets the promotion conditions in the Security Scan Jobs ADR.
+
+**Branch protection (manual, one-time setup — not a CI job).** On the `main` branch, GitHub branch protection requires these five status checks to pass before a pull request can merge: **`lint`**, **`unit-test`**, **`integration-test`**, **`contract-diff`** and **`secret-scan-gitleaks`**. This is configured once, in the repository's GitHub settings, when the repository is initialized at implementation; it is not something this blueprint or the workflow file can automate or express. Until it is done no job gates a merge (the workflow still gates `build-and-push` through `needs:`, above). All of the gate chain is required directly, not just its last link: a job skipped because an upstream `needs:` failed is typically counted as satisfied by branch protection, so requiring only `contract-diff` would not stop a pull request whose lint or tests fail.
 
 ---
 
@@ -902,13 +1055,14 @@ jobs:
 
 | | **Local Development** | **CI Runner (GitHub Actions)** | **Minikube PoC** |
 |---|---|---|---|
-| Postgres / Redis / RabbitMQ / MinIO | Docker Compose (developer's own convenience, outside this document's Kustomize scope) or a local Minikube profile | Testcontainers — ephemeral, started/stopped per test run (§5) | In-cluster Deployments/StatefulSets from `base/` (§2) |
+| Postgres / Redis / RabbitMQ / MinIO | Docker Compose (developer's own convenience, outside this document's Kustomize scope) or a local Minikube profile | Testcontainers — ephemeral, started/stopped per test run (§5); Postgres additionally as a Master + streaming replica for the INV-03 test classes | In-cluster Deployments/StatefulSets from `base/` (§2) |
 | Backend API | Run directly via `./gradlew bootRun`, pointed at Docker Compose services | Not run as a long-lived process — only exercised via `unit-test`/`integration-test`/`contract-diff`'s `generateOpenApiDocs` (a minimal Spring context, not the full application) | Runs as the `backend-api` Deployment (§2/§3) |
 | Migrations | Flyway Gradle plugin (`./gradlew flywayMigrate`) against the local Compose Postgres | Flyway runs as part of the Testcontainers-backed integration test lifecycle (each test's own ephemeral Postgres) | `flyway-migrate` Kubernetes Job (§4), gating the Deployment rollout |
 | Config/secrets source | Local `.env` file (git-ignored, never committed) | GitHub Actions repository secrets (`DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`) | Kubernetes ConfigMap (`backend-api-config`) + Secret created via `kubectl create secret` (§2) — never a committed file |
 | Manifest/overlay used | None — Kustomize is not part of the local-dev inner loop | None — CI never applies Kubernetes manifests | `overlays/dev` for daily use, `overlays/loadtest` for a dedicated load-test session (§3) |
 | Mesh (Istio) | Not present — mTLS is a cluster-only concern | Not present | Present via namespace-level `istio-injection` label (§2) |
 | E2E verification (Playwright) | Not run — no deployed stack to point it at in this environment | Not run — `.github/workflows/ci.yml` (§5) has no `e2e` job; `docs/testing/test-levels/e2e-testing.md` §3 keeps this off the per-push path deliberately | The only environment the full Playwright suite runs against — manually, immediately after `make deploy-dev`/`make deploy-loadtest` succeeds, as part of the phase-7-onward smoke-test deliverable (`docs/testing/strategy/test-plan.md` §1) |
+| Security scans (Semgrep / Dependency-Check / Gitleaks) | Not part of the inner loop (the same container commands can be run by hand) | Run on every push/PR — Gitleaks blocking, Semgrep and Dependency-Check non-blocking (§5) | Not applicable |
 | Triggered by | Developer, manually | `push`/`pull_request` to `main` (§5) | Developer running `make deploy-dev` / `make deploy-loadtest` (§4), manually, per the CI/CD Automation Boundary ADR |
 
 **Guarantees:** no environment silently diverges in *mechanism* — every environment that runs a migration uses Flyway; every environment that needs Postgres/Redis/RabbitMQ/MinIO uses the same images the others do (Testcontainers and the Kustomize base both pull the same `postgres:16-alpine`, etc.); only *scale* and *automation trigger* differ, per the table above. E2E verification is the one row that isn't a *mechanism* difference so much as a *presence* difference — Minikube PoC is the only environment with a full deployed stack (frontend + backend + all four infra containers together) for a real browser to exercise at all.
@@ -925,14 +1079,18 @@ Every manifest file, overlay, workflow job, and script target in one place, mirr
 | Image tag convention | `unihub/unihub-backend:<git-sha>` (+ floating `:latest`) | Immutable, traceable deploy target referenced by manifests (§1/§2) |
 | Namespace manifest | `k8s/namespace.yaml` | Declares `unihub` namespace with `istio-injection: enabled` (§2) |
 | Kustomize base | `k8s/base/` | Canonical manifests for every Core Component (§2) |
+| Mesh mTLS mode | `k8s/base/peer-authentication.yaml` | Namespace-wide `PeerAuthentication`, currently `PERMISSIVE`; STRICT is the target, gated by three preconditions (§2, Mesh mTLS Mode ADR; Phase 7 exit criteria in `test-plan.md`) |
+| Istio version | 1.24.x — a decision on paper, not yet verified against a real install or the Kubernetes/Minikube version (Mesh mTLS Mode ADR) | Single version target for the mesh manifests and precondition (b) |
 | Dev overlay | `k8s/overlays/dev/` | 1 API replica, 0 Postgres replicas, minimal resources (§3) |
 | Load-test overlay | `k8s/overlays/loadtest/` | 3 API replicas, 1 Postgres replica, full-size resources (§3) |
 | Migration Job manifest | `k8s/jobs/flyway-migrate-job.yaml` | One-shot Flyway container, gates Deployment rollout (§4) |
 | Seed migration file | `src/main/resources/db/migration/V2__seed_default_roles_permissions.sql` | Idempotent default roles/permissions (§4) |
 | Deploy automation | `Makefile` (`migrate`, `deploy-dev`, `deploy-loadtest` targets) | The only place deployment to Minikube happens (§4, CI/CD Automation Boundary ADR) |
 | E2E verification | Playwright, run manually against Minikube PoC after `make deploy-dev`/`make deploy-loadtest` | Phase 7-onward smoke-test evidence gate — deliberately **not** a `.github/workflows/ci.yml` job (`docs/testing/strategy/test-strategy.md` §4, `docs/testing/test-levels/e2e-testing.md` §3) |
-| CI workflow | `.github/workflows/ci.yml` | `lint` → `unit-test` → `integration-test` → `contract-diff` → `build-and-push` job graph (§5) — no `e2e` job, by the decision above |
+| CI workflow | `.github/workflows/ci.yml` | `lint` → `unit-test` → `integration-test` → `contract-diff` → `build-and-push` job graph (§5), plus three parallel security-scan jobs outside that chain (`build-and-push` also `needs:` the Gitleaks one; Semgrep and Dependency-Check are non-blocking) — no `e2e` job, by the decision above |
 | Coverage verification | JaCoCo, `jacocoTestCoverageVerification` (≥80% line, `com.unihub.*.service.*`/`com.unihub.*.domain.*`) | Second step of `unit-test`, enforces `docs/requirement.md` §3.2's coverage figure (§5, Coverage Verification Mechanism ADR) |
 | Contract-diff phased-rollout filter | `jq` path-intersection filter, `/tmp/hand-written.json` vs. `/tmp/generated.json` | Third step of `contract-diff`, before `oasdiff diff` — excludes not-yet-implemented modules from the comparison (§5, Contract-Diff Mechanism ADR) |
-| CI secrets | `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (GitHub Actions repository secrets) | Docker Hub authentication for `build-and-push`, never committed (§5) |
+| CI secrets | `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `NVD_API_KEY` (GitHub Actions repository secrets) | Docker Hub authentication for `build-and-push`; vulnerability-database access for `dependency-check`; never committed (§5) |
+| Branch protection | GitHub repository settings on `main` — manual, one-time, at repository initialization | Required status checks `lint`, `unit-test`, `integration-test`, `contract-diff`, `secret-scan-gitleaks`; not a workflow job (§5) |
+| Security scan jobs | `sast-semgrep`, `dependency-check`, `secret-scan-gitleaks` in `.github/workflows/ci.yml` | Gitleaks blocking (INV-18); Semgrep and Dependency-Check non-blocking, outside the gate chain (§5, Security Scan Jobs ADR) |
 | Runtime Secret template | `k8s/base/secret.example.yaml` | Shape-only reference; real Secret created via `kubectl create secret generic` (§2) |

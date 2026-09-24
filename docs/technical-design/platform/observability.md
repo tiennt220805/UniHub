@@ -17,6 +17,7 @@ This file is the physical-level completion of `architecture.md` §1.2/§2.2/§3 
   - [ADR Mini: Correlation ID Identity](#adr-mini-correlation-id-identity)
   - [ADR Mini: Trace Backend](#adr-mini-trace-backend)
   - [ADR Mini: Alerting Rule Engine](#adr-mini-alerting-rule-engine)
+  - [ADR Mini: Readiness Composition](#adr-mini-readiness-composition)
 - [1. Correlation ID & Distributed Trace Propagation](#1-correlation-id-distributed-trace-propagation)
 - [2. Distributed Tracing Wiring](#2-distributed-tracing-wiring)
 - [3. Metrics Catalog — Golden Signals](#3-metrics-catalog-golden-signals)
@@ -29,7 +30,7 @@ This file is the physical-level completion of `architecture.md` §1.2/§2.2/§3 
 
 ## Architecture Decision Records (ADRs)
 
-All four decisions below were reached through the `spec-driven-development` gated workflow: 2–4 alternatives were explored with a trade-off matrix, the human made the call at the Phase 3 Decision Gate, and the reasoning was captured here verbatim rather than left to live only in `SPEC.md` (a working document for the next task, not a durable record). Every section from §1 onward specifies these four decisions in physical detail; this section is the permanent record of *why* they were chosen over their rejected alternatives.
+The first four decisions below were reached through the `spec-driven-development` gated workflow (the fifth, Readiness Composition, was decided later, in a review of `docs/testing/non-functional/resilience-testing.md`, and is marked as such): 2–4 alternatives were explored with a trade-off matrix, the human made the call at the Phase 3 Decision Gate, and the reasoning was captured here verbatim rather than left to live only in `SPEC.md` (a working document for the next task, not a durable record). Every section from §1 onward specifies these four decisions in physical detail; this section is the permanent record of *why* they were chosen over their rejected alternatives.
 
 ### ADR Mini: Tracing Instrumentation Mechanism
 
@@ -79,6 +80,21 @@ All four decisions below were reached through the `spec-driven-development` gate
 - Rule definitions and the dashboards they alert on live in one tool, keeping one mental model for the Organizing Committee/ops team audience §3.1 names.
 
 **Trade-offs accepted (user's own reasoning):** Prometheus Alerting Rules paired with a dedicated Alertmanager — the conventional CNCF-native pairing, with dedupe/grouping/silencing features Grafana's own engine lacks — was rejected as disproportionate infrastructure for a PoC-scale, single-Grafana-instance deployment that `proposal.md` §5.2 already excludes from "real production cloud deployment."
+
+### ADR Mini: Readiness Composition
+
+**Context:** the first version of §5 put `readinessState` plus Spring Boot's auto-configured `db`, `redis` and `rabbit` `HealthIndicator`s in the Readiness group, on the stated basis that a pod unable to reach a dependency "correctly stops receiving traffic." Reviewing the fault-injection scenarios in `docs/testing/non-functional/resilience-testing.md` showed this contradicts the rest of the corpus. `architecture.md` §4.2 makes a Redis outage a *deliberate, partial* degradation — the cache falls through to the Replica, registration writes are rejected, scheduled jobs skip — not an outage of the service; `architecture.md` §4.3/§6.1 put RabbitMQ publication behind the transactional outbox precisely so a broker outage does not fail the request path. But Redis and RabbitMQ are each a single shared instance (`distributed-coordination.md` §1, `messaging.md` §1): when either is down it is down for every pod at once, so a Readiness check on it removes *all* pods from Ingress rotation simultaneously and turns the designed partial degradation into a total outage — the same cascade §5's own exclusion of third-party dependencies exists to prevent, one layer in. No text in this document argued for including them beyond their being auto-configured.
+
+**Decision:** Readiness is `readinessState` plus `db` only, where `db` checks the **PostgreSQL Master** datasource. The `redis` and `rabbit` `HealthIndicator`s stay, but move out of the probe group into a separate, non-probe `dependencies` health group that reports them as `DEGRADED` (HTTP 200) when unreachable — visible on the health endpoint, never consulted by Kubernetes. Liveness is unchanged.
+
+**Consequences:**
+- A Redis or RabbitMQ outage no longer removes pods from rotation, so the behaviors in `distributed-coordination.md` §4 and `architecture.md` §4.2 are reachable *through the Ingress*, not only inside the application.
+- PostgreSQL (Master) remains Readiness-critical: with no system of record there is nothing a pod can correctly serve.
+- The Replica is not a Readiness condition. What happens when it is unreachable is not yet specified (`architecture.md` §4.1).
+
+**Trade-offs accepted:**
+- A single pod whose *own* connectivity to Redis or RabbitMQ is broken (a node-local network fault, not the shared instance) stays in rotation and answers registration writes with `503` + `Retry-After` while healthy pods would succeed; a client retry may reach a different pod. Accepted: for a shared-instance outage — the dominant case — ejecting on the check is strictly worse, and a per-pod partial failure is rarer.
+- A Redis or RabbitMQ outage no longer produces a Kubernetes-visible symptom (NotReady pods), and no rule in §6 fires on it directly. **A compensating alert — on the `dependencies` group or an equivalent signal — is therefore required, and is an unmet precondition of Phase 7 sign-off (`docs/testing/strategy/test-plan.md` §1, P1). The rule and the metric behind it are not yet defined; naming them is this document's job (§4, §6).**
 
 ---
 
@@ -208,7 +224,7 @@ management.tracing.sampling.probability=0.10
 
 ## 5. Health Probes — Liveness & Readiness
 
-**Rationale:** `docs/requirement.md` §3.3 requires Kubernetes Liveness and Readiness Probes for self-healing across at least 2 parallel Spring Boot Pods. `architecture.md` §1.4 and `CLAUDE.md`'s Non-Negotiable Invariants require that a Payment Gateway (or other external dependency) outage never cascades beyond the functionality that actually depends on it — this section makes clear that Readiness composition is where that guarantee would be violated if built carelessly.
+**Rationale:** `docs/requirement.md` §3.3 requires Kubernetes Liveness and Readiness Probes for self-healing across at least 2 parallel Spring Boot Pods. `architecture.md` §1.4 and `CLAUDE.md`'s Non-Negotiable Invariants require that a Payment Gateway (or other external dependency) outage never cascades beyond the functionality that actually depends on it — this section makes clear that Readiness composition is where that guarantee would be violated if built carelessly — for third-party dependencies, and equally for shared in-cluster dependencies whose outage is designed to degrade the service rather than stop it (Readiness Composition ADR above).
 
 **Model:**
 
@@ -216,25 +232,29 @@ management.tracing.sampling.probability=0.10
 management.endpoint.health.probes.enabled=true
 management.health.livenessState.enabled=true
 management.health.readinessState.enabled=true
-management.endpoint.health.group.readiness.include=readinessState,db,redis,rabbit
+management.endpoint.health.group.readiness.include=readinessState,db
+management.endpoint.health.group.dependencies.include=redis,rabbit
 ```
 
 | Probe | Composition | Kubernetes effect on failure |
 |---|---|---|
 | **Liveness** (`/actuator/health/liveness`) | Process/JVM/Spring-context health only — the `livenessState` indicator, with **no** downstream dependency checks | Pod is killed and restarted. |
-| **Readiness** (`/actuator/health/readiness`) | `readinessState` plus Spring Boot's built-in `db`, `redis`, and `rabbit` `HealthIndicator`s (auto-configured once their respective starters are on the classpath, per `CLAUDE.md`'s fixed stack) | Pod is removed from the Ingress load-balancing rotation — traffic stops routing to it — **without** being restarted. |
+| **Readiness** (`/actuator/health/readiness`) | `readinessState` plus Spring Boot's built-in `db` `HealthIndicator`, scoped to the PostgreSQL **Master** datasource only (Readiness Composition ADR) | Pod is removed from the Ingress load-balancing rotation — traffic stops routing to it — **without** being restarted. |
+| **Dependencies** (`/actuator/health/dependencies`) — *not a probe* | The `redis` and `rabbit` `HealthIndicator`s, reported as `DEGRADED` when unreachable | None — Kubernetes never consults it. Informational only. |
 
-**Explicitly excluded from Readiness:** Payment Gateway, AI Summarization Service, and the Legacy Student Management System. No `HealthIndicator` is written for any of them, and none is ever added to the `readiness` group above.
+**Explicitly excluded from Readiness:** Payment Gateway, AI Summarization Service, and the Legacy Student Management System — no `HealthIndicator` is written for any of them, and none is ever added to the `readiness` group above — and, per the Readiness Composition ADR, Redis and RabbitMQ: their indicators exist but sit in the non-probe `dependencies` group.
+
+**Model — the `dependencies` group:** Spring Boot's own `redis`/`rabbit` indicators report a raw `DOWN`. A thin `HealthContributor` wrapper maps that to a custom `DEGRADED` status, and the group's `status.http-mapping` returns `200` for it, so an unreachable Redis or RabbitMQ is visible on the health endpoint without ever failing a probe. This is an implementation note, not a new component; verify the exact property names against the pinned Spring Boot version.
 
 ```mermaid
 flowchart TD
     K8s["Kubernetes kubelet"] -->|"Liveness probe"| Live["/actuator/health/liveness\n= process/JVM alive only"]
-    K8s -->|"Readiness probe"| Ready["/actuator/health/readiness\n= readinessState + db + redis + rabbit"]
+    K8s -->|"Readiness probe"| Ready["/actuator/health/readiness\n= readinessState + db (Master only)"]
 
     Live -->|"DOWN"| Restart["Pod killed & restarted"]
     Ready -->|"DOWN"| Deregister["Pod removed from\nIngress rotation, NOT restarted"]
 
-    Excluded["✗ Payment Gateway / AI Summarization\nService / Legacy Student System —\nNEVER checked by either probe\n(no edge to either — deliberately\nnot part of this graph)"]
+    Excluded["✗ Payment Gateway / AI Summarization\nService / Legacy Student System —\nNEVER checked by either probe;\nRedis / RabbitMQ only in the\nnon-probe dependencies group\n(no edge to either probe —\ndeliberately not part of this graph)"]
 
     classDef probeStyle fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
     classDef effectStyle fill:#FFF3E0,stroke:#E65100,color:#E65100
@@ -247,9 +267,9 @@ flowchart TD
 
 **Why the exclusion matters, concretely:** if Readiness included Payment Gateway health, a sandbox Payment Gateway outage — already isolated by the shared `paymentGateway` CircuitBreaker (`../modules/payment.md`) so that only paid-checkout and reconciliation are affected — would additionally mark **every** Backend API pod `NotReady`, removing all of them from the Ingress rotation simultaneously. An isolated, payment-only degradation would turn into a total site outage: browsing, free-ticket registration, and check-in would all stop being served, purely because of how the probe was wired, not because any of those paths actually depend on the Payment Gateway. This is exactly the cascade `architecture.md` §1.4 exists to prevent, applied to the Kubernetes layer instead of the application layer.
 
-**Trade-off — Liveness deliberately cannot detect "the app is up but every dependency is unreachable":** a pod that's technically alive but whose `db`/`redis`/`rabbit` connections are all down will fail Readiness (correctly stops receiving traffic) but keep passing Liveness (correctly stays running, not restarted). This is intentional, not an oversight: restarting a pod does nothing to fix an external PostgreSQL/Redis/RabbitMQ outage, and including dependency checks in Liveness would risk a **restart storm** — every pod simultaneously failing Liveness and restarting at once during a shared-dependency blip, compounding the outage instead of isolating it.
+**Trade-off — Liveness deliberately cannot detect "the app is up but its data layer is unreachable":** a pod that is technically alive but cannot reach the PostgreSQL Master will fail Readiness (correctly stops receiving traffic) but keep passing Liveness (correctly stays running, not restarted). This is intentional, not an oversight: restarting a pod does nothing to fix an external PostgreSQL outage, and including dependency checks in Liveness would risk a **restart storm** — every pod simultaneously failing Liveness and restarting at once during a shared-dependency blip, compounding the outage instead of isolating it. Redis and RabbitMQ are deliberately *not* in this trade-off at all: their outage is a designed degradation (Readiness Composition ADR), so pods stay in rotation and the `dependencies` group reports `DEGRADED`.
 
-**Guarantees:** a pod that cannot reach PostgreSQL, Redis, or RabbitMQ is taken out of traffic rotation without being needlessly restarted; a pod that is fundamentally broken (deadlocked, out of memory) is restarted regardless of the state of any external dependency; no external third-party dependency's availability ever determines whether a Backend API pod can serve *any* traffic.
+**Guarantees:** a pod that cannot reach the PostgreSQL Master is taken out of traffic rotation without being needlessly restarted; a Redis or RabbitMQ outage never removes a pod from rotation, and its designed fail-closed/fail-open behaviors (`distributed-coordination.md` §4) are what callers experience; a pod that is fundamentally broken (deadlocked, out of memory) is restarted regardless of the state of any external dependency; no external third-party dependency's availability ever determines whether a Backend API pod can serve *any* traffic.
 
 ---
 
@@ -305,8 +325,9 @@ Every header name, MDC key, dependency, metric name, and threshold decided in th
 | Outbox relay health | `unihub_outbox_oldest_pending_age_seconds` (Gauge) | Transactional-outbox Non-Negotiable Invariant (`CLAUDE.md`) |
 | Replica lag | `unihub_postgres_replica_lag_seconds` (Gauge) | `architecture.md` §4.1 |
 | Liveness probe | `/actuator/health/liveness` — process only, no dependency checks | Avoids restart storms on a shared-dependency blip |
-| Readiness probe | `/actuator/health/readiness` — `readinessState` + `db` + `redis` + `rabbit` | Self-healing without cascading an external outage |
-| Readiness exclusions | Payment Gateway, AI Summarization Service, Legacy Student Management System | Fault-isolation invariant (`architecture.md` §1.4, `CLAUDE.md`) |
+| Readiness probe | `/actuator/health/readiness` — `readinessState` + `db` (PostgreSQL Master only) | Self-healing without cascading an external or shared-dependency outage (Readiness Composition ADR) |
+| Dependency health group | `/actuator/health/dependencies` — `redis` + `rabbit`, reported `DEGRADED`, never a probe | Visibility of a designed degradation without ejecting pods |
+| Readiness exclusions | Payment Gateway, AI Summarization Service, Legacy Student Management System (no indicator at all); Redis, RabbitMQ, the Replica (not in Readiness) | Fault-isolation invariant (`architecture.md` §1.4, `CLAUDE.md`); designed degradation (`architecture.md` §4.2, §4.3) |
 | Alert: p95 latency | Warning > 500ms / **Critical > 2s**, 5m | `docs/requirement.md` §1.4 |
 | Alert: 5xx error rate | Warning > 1% / **Critical > 5%**, 5m | — |
 | Alert: `paymentGateway` breaker OPEN | **Critical**, sustained 1m | `../modules/payment.md` |

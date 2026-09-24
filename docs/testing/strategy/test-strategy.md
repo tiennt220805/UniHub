@@ -65,9 +65,11 @@ This file is the physical-level completion of `proposal.md` §13 (Testing & QA S
 | INV-15 | Schema migrations are explicit/versioned and tolerate being read by both the old and new pod version mid-rollout | `CLAUDE.md`; `architecture.md` §6.2 | Integration/deployment | Y | 7 |
 | INV-16 | An unhealthy pod is restarted automatically; traffic is only routed to ready instances | `requirement.md` §3.3; `proposal.md` §14 | Deployment smoke (full topology) | N | 7 |
 | INV-17 | Rate limiting is enforced off cluster-wide shared state, not per-instance | `requirement.md` §2.5; `architecture.md` §4.2 | Integration (≥2 instances) | Y | 7 |
-| INV-18 | Secrets are never committed to source or config; injected at runtime in every environment | `CLAUDE.md` | Static/CI check (secret-scanning, code review) — not a runtime test | N | N/A — enforced continuously, all phases |
+| INV-18 | Secrets are never committed to source or config; injected at runtime in every environment | `CLAUDE.md` | Static/CI check (Gitleaks secret-scanning — a blocking gate, `deployment-and-cicd.md` §5's Security Scan Jobs ADR; code review) — not a runtime test | N | N/A — enforced continuously, all phases |
+| INV-19 | An Object Storage (AWS S3) outage is isolated to the Workshop module's brochure upload/summarization flow; it never cascades into Registration, Payment, or Check-in | `architecture.md` §4.4; `workshop.md` §10 — not named in `CLAUDE.md` | Integration | Y (MinIO) | 5 (assumption — `proposal.md` §15 names no phase for it; Phase 5 is chosen because it is the first phase in which all three modules the guarantee protects — Registration, Payment, Check-in — exist) |
+| INV-20 | Every connection, external and internal, is mutually authenticated; a plaintext connection to any pod in the mesh is refused (mesh mTLS mode STRICT). **Pending — not in force:** the mesh runs PERMISSIVE until the Mesh mTLS Mode ADR's three preconditions are met (`test-plan.md` §1, Phase 7 exit criteria); the ID is reserved, and no test may claim to prove this until STRICT is enabled | `architecture.md` §5.4; `deployment-and-cicd.md` §2 (Mesh mTLS Mode ADR) — not in `CLAUDE.md`'s invariants list | Deployment smoke (full topology) | N | 7 |
 
-**Guarantees:** every row has a Phase; `test-plan.md` §1 and §2 reference these rows by ID instead of restating "a Non-Negotiable Invariant" in prose. A phase's exit criteria is not met until the INV rows scheduled at that phase are proven at the Level and Testcontainers requirement stated here — a Unit test with a mocked datastore does not satisfy a row marked Testcontainers: Y.
+**Guarantees:** INV-19 and INV-20 were appended in a later review; INV-01…INV-18 keep their IDs. Every row has a Phase; `test-plan.md` §1 and §2 reference these rows by ID instead of restating "a Non-Negotiable Invariant" in prose. A phase's exit criteria is not met until the INV rows scheduled at that phase are proven at the Level and Testcontainers requirement stated here — a Unit test with a mocked datastore does not satisfy a row marked Testcontainers: Y.
 
 ---
 
@@ -106,10 +108,12 @@ The elevated Integration share (~25% vs. a typical ~15%) is intentional: it is t
 | 3. Integration tests (Testcontainers) | Every push/PR to `main` | Yes | 100% pass |
 | 4. Contract diff (OpenAPI vs. `packages/api-contract`) | Every push/PR to `main`, from Phase 1 onward — wired in as soon as the first real backend OpenAPI output exists (User/Workshop endpoints), not deferred to Phase 7 (`test-plan.md` §1) | Yes | Zero unreviewed drift |
 | 5. Docker package/push | Every push/PR to `main`, from Phase 7 onward (the K8s/CI-CD phase — `test-plan.md` §1) | Yes (final step, once reached) | Steps 1–4 must pass first |
+| Secret scan (Gitleaks) | Every push/PR to `main`, in parallel with stages 1–4; `build-and-push` (stage 5) `needs:` it (`deployment-and-cicd.md` §5's Security Scan Jobs ADR) | Yes — a required status check on `main` once the manual branch-protection setup (`deployment-and-cicd.md` §5) is done | Zero findings; justified false positives go in the committed allowlist |
+| Security scans (Semgrep SAST, OWASP Dependency-Check) | Every push/PR to `main`, in parallel with — not inside — stages 1–5 | No — non-blocking until each meets that ADR's promotion conditions | Findings reported and visible; not enforced |
 | E2E (Playwright) | Pre-release only, tied to `test-plan.md` §1 Phase 7's Minikube smoke-test deliverable (`../test-levels/e2e-testing.md` §3) | No — evidence gate for Phase 7+ sign-off, not a per-push CI gate | Full Playwright suite passes against a fresh Minikube deploy |
 | Load / adversarial-concurrency (K6/JMeter) | Dedicated sessions only (§5), scheduled per `test-plan.md` (first local, smoke-only draft in Phase 3 — not an evidence gate; full-topology evidence run in Phase 8) | No — evidence gate for a phase, not a per-push CI gate | 0% overbooking; full success-criteria table (§12) at Phase 8 |
 
-**Guarantees:** steps 1–5 are the only gates a routine commit must clear. Load testing intentionally never runs on every push — `proposal.md` §16's resource-consumption risk row already decided this (full topology reserved for dedicated sessions) — so its absence from the per-push pipeline is a documented trade-off, not a gap.
+**Guarantees:** steps 1–5 and the Gitleaks secret scan are the only gates a routine commit must clear; the Gitleaks secret scan is the one added gate (INV-18); the Semgrep and Dependency-Check scans run on every push but gate nothing until promoted. Load testing intentionally never runs on every push — `proposal.md` §16's resource-consumption risk row already decided this (full topology reserved for dedicated sessions) — so its absence from the per-push pipeline is a documented trade-off, not a gap.
 
 ---
 
@@ -149,4 +153,4 @@ The elevated Integration share (~25% vs. a typical ~15%) is intentional: it is t
 | Load-test scenarios | 12,000 CCU / 10-min surge; 500 VU vs. last 10 seats | `proposal.md` §12, `requirement.md` §3.2 |
 | Environment tiers | Local dev (Testcontainers) / CI (Testcontainers) / Full topology (Minikube, dedicated sessions only) | §5, this file |
 | Traceability record | `../reports/test-matrix.md` | §6, this file |
-| Non-Negotiable Invariant catalog | INV-01…INV-18 | §2, this file |
+| Non-Negotiable Invariant catalog | INV-01…INV-20 | §2, this file |

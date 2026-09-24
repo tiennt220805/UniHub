@@ -71,11 +71,13 @@ Sections 2–5 below are the concrete catalog — every row cites the `technical
 |---|---|---|---|
 | Yes | Yes | Yes | Accept |
 | Yes | No (concurrent writer won) | — | Reject — retry or 409, caller's choice |
-| No (lock contention) | — | — | Reject — 409 immediately, no DB round-trip attempted |
+| No (`tryLock` wait exhausted — lock contention) | — | — | Reject — `503` + `Retry-After` (`registration.md` §2), no DB round-trip attempted. **Not `409`**: `409` means "lock acquired, workshop actually full" and is a different, permanent-for-this-attempt fact |
 | N/A — lock acquisition step skipped by the test itself, Redis otherwise reachable (defense-in-depth case, see note above) | Yes | Yes | Accept — proves the DB layer alone still holds even if the application never called the lock at all |
 | N/A — lock acquisition step skipped by the test itself, Redis otherwise reachable | Yes (attempted bypass at raw SQL level) | No | Reject — the check constraint is the true final backstop |
 
 This table **is** `test-plan.md` Phase 3's three test variants (full-stack, lock-disabled, DB-only) — those three integration tests are this table's three "lock" columns held constant while the row varies. Read them together, not as unrelated tests. The fourth variant implied by INV-08 (Redis genuinely unreachable) is a separate resilience test, not a fourth row here — see the note above.
+
+**Interpretation for the adversarial scenario (500 VUs vs. the last 10 seats — `../non-functional/performance-load.md` §2.2).** `proposal.md` §12 requires every loser to receive "a clear, immediate 'unavailable' response — no silent failures", and `requirement.md` §3.2 names `409` or "an accurate 'sold out' message" for requests arriving afterward. This project reads both as satisfied by the two-response contract of `registration.md` §2: a request that reaches the seat check and finds the workshop full gets `409`; a request that loses lock contention gets `503` with `Retry-After` within the bounded 2-second `tryLock` wait — and, retried with the same `Idempotency-Key` until it gets a definitive answer, ends at `409` (a `503` is never recorded in `idempotency_keys`, so the retry is a fresh attempt, `registration.md` §4). Neither response is silent, and no request is left undecided. "Immediate" therefore means *bounded and explicit*, not *instantaneous* — a `503` can take up to the lock wait. Consequence for assertions: a loser's **first** response is classified `{409, 503 + Retry-After}` and never asserted as all-`409`; the **converged** outcome is exactly the remaining seats as successes and everything else `409`. Approved in review; the interpretation lives here, not in `requirement.md`, because it reads the SRS rather than amending it.
 
 **3.2 — Payment resolution race (INV-04, INV-10, `payment.md` §6–§7):**
 

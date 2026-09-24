@@ -129,8 +129,10 @@ void acceptsExactlyRemainingSeats_whenConcurrentRequestsExceedCapacity() throws 
     var results = futures.stream().map(this::getResultOrFailure).toList();
     assertThat(finished).isTrue();
     assertThat(results).filteredOn(RegistrationResult::isAccepted).hasSize(3);
+    // A refusal is 409 (sold out) or 503 (lock contention, Retry-After) — both valid, per
+    // test-design-techniques.md §3.1. What is forbidden is any 2xx: a silent accept.
     assertThat(results).filteredOn(r -> !r.isAccepted()).hasSize(7)
-        .allSatisfy(r -> assertThat(r.statusCode()).isEqualTo(409));
+        .allSatisfy(r -> assertThat(r.statusCode()).isIn(409, 503));
 }
 ```
 
@@ -139,7 +141,7 @@ void acceptsExactlyRemainingSeats_whenConcurrentRequestsExceedCapacity() throws 
 | Thread launch | `Executors.newFixedThreadPool(n)` sized to the exact number of concurrent requests the scenario needs — never a shared/cached pool another test could also be drawing threads from |
 | Synchronized start | A `CountDownLatch` gate that every worker `await()`s on before doing anything else, released once with a single `countDown()` from the test thread — this is what makes it a genuine race instead of N sequential calls that merely happen not to block each other. A second latch confirming every worker has actually reached the gate (`readyCount` above) avoids releasing the race before all threads are queued up. |
 | Result collection | `List<Future<Result>>`, one per submitted task, collected via `future.get()` after the pool is shut down — never a shared mutable field written by multiple threads without its own synchronization (a `ConcurrentLinkedQueue` is the alternative if a task's return value alone can't carry enough information) |
-| Assertion shape | Aggregate over the whole result collection — count of accepted vs. rejected, and a shared property of the rejected set (e.g. "all rejected are `409`") — **never** assert on `futures.get(3)` or otherwise assume which thread "won"; race outcomes are not deterministic by thread index |
+| Assertion shape | Aggregate over the whole result collection — count of accepted vs. rejected, and a shared property of the rejected set (e.g. "every rejection is `409` or `503`, never a `2xx`" — `test-design-techniques.md` §3.1) — **never** assert on `futures.get(3)` or otherwise assume which thread "won"; race outcomes are not deterministic by thread index |
 | Termination timeout | `awaitTermination(...)` with an explicit bound is mandatory, and its return value is asserted — an unbounded wait turns a deadlock in the code under test into a hung CI job instead of a failing test |
 | Naming | Same `<observedBehavior>_<condition>` shape as §2, but the condition names the concurrency scenario explicitly (the number of competing requests, what's being contended) — e.g. `acceptsExactlyRemainingSeats_whenConcurrentRequestsExceedCapacity`, not `testConcurrency()` |
 | File / isolation | `*IT.java` (§1) — these are Testcontainers-backed by construction, never `*Test.java`. Isolation is explicit setup/teardown, never `@Transactional` rollback — `test-data-management.md` §4 owns that rule and the reasoning behind it; this section doesn't repeat it |

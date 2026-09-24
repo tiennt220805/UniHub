@@ -23,7 +23,7 @@ This file is the physical-level completion of the "Testcontainers?" column in `.
 
 | Dependency | Real in tests? | Mechanism | Why |
 |---|---|---|---|
-| PostgreSQL | Always, at Integration level | Testcontainers | Transaction isolation and locking behavior are exactly what `requirement.md` §3.2 requires tests to prove — an in-memory substitute (H2) is explicitly forbidden by that same requirement |
+| PostgreSQL | Always, at Integration level | Testcontainers | Transaction isolation and locking behavior are exactly what `requirement.md` §3.2 requires tests to prove — an in-memory substitute (H2) is explicitly forbidden by that same requirement. The same holds for replication lag (INV-03): a mock cannot make a replica genuinely stale, so INV-03's tests use a real streaming replica (`../test-levels/integration-testing.md` §1–§2) |
 | Redis | Always, at Integration level | Testcontainers | Distributed-lock semantics (INV-06, INV-08, INV-09) are advisory-layer behavior a mock can't reproduce under real contention |
 | RabbitMQ | Always, at Integration level | Testcontainers | At-least-once redelivery (INV-11) and outbox-relay timing (INV-10) are broker-specific behaviors |
 | AWS S3 | Always, at Integration level | Testcontainers (MinIO's S3-compatible API) | Unlike Payment Gateway/AI Summarization Service below, S3 isn't a third party whose timing this system doesn't control — `architecture.md` §4.4 documents S3 as strong-read-after-write and deterministic, and names its own fault-isolation guarantee ("an Object Storage outage... never cascades into unrelated modules"). Both properties — the upload-before-fetch ordering and the outage-isolation boundary — need a real, faithfully-behaving S3 API to prove, not a hand-rolled HTTP stub guessing at S3's actual semantics. MinIO, not LocalStack, is the concrete choice — it's what the real CI pipeline already runs (`deployment-and-cicd.md` §5's `integration-test` job), so this table follows that job rather than naming a different tool here |
@@ -72,7 +72,7 @@ Use (1) for a fast, isolated proof that the boundary condition itself is correct
 
 | Item | Value | Source |
 |---|---|---|
-| Always-real infrastructure (Integration level) | PostgreSQL, Redis, RabbitMQ, AWS S3 (via MinIO) — always Testcontainers | §1 |
+| Always-real infrastructure (Integration level) | PostgreSQL (Master, plus a streaming replica for INV-03), Redis, RabbitMQ, AWS S3 (via MinIO) — always Testcontainers | §1 |
 | Never-real dependencies | Payment Gateway, AI Summarization Service, Legacy SMS, Notification Providers (always stubbed, every level, every phase) | §1 |
 | External-boundary stub tool | WireMock (embedded or `org.testcontainers:wiremock`) | §2 |
 | Unit-level mocking | Mockito on the module's own client interface — the external dependency's own SDK client (`PaymentGatewayClient`) or the infrastructure client itself (`RedissonClient`, `RabbitTemplate`, `S3Client`) | §2 |
