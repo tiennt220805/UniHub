@@ -139,7 +139,7 @@ The elevated Integration share (~25% vs. a typical ~15%) is intentional: it is t
 
 **Model:** `../reports/` holds only hand-maintained planning/traceability documents (the test matrix, phase sign-off templates) — never committed CI-generated output. Coverage reports and load-test result artifacts are CI/build artifacts (uploaded by the pipeline, e.g. as a GitHub Actions artifact or a dashboard), consistent with how `packages/api-contract` was kept out of `docs/` for being tooling-consumed rather than prose: generated output does not belong in the design corpus either.
 
-**Guarantees:** every row in `proposal.md` §11 (the concurrency/idempotency/outbox scenarios) and every INV row in §2 has at least one traceable row in `../reports/test-matrix.md` before that module is considered test-complete for a phase (see `test-plan.md`'s per-phase exit criteria).
+**Guarantees:** every subsection of `proposal.md` §11 (11.1 overbooking, 11.2 payment idempotency, 11.3 gateway failures, 11.4 offline check-in, 11.5 scheduled background work) and every INV row in §2 has at least one traceable row in `../reports/test-matrix.md` before that module is considered test-complete for a phase (see `test-plan.md`'s per-phase exit criteria). Outbox (INV-10) is not a `proposal.md` §11 scenario — it traces to `architecture.md` §4.3, §6.1 (and `CLAUDE.md`), so its matrix rows carry an `ARC-INV-10` ID rather than a `P11.n` one.
 
 ---
 
