@@ -1,0 +1,1450 @@
+# Backend Coding Standards — UniHub Guidelines
+
+This is the production-code counterpart to `docs/testing/guidelines/coding-standards.md` (test code only). It governs everything under `src/main/java` and combines three architectural styles that hold **at the same time**:
+
+- **Modular Monolith** (`architecture.md` §1.1, §2.3) — one deployable, six business modules, each the sole writer of its own entities (`architecture.md` §6.1).
+- **Clean / Hexagonal Architecture** — inside each module, source dependencies point inward only: `domain` ← `application` ← adapters (`web`, `infrastructure`).
+- **Event-Driven Architecture** — cross-module effects that do not need same-transaction consistency travel as messages through the transactional outbox (`architecture.md` §4.3, §6.1).
+
+SOLID is not a separate checklist; §4 maps each letter to the rule that realizes it.
+
+**Precedence.** This file never overrides `architecture.md`, `requirement.md`, the `docs/technical-design/` files, or `packages/api-contract/`. It *cites* names those sources already fixed (table columns, enum values, routing keys, schema names, HTTP paths) and never invents alternatives. If this file and one of them disagree, they are right and this file has a bug. If a rule here needs a change in one of them, the change is listed in §27 and made *there* first.
+
+**Out of scope:** test-code conventions (`docs/testing/guidelines/coding-standards.md`); real-vs-mock decisions (`docs/testing/guidelines/mocking-guidelines.md`); module business rules (`docs/technical-design/modules/*.md`); physical values such as lock leases, TTLs, retry tiers and DDL (`docs/technical-design/`).
+
+---
+
+## Rules at a Glance
+
+Read this first, then only the sections for the layer you are touching. Every rule links to its full explanation. **MUST** and **MUST NOT** are absolute; a task that seems to need an exception means the design is missing something — stop and ask.
+
+**Structure**
+1. MUST NOT import another business module's classes except its `com.unihub.<module>.api..` package; `com.unihub.shared..` is importable everywhere (§1).
+2. MUST put code in the package its role dictates: `domain` / `application/{port/in,port/out,usecase,command,result,event}` / `api` / `web` / `infrastructure/{in,out,config}` (§2).
+3. MUST NOT place cross-cutting code (outbox, relay, idempotency, audit, error handling, routing, `Clock`) in a business module — it lives only in `com.unihub.shared` (§13).
+4. MUST keep `ArchitectureTest` green; never weaken a rule in it to make a change pass (§26.2).
+
+**Layers**
+5. `domain`: plain Java only, no annotations, never reads a clock — time arrives as an `Instant` parameter (§5, §16).
+6. `application`: the only Spring imports allowed are `org.springframework.stereotype..` and `org.springframework.transaction.annotation..` (§3).
+7. `web` and `infrastructure/in`: call exactly one `port/in` per request or message; no business logic; never touch a repository, `port/out`, or `infrastructure/out` class (§3, §8.5, §10).
+8. `infrastructure/out`: implements exactly one `port/out`; translation only (§9).
+
+**Use cases & transactions**
+9. One use case class per operation, named after its port minus `UseCase`, never `*Service` (§6.1, §14.1).
+10. `@Transactional` only on use case methods or their `*Transaction`/`*Steps` helper bean; never on controllers, listeners, schedulers or adapters (§19.1).
+11. MUST NOT, inside a transaction: call a third-party HTTP API, publish to RabbitMQ, or acquire/wait on a Redis lock (§19.1).
+12. Distributed lock → then transaction → commit → then unlock, via the two-bean pattern; never call a `@Transactional` method through `this.` (§19.2, §19.3).
+13. A cross-module write that must share the caller's transaction goes through the provider's `api` port annotated `Propagation.MANDATORY` (§7, §19.5).
+
+**Persistence**
+14. Tier A modules (Workshop, Registration, Payment, Check-in): separate JPA entity, aggregate carries `Version`, repository adapter compares versions explicitly and throws `OptimisticConflictException` (§9.2). Tier B (User, Notification): transaction script (§9.1).
+15. Query use cases return projections through `<Noun>Queries` ports under `@Transactional(readOnly = true)`; add `@ReadFromPrimary` for consistency-sensitive reads (§20).
+
+**Messaging**
+16. MUST NOT publish to RabbitMQ from business code; call `EventPublisher.publish(OutboxMessage)` inside the business transaction (§8.2, §8.3).
+17. Every domain event goes through the module's exhaustive outbox translator; routing keys are copied verbatim from `messaging.md` §2 (§8.1, §8.2).
+18. Every consumer is idempotent under redelivery: re-check state at the Master, or deduplicate external side effects by event id (§8.5).
+19. Listeners never swallow exceptions; permanent failures throw `NonRetryableMessageException`; `AmqpRejectAndDontRequeueException` is banned (§8.6).
+
+**Security, audit, errors, idempotency**
+20. Endpoint authorization is `@PreAuthorize("hasAuthority(...)")` with `Permissions` constants on controllers; never a role name (§11).
+21. Audited operations call `AuditTrail.record(...)` explicitly; it never throws and publishes after commit (§12).
+22. Every error body is an RFC 7807 `ProblemDetail`; domain exceptions extend `DomainException` and declare a `ProblemKind` — never an HTTP status (§17).
+23. Idempotent operations record the use case Result in the same transaction; business rejections are sealed Result variants, never thrown exceptions (§21, §25).
+
+**Names & values**
+24. Web DTO names, paths, headers and enum values are copied from `packages/api-contract`; table/column/status/scope names from `database-schema.md`. Never invent an alternative (§10, §14.2).
+25. Constructor injection only; configuration via `@ConfigurationProperties`; no secrets in source (§15, §22).
+
+---
+
+## Table of Contents
+
+- [Rules at a Glance](#rules-at-a-glance)
+- [1. Module Boundary](#1-module-boundary)
+- [2. Package Layout](#2-package-layout)
+- [3. The Dependency Rule](#3-the-dependency-rule)
+- [4. SOLID Mapping](#4-solid-mapping)
+- [5. Domain Layer](#5-domain-layer)
+- [6. Application Layer — Use Cases & Ports](#6-application-layer-use-cases-ports)
+- [7. Module Interaction Types](#7-module-interaction-types)
+- [8. Messaging — Outbox, Relay, Consumers](#8-messaging-outbox-relay-consumers)
+- [9. Infrastructure Layer](#9-infrastructure-layer)
+- [10. Web Layer](#10-web-layer)
+- [11. RBAC & Authorization](#11-rbac-authorization)
+- [12. Audit Trail](#12-audit-trail)
+- [13. Shared Kernel](#13-shared-kernel)
+- [14. Naming & Ubiquitous Language](#14-naming-ubiquitous-language)
+- [15. Dependency Injection & Bean Naming](#15-dependency-injection-bean-naming)
+- [16. Time](#16-time)
+- [17. Errors — RFC 7807 Problem Details](#17-errors-rfc-7807-problem-details)
+- [18. Validation](#18-validation)
+- [19. Transactions, Locking & Concurrency](#19-transactions-locking-concurrency)
+- [20. Read/Write Routing — CQRS-lite & Master/Replica](#20-readwrite-routing-cqrs-lite-masterreplica)
+- [21. Idempotency](#21-idempotency)
+- [22. Configuration & Secrets](#22-configuration-secrets)
+- [23. Logging & Correlation](#23-logging-correlation)
+- [24. Null-Safety & Immutability](#24-null-safety-immutability)
+- [25. Worked Example — Seat Reservation End-to-End](#25-worked-example-seat-reservation-end-to-end)
+- [26. Testability & Structural Enforcement](#26-testability-structural-enforcement)
+- [27. Open Items in Other Documents](#27-open-items-in-other-documents)
+- [28. Reference Table](#28-reference-table)
+
+---
+
+## 1. Module Boundary
+
+**Rule:** a module may import from another business module **only** its `com.unihub.<module>.api..` package. Never `domain`, `application`, `web`, or `infrastructure` — not even to read a value type.
+
+A module's `api` package is its whole public surface. It contains:
+
+| Content | Example | Used for |
+|---|---|---|
+| Integration Event contracts (`api/event`) | `registration.api.event.RegistrationConfirmedIntegrationEvent` | Other modules deserializing a message (§7 type 4, §8) |
+| Synchronous ports the module chooses to expose, plus their result types | `workshop.api.SeatInventory`, `workshop.api.SeatClaimOutcome` | Same-transaction commands and reads by another module (§7 types 1–2) |
+
+Types that several modules must agree on — typed IDs (`WorkshopId`, `UserId`, `RegistrationId`), `Actor`, the `DomainException` base — live in the shared kernel (§13), **not** in any module's `domain`. That is what lets `api` signatures stay typed without leaking a module's domain model.
+
+**Guarantee:** ArchUnit (§26) fails the build if any class in module A depends on a class in module B outside `B.api..`.
+
+---
+
+## 2. Package Layout
+
+Every business module has this shape. The `shared` kernel (§13) follows the same shape.
+
+```
+com.unihub.<module>/
+  domain/
+    model/          aggregate roots, entities, value objects — plain Java (Tier A modules only, §9)
+    event/          sealed <Module>DomainEvent + past-tense records
+    exception/      subclasses of shared DomainException
+  application/
+    port/in/        one <Verb><Noun>UseCase interface per operation
+    port/out/       outbound ports this module needs + the records they return
+    usecase/        use case implementations, implementations of this module's api ports, *Transaction helpers
+    command/        <UseCase>Command records (use case input)
+    result/         <UseCase>Result records / sealed types (use case output)
+    event/          Deferred Job payloads (module-private, §8.4) + the outbox translator
+  api/              the ONLY package other modules may import (§1)
+    event/          Integration Event contracts
+  web/              HTTP driving adapter
+    controller/
+    dto/            classes named exactly after packages/api-contract schemas (§10)
+    mapper/
+  infrastructure/
+    in/             driving adapters other than HTTP
+      messaging/    @RabbitListener classes
+      scheduling/   @Scheduled triggers
+    out/            driven adapters
+      persistence/  JPA entities, Spring Data interfaces, repository adapters, mappers
+      client/       external systems (Stripe, S3, AI summarization, notification providers)
+      crypto/       e.g. ticket signing (Registration)
+      lock/         e.g. Redis seat lock (Registration)
+    config/         module-local @Configuration and @ConfigurationProperties
+```
+
+The outbox writer, the relay, the broker client, the idempotency store, the audit adapter and the global error handler exist **once**, in `com.unihub.shared` (§13). They never appear inside a business module's tree.
+
+`web` stays a top-level package even though it is a driving adapter like `infrastructure/in`. It is the largest adapter and the one the API contract governs, so keeping it separate keeps contract-related review easy.
+
+---
+
+## 3. The Dependency Rule
+
+Source dependencies point inward only. Driving vs. driven adapters are separated **by package** (`infrastructure/in` vs. `infrastructure/out`), so every rule below is checkable by ArchUnit on package paths alone (§26).
+
+| Package (in module M) | May depend on | Must not depend on |
+|---|---|---|
+| `M.domain` | JDK; `shared.domain` | Everything else, including Spring, JPA, Jackson |
+| `M.application` | `M.domain`; `M.application..`; `M.api..`; other modules' `api..`; `shared.domain`, `shared.security`, `shared.event`, `shared.application.port.out`, `shared.application.routing`; Spring **only** `org.springframework.stereotype..` and `org.springframework.transaction.annotation..` | `M.web`, `M.infrastructure..`, any other Spring package, JPA, AMQP, Redisson, SDKs |
+| `M.api` | JDK; `shared.domain`; `shared.event` | `M.domain`, `M.application`, `M.web`, `M.infrastructure` |
+| `M.web` | `M.application.port.in`, `.command`, `.result`; `shared.domain`, `shared.security`, `shared.web`; Spring Web / Security / Validation; Jackson; springdoc annotations | `M.domain`, `M.application.port.out`, `M.application.usecase`, `M.infrastructure..` |
+| `M.infrastructure.in..` | `M.application.port.in`, `.command`, `.event`; other modules' `api.event`; `shared.domain`, `shared.security`, `shared.messaging`; Spring AMQP / scheduling | `M.application.port.out`, `M.application.usecase`, `M.infrastructure.out..`, `M.domain.model` |
+| `M.infrastructure.out..` | `M.domain`; `M.application.port.out` (and the records declared there); `M.application.event` (serialization only); other modules' `api..` (for cross-module read adapters, §6.3); `shared.domain`, `shared.application.port.out`; JPA, JDBC, Redisson, SDKs | `M.application.port.in`, `M.application.usecase`, `M.web`, `M.infrastructure.in..` |
+| `M.infrastructure.config` | Anything inside M (it wires the module); `shared..` | Other modules' non-`api` packages |
+| `shared..` | JDK, Spring, libraries | Any business module |
+
+**Why the `application` allow-list exists.** `@Service` and `@Transactional` on use cases are standard Spring practice. Banning them would force hand-written proxies for no real decoupling gain. Everything beyond these two annotation packages stays forbidden, so `application` still cannot touch HTTP, persistence or messaging APIs.
+
+**Guarantee:** swapping every adapter of a module for another implementation (CLI, gRPC, another database) needs no change in `domain` or `application`.
+
+---
+
+## 4. SOLID Mapping
+
+| Principle | Concrete rule | Where |
+|---|---|---|
+| Single Responsibility | One use case per business operation; each adapter does one translation job | §6.1, §9 |
+| Open/Closed | New behavior = new class behind an existing port (a new notification channel is a new `NotificationChannel` implementation, per `notification.md`); a growing `switch` on a provider or channel type is a review finding | §8, §9 |
+| Liskov Substitution | Every implementation of a port honors the same contract, **including which exception it throws for which failure** — documented in the port's Javadoc | §6, §9 |
+| Interface Segregation | Narrow ports at module boundaries; one repository per aggregate inside a module | §6.3 |
+| Dependency Inversion | `application` depends only on interfaces it (or another module's `api`, or `shared`) defines; adapters implement them | §1, §3 |
+
+---
+
+## 5. Domain Layer
+
+Applies to Tier A modules (§9). The domain is plain Java: no annotations, no framework types, and **no clock access** — time always comes in as a parameter.
+
+```java
+// workshop/domain/model/Workshop.java
+public final class Workshop {
+    private final WorkshopId id;           // shared.domain.id
+    private WorkshopStatus status;
+    private final Version version;         // mirrors workshops.version; opaque to business logic
+    private final List<WorkshopDomainEvent> events = new ArrayList<>();
+
+    public void cancel(Instant occurredAt) {
+        if (status.isTerminal()) {
+            throw new InvalidWorkshopStateException(id, status, WorkshopStatus.CANCELLED);
+        }
+        this.status = WorkshopStatus.CANCELLED;
+        events.add(new WorkshopCancelled(id, occurredAt));
+    }
+
+    public List<WorkshopDomainEvent> pullEvents() {
+        var pulled = List.copyOf(events);
+        events.clear();
+        return pulled;
+    }
+
+    public Version version() { return version; }
+}
+```
+
+- **`Version`** (`shared.domain.Version`, wraps a `long`) is carried by every Tier A aggregate. It is the value the persistence adapter checks against (§9.2). Business logic never reads or changes it.
+- **Domain events** are a sealed interface per module with past-tense record variants, so translating them (§8.1) is an exhaustive `switch` the compiler checks:
+  ```java
+  public sealed interface WorkshopDomainEvent permits WorkshopCancelled, WorkshopRescheduled {}
+  public record WorkshopCancelled(WorkshopId workshopId, Instant occurredAt) implements WorkshopDomainEvent {}
+  ```
+- **Domain exceptions** extend `shared.domain.DomainException` and declare a `ProblemKind` (§17). They describe business-rule violations, never persistence or HTTP concerns.
+- **Invariants live on aggregate methods** (`cancel`, `reserve`, `expire`), never behind public setters.
+- **Value objects** are immutable records that validate themselves in their compact constructor and compare by value.
+
+---
+
+## 6. Application Layer — Use Cases & Ports
+
+### 6.1 One use case per operation
+
+```java
+// workshop/application/port/in/CreateWorkshopUseCase.java
+public interface CreateWorkshopUseCase {
+    CreateWorkshopResult create(CreateWorkshopCommand command);
+}
+```
+
+```java
+// workshop/application/usecase/CreateWorkshop.java
+@Service
+class CreateWorkshop implements CreateWorkshopUseCase {
+    private final WorkshopRepository workshops;
+    private final AuditTrail auditTrail;
+    private final Clock clock;
+
+    CreateWorkshop(WorkshopRepository workshops, AuditTrail auditTrail, Clock clock) {
+        this.workshops = workshops; this.auditTrail = auditTrail; this.clock = clock;
+    }
+
+    @Override
+    @Transactional
+    public CreateWorkshopResult create(CreateWorkshopCommand command) {
+        var now = clock.instant();
+        var workshop = Workshop.draft(WorkshopId.newId(), command.details(), now);
+        workshops.save(workshop);
+        auditTrail.record(AuditEntry.of(command.actor(), AuditActions.WORKSHOP_CREATED,
+                                        AuditTargets.WORKSHOP, workshop.id().value(), now));
+        return CreateWorkshopResult.from(workshop);
+    }
+}
+```
+
+This one-transaction shape is the common case. §19 and §25 cover the shapes that need more than one transaction or a lock.
+
+### 6.2 Commands and results
+
+- `<UseCase>Command` / `<UseCase>Result`, paired by use-case name, immutable records.
+- A Command carries the calling `Actor` (§11) whenever the operation is authorized or audited.
+- A Result that has more than one business outcome is a **sealed type**, not a record with nullable fields (see `ReserveSeatResult`, §25). The web layer maps each variant to one HTTP response.
+
+### 6.3 Port granularity
+
+- **Inside a module:** one `<Aggregate>Repository` per aggregate root (`save`, `findById`, …) shared by the module's use cases. Read-model queries go through a separate `<Noun>Queries` port (§20). No internal reader/writer split without a concrete consumer driving it.
+- **Across modules — reads:** the consumer declares a narrow port in its own `application/port/out` (e.g. `registration.application.port.out.WorkshopTitles`). Its `infrastructure/out` adapter implements that port by calling the provider's `api`.
+- **Across modules — same-transaction commands:** the provider declares the port in its own `api` (e.g. `workshop.api.SeatInventory`), and the consumer's `application` depends on that interface directly. The provider's `api` type already is the exact contract, so a consumer-side copy would add nothing.
+
+### 6.4 Relaxing one-interface-per-use-case
+
+The default for all modules is one `port/in` interface per use case. For a Tier B module (§9.3) whose use cases have almost no branching, a single `<Module>Operations` interface with a few related methods is allowed **after** the first two modules are built and the boilerplate is measured. Record that decision in the module's `technical-design/modules/*.md`; don't decide it in advance.
+
+---
+
+## 7. Module Interaction Types
+
+| # | Type | Example | Mechanism |
+|---|---|---|---|
+| 1 | Read for display or a soft decision | Registration shows a workshop title | Consumer-owned port → adapter → provider `api`. May read a Replica (§20). |
+| 2 | **Synchronous command inside the caller's transaction** | Claim/release a seat (`workshops.seats_taken`) on reserve, expire, cancel | Provider `api` port, implemented with `@Transactional(propagation = MANDATORY)` (§19.5) |
+| 3 | Synchronous stateless computation | Signing a ticket's QR payload at `CONFIRMED` (`checkin.md` §4: Registration signs) | `port/out` in the owning module + an adapter in its `infrastructure/out` |
+| 4 | Reaction after commit | Notification, summarization, reconciliation | Outbox → relay → RabbitMQ → listener (§8) |
+
+Type 2 is a deliberate, narrow exception to "modules only talk asynchronously". Anti-overbooking requires the `registrations` write and the `workshops.seats_taken`/`version` update to commit **in one transaction** (`registration.md` §1, `database-schema.md` §3.1/§4.1). An event cannot provide that. The rule "Workshop is the sole writer of `workshops`" is kept at the **code** level: the SQL that changes `seats_taken` lives only in the Workshop module, and Registration can only *call* it.
+
+An in-process call to another module's `api` is **not** an "external call" in the sense §19.1 restricts.
+
+---
+
+## 8. Messaging — Outbox, Relay, Consumers
+
+### 8.1 Domain events are translated before publishing
+
+A domain event never goes on the wire. Each module has one translator in `application/event` that maps every domain event variant — exhaustively — to zero or more outbox messages:
+
+```java
+// registration/application/event/RegistrationOutboxTranslator.java
+final class RegistrationOutboxTranslator {
+    static List<OutboxMessage> translate(RegistrationDomainEvent event) {
+        return switch (event) {
+            case SeatReserved e -> List.of(new SeatHoldExpiryRequested(          // Deferred Job, §8.4
+                    e.registrationId(), e.workshopId(), e.holdExpiresAt(), e.occurredAt()));
+            case RegistrationConfirmed e -> List.of(new RegistrationConfirmedIntegrationEvent(
+                    e.registrationId(), e.workshopId(), e.userId(), e.occurredAt()));
+            case SeatHoldExpired e -> List.of();   // explicit: nothing to publish
+        };
+    }
+}
+```
+
+Adding a domain event variant does not compile until the translator decides what, if anything, it publishes.
+
+### 8.2 The outbox message contract
+
+```java
+// shared/event/OutboxMessage.java
+public interface OutboxMessage {
+    String routingKey();      // exact key from messaging.md §2, declared as a constant on the record
+    String aggregateType();   // event_publications.aggregate_type
+    UUID aggregateId();       // event_publications.aggregate_id
+    int schemaVersion();
+    Instant occurredAt();
+}
+```
+
+```java
+// registration/api/event/RegistrationConfirmedIntegrationEvent.java
+public record RegistrationConfirmedIntegrationEvent(
+        RegistrationId registrationId, WorkshopId workshopId, UserId userId, Instant occurredAt)
+        implements OutboxMessage {
+    public static final String ROUTING_KEY = "unihub.registration.ticket.confirmed"; // messaging.md §2
+    public static final int SCHEMA_VERSION = 1;
+    @Override public String routingKey()    { return ROUTING_KEY; }
+    @Override public String aggregateType() { return "REGISTRATION"; }
+    @Override public UUID aggregateId()     { return registrationId.value(); }
+    @Override public int schemaVersion()    { return SCHEMA_VERSION; }
+}
+```
+
+**Transport metadata is not part of the business payload:**
+
+| Metadata | Set by | Carried as |
+|---|---|---|
+| `eventId` | `OutboxEventPublisher`, at insert | `event_publications.id`, then the AMQP `message-id` property |
+| Correlation ID | `OutboxEventPublisher`, read from the MDC key `correlationId` (`observability.md` §1: the trace ID *is* the correlation ID) | Stored on the outbox row (§27, item 3). At publish time the relay puts the stored value back into the MDC, so the global `RabbitTemplate` post-processor (`observability.md` §1) writes it into the `correlationId` message header, then clears the MDC in `finally` |
+| `event_type` | Simple class name of the record | `event_publications.event_type` |
+
+Routing keys are always copied verbatim from `messaging.md` §2 and never invented here.
+
+### 8.3 Components
+
+| Component | Package | Role |
+|---|---|---|
+| `EventPublisher` (port) | `shared.application.port.out` | `void publish(OutboxMessage message)` — called by use cases inside their transaction |
+| `OutboxEventPublisher` | `shared.infrastructure.out.persistence` | Inserts one `event_publications` row in the caller's transaction. Never touches RabbitMQ. |
+| `RelayPendingEvents` (use case) | `shared.application.usecase` | Reads `PENDING` rows, publishes them through `MessageBroker`, marks them `PUBLISHED` after a publisher confirm |
+| `MessageBroker` (port) / `RabbitMessageBroker` | `shared.application.port.out` / `shared.infrastructure.out.messaging` | The only class that calls `RabbitTemplate` for outbox traffic |
+| `EventRelayScheduler` | `shared.infrastructure.in.scheduling` | `@Scheduled` trigger that calls `RelayPendingEvents` |
+
+**Relay constraint (fixed here, whatever mechanism is chosen):** no database transaction stays open while publishing to the broker or waiting for a confirm (§19.1). A `SELECT … FOR UPDATE SKIP LOCKED` held across the publish therefore is **not** allowed. The allowed shapes are: *claim rows in a short transaction → publish outside any transaction → mark `PUBLISHED` in a second short transaction*; or a single-instance relay behind the scheduled-job lock (`distributed-coordination.md` §2) that reads without row locks. The choice between them is §27, item 4.
+
+### 8.4 Deferred Jobs (self-addressed messages)
+
+Three of the four outbox message kinds in `architecture.md` §4.3 are addressed to the module that publishes them: seat-hold expiry, summarization, reconciliation. They use the same outbox and relay, but their payload lives in `application/event` (module-private, never in `api`), because no other module deserializes them.
+
+```java
+// registration/application/event/SeatHoldExpiryRequested.java
+public record SeatHoldExpiryRequested(RegistrationId registrationId, WorkshopId workshopId,
+                                      Instant holdExpiresAt, Instant occurredAt) implements OutboxMessage {
+    public static final String ROUTING_KEY = "unihub.registration.hold.reserved"; // delay queue, messaging.md §2
+    // routingKey()/aggregateType()/aggregateId()/schemaVersion() as in §8.2
+}
+```
+
+The delay itself comes from the queue's `x-message-ttl` (`registration.md` §3), not from any field on the message. The consumer always re-reads `hold_expires_at` and `status` from the Master (§8.7).
+
+### 8.5 Consumers
+
+A listener is a driving adapter in `infrastructure/in/messaging`. It maps the message to a Command and calls exactly one `port/in`. It contains no business logic and never touches a repository.
+
+```java
+// registration/infrastructure/in/messaging/SeatHoldExpiryListener.java
+@Component
+class SeatHoldExpiryListener {
+    private final ExpireSeatHoldUseCase expireSeatHold;
+
+    SeatHoldExpiryListener(ExpireSeatHoldUseCase expireSeatHold) { this.expireSeatHold = expireSeatHold; }
+
+    @RabbitListener(queues = "unihub.seat-hold-expiry.queue")
+    void onHoldExpired(SeatHoldExpiryRequested message) {
+        expireSeatHold.expire(new ExpireSeatHoldCommand(message.registrationId(), message.workshopId()));
+    }
+}
+```
+
+The shared `Jackson2JsonMessageConverter` is configured to infer the target type from the listener parameter, not from a class-name header, so a producer's class name never becomes part of the wire contract.
+
+**Idempotency under redelivery** (`architecture.md` §4.3: at-least-once). This is a different mechanism from `idempotency_keys`, which guards HTTP retries only (`messaging.md` §4, "Critical distinction").
+
+| Consumer effect | Mechanism |
+|---|---|
+| State transition guarded by status/version (release an expired hold, resolve a pending payment) | Re-read current state at the Master inside the transaction; if it is already resolved, commit a no-op. No extra table. |
+| External side effect (send an email) | Transaction 1: insert the `notifications` row, deduplicated by a unique key tied to the source `eventId` (§27, item 5). Then call the provider **outside** any transaction. Transaction 2: mark it `SENT`/`FAILED`. On redelivery a `SENT` row means skip. A stale `PENDING` row means a possible duplicate send — an accepted at-least-once trade-off, not something assumed away. |
+
+### 8.6 Consumer failure handling
+
+`messaging.md` §4 is authoritative. Business queues have **no dead-letter exchange**; retries and the parking-lot are reached only through an **application-level republish** by the shared error handler. Consequences for code:
+
+- A listener never catches and swallows an exception. It lets it propagate to the shared error handler (`shared.infrastructure.in.messaging`), which republishes to the correct retry stage using the `x-death` count, or to `unihub.parking-lot` once retries are exhausted.
+- A permanent failure (unparseable payload, unsupported `schemaVersion`) is signalled by throwing `shared.messaging.NonRetryableMessageException`. The error handler sends it **straight to `unihub.parking-lot`**, with the original routing key and the exception message as headers.
+- `AmqpRejectAndDontRequeueException` is **banned** in this codebase: on a queue without a dead-letter exchange it silently drops the message.
+- `spring.rabbitmq.listener.simple.default-requeue-rejected=false`.
+
+### 8.7 Ordering
+
+There is no global ordering (`architecture.md` §4.3). Every consumer re-checks current state at the Master before acting and never infers order from the message.
+
+---
+
+## 9. Infrastructure Layer
+
+### 9.1 Tiering — where a separate domain model pays off
+
+| Tier | Modules | Persistence shape |
+|---|---|---|
+| **A** | Workshop, Registration, Payment, Check-in | Aggregate in `domain/model`, separate package-private `<Noun>JpaEntity`, mapper, repository adapter. These modules have races (`version`), state machines, or reconciliation rules worth a framework-free, unit-testable core. |
+| **B** | User, Notification | Transaction script: use case → `port/out` → adapter. The port returns records **declared next to the port** (e.g. `user.application.port.out.UserAccountRow`), never the use case's `result` types. No aggregate, no mapper. User's nightly sync is a batch upsert (use JDBC batching, not per-row aggregates); Notification writes a row and dispatches. |
+
+A Tier B module that later grows a real invariant moves to Tier A. That move is a refactor inside the module and invisible to other modules.
+
+### 9.2 Tier A persistence and optimistic locking
+
+```java
+// workshop/infrastructure/out/persistence/JpaWorkshopRepository.java
+@Repository
+class JpaWorkshopRepository implements WorkshopRepository {
+    private final SpringDataWorkshopRepository springData;   // package-private Spring Data interface
+    private final WorkshopPersistenceMapper mapper;
+
+    @Override
+    public Optional<Workshop> findById(WorkshopId id) {       // absent → Optional, never an exception
+        return springData.findById(id.value()).map(mapper::toDomain);
+    }
+
+    @Override
+    public void save(Workshop workshop) {
+        var entity = springData.findById(workshop.id().value()).orElse(null);
+        if (entity == null) {
+            springData.save(mapper.toNewEntity(workshop));
+            return;
+        }
+        if (entity.version() != workshop.version().value()) {  // explicit check, see below
+            throw new OptimisticConflictException("WORKSHOP", workshop.id().value());
+        }
+        mapper.copyState(workshop, entity);                    // never writes entity.version
+        // Hibernate issues UPDATE … WHERE id = ? AND version = ? and increments version on flush
+    }
+}
+```
+
+**Why the explicit check is mandatory.** For an entity already managed in the persistence context, Hibernate **ignores** a value you assign to its `@Version` field and uses the version from its own load-time snapshot. Copying `workshop.version()` into the entity therefore does nothing. The adapter must compare explicitly and throw. `OptimisticConflictException` (`shared.domain`) is the one exception every repository port uses for a lost race (Liskov, §4).
+
+The use case, not the adapter, decides what an empty `Optional` means (usually a `…NotFoundException` with `ProblemKind.NOT_FOUND`).
+
+### 9.3 Other driven adapters
+
+Each implements exactly one port and contains translation only: `StripePaymentGateway` (with the Resilience4j `paymentGateway` breaker, `payment.md`), `S3BrochureStorage`, `EcdsaTicketSigner`, `RedissonSeatLock`, `<Channel>NotificationChannel`. Only `infrastructure.out..` may import `jakarta.persistence`, JDBC, Redisson, the AWS SDK, the Stripe SDK or JOSE libraries.
+
+### 9.4 Schedulers
+
+`infrastructure/in/scheduling` classes are triggers only: they acquire the job lock where required (`architecture.md` §4.6, `distributed-coordination.md` §2) and call exactly one `port/in`. Example: `NightlySyncScheduler` → `RunNightlySyncUseCase`.
+
+---
+
+## 10. Web Layer
+
+A controller translates HTTP into a Command, calls exactly one `port/in`, and maps the Result back to HTTP. No business branching.
+
+```java
+// workshop/web/controller/WorkshopController.java
+@RestController
+@RequestMapping("/api/v1/workshops")                      // path exactly as in packages/api-contract
+class WorkshopController {
+    private final CreateWorkshopUseCase createWorkshop;   // port/in, never the implementation class
+
+    WorkshopController(CreateWorkshopUseCase createWorkshop) { this.createWorkshop = createWorkshop; }
+
+    @PostMapping
+    @PreAuthorize("hasAuthority(T(com.unihub.shared.security.Permissions).WORKSHOP_CREATE)")
+    ResponseEntity<Workshop> create(@Valid @RequestBody CreateWorkshopRequest request,
+                                    @AuthenticationPrincipal Jwt jwt) {
+        var result = createWorkshop.create(WorkshopWebMapper.toCommand(request, CurrentActor.from(jwt)));
+        return ResponseEntity.status(HttpStatus.CREATED).body(WorkshopWebMapper.toResponse(result));
+    }
+}
+```
+
+**Contract alignment rules** (checked by contract-diff, M-17):
+
+- Class names in `web/dto` equal the schema names in `packages/api-contract/schemas/*.yaml` — `CreateWorkshopRequest`, `Workshop`, `WorkshopSummary`, `WorkshopListResponse`, `CreateRegistrationRequest`, `Registration`. Never an invented name such as `WorkshopResponse`. A DTO sharing a simple name with a domain class (`web.dto.Workshop` vs. `domain.model.Workshop`) is expected: `web` cannot import `domain.model` (§3), so the two never meet.
+- Paths, HTTP methods, status codes and headers (`Idempotency-Key`, `X-Correlation-Id`, `Retry-After`) match `packages/api-contract/paths/*.yaml`.
+- Enum values in DTOs (`RegistrationStatus`: `RESERVED`, `CONFIRMED`, `CANCELLED`, `EXPIRED`) are copied from the contract.
+
+---
+
+## 11. RBAC & Authorization
+
+Two layers, each in its natural place (`architecture.md` §5.1, `auth-and-identity.md`):
+
+1. **Endpoint permission check** — on the controller, `@PreAuthorize("hasAuthority(...)")` against the permission codes in `shared.security.Permissions`. It is never on a use case, because use cases are also invoked from listeners and schedulers where no JWT exists.
+2. **Data-level rules** (for example, whether a caller may act on a particular resource) — business rules in the use case or domain, evaluated against the `Actor` carried on the Command.
+
+```java
+// shared/security/Permissions.java — values are permissions.code rows (database-schema.md, user.md)
+public final class Permissions {
+    public static final String WORKSHOP_CREATE = "WORKSHOP_CREATE";
+    public static final String WORKSHOP_EDIT   = "WORKSHOP_EDIT";
+    public static final String CHECKIN_SCAN    = "CHECKIN_SCAN";
+    public static final String REPORT_VIEW     = "REPORT_VIEW";
+    private Permissions() {}
+}
+
+// shared/security/Actor.java
+public record Actor(UserId userId, Set<String> permissions) {
+    public boolean has(String permission) { return permissions.contains(permission); }
+}
+```
+
+- `CurrentActor.from(Jwt)` (`shared.web`) builds the `Actor` from the `sub` and `permissions[]` claims. The JWT authorities converter maps `permissions[]` to authorities **with an empty prefix**, so `hasAuthority('WORKSHOP_CREATE')` matches the claim value exactly.
+- `hasRole(`, `ROLE_` and any comparison against a role name are banned in `src/main` — the static evidence for INV-01 (§26).
+- Add a new permission as a constant here **and** as a `permissions` row via migration, never one without the other.
+
+---
+
+## 12. Audit Trail
+
+Audit is an explicit port, called by use cases — not an AOP aspect. An aspect cannot reliably know *what* happened *to which target*, and those are required fields (`architecture.md` §5.5, `database-schema.md` §8.3).
+
+```java
+// shared/application/port/out/AuditTrail.java
+public interface AuditTrail {
+    /** Never throws. Publishes after the surrounding transaction commits, or immediately if there is none. */
+    void record(AuditEntry entry);
+}
+
+// shared/application/port/out/AuditEntry.java — fields mirror audit_events
+public record AuditEntry(Actor actor, String action, String targetType, UUID targetId,
+                         Instant occurredAt, Map<String, Object> metadata) { ... }
+```
+
+The adapter (`shared.infrastructure.out.messaging.RabbitAuditTrail`) must:
+
+1. If a transaction synchronization is active, publish in `afterCommit` — never audit an operation that rolled back. Otherwise publish immediately. Calling `registerSynchronization` without an active synchronization throws, so this check is required.
+2. Publish directly to `unihub.system.audit.created` — **not** through the outbox (`messaging.md` §3).
+3. Catch every exception, log at `WARN`, and increment a failure counter so the gap surfaces as an alert (fail-open but not silent, `architecture.md` §5.5).
+
+Action names follow the `audit_events.action` examples (`WORKSHOP_CANCELLED`, `ROLE_PERMISSIONS_CHANGED`) and live as constants in `shared.application.port.out.AuditActions`. Actions with no human caller (hold expiry, reconciliation) use `Actor.system()`. See §27, item 6 for the `actor_user_id NOT NULL` dependency.
+
+---
+
+## 13. Shared Kernel
+
+`com.unihub.shared` holds everything that genuinely crosses modules. It never depends on a business module.
+
+| Package | Contents |
+|---|---|
+| `shared.domain` | `DomainException`, `ProblemKind`, `RetryableUnavailable`, `OptimisticConflictException`, `Version`; `shared.domain.id`: `UserId`, `WorkshopId`, `RegistrationId`, `PaymentId` |
+| `shared.security` | `Permissions`, `Actor` |
+| `shared.event` | `OutboxMessage` |
+| `shared.messaging` | `NonRetryableMessageException` |
+| `shared.application.port.out` | `EventPublisher`, `MessageBroker`, `AuditTrail` (+ `AuditEntry`, `AuditActions`, `AuditTargets`), `IdempotencyStore` (+ `IdempotencyScope`, `IdempotencyKeyInUseException`) |
+| `shared.application.routing` | `@ReadFromPrimary` (§20) |
+| `shared.application.usecase` | `RelayPendingEvents` |
+| `shared.web` | `GlobalProblemHandler` (§17), `Problems` (builds a `ProblemDetail` response for a Result variant), `CurrentActor`, `CorrelationIds`, correlation-ID filter |
+| `shared.infrastructure..` | `OutboxEventPublisher`, `JdbcIdempotencyStore`, `RabbitMessageBroker`, `RabbitAuditTrail`, the listener error handler, `EventRelayScheduler`, datasource routing, the `Clock` bean |
+
+Event Publication, Idempotency Key and Audit Event are *Technical Pattern Entities* (`architecture.md` §6.1). They belong to `shared`, not to any business module.
+
+Keep `shared` small. A type goes into `shared` only if at least two modules need to agree on it. Convenience helpers do not qualify.
+
+### 13.1 Shared kernel signatures
+
+Every type this document uses from `shared` has exactly this shape. Implement it this way; do not invent a variant. Method bodies are omitted only where they are obvious.
+
+```java
+// ---------- shared.domain ----------
+public abstract class DomainException extends RuntimeException {
+    protected DomainException(String message) { super(message); }
+    protected DomainException(String message, Throwable cause) { super(message, cause); }
+    public abstract ProblemKind kind();
+}
+public enum ProblemKind { NOT_FOUND, CONFLICT, UNAVAILABLE }
+
+/** Implemented by an UNAVAILABLE DomainException that should carry a Retry-After header. */
+public interface RetryableUnavailable { Duration retryAfter(); }
+
+public final class OptimisticConflictException extends DomainException {
+    public OptimisticConflictException(String aggregateType, UUID aggregateId) {
+        super(aggregateType + " " + aggregateId + " was modified concurrently");
+    }
+    @Override public ProblemKind kind() { return ProblemKind.CONFLICT; }
+}
+
+public record Version(long value) {
+    public static Version initial() { return new Version(0); }
+}
+
+// ---------- shared.domain.id — one record per ID, all identical in shape ----------
+public record WorkshopId(UUID value) {
+    public WorkshopId { Objects.requireNonNull(value); }
+    public static WorkshopId newId() { return new WorkshopId(UUID.randomUUID()); }
+    public static WorkshopId of(UUID value) { return new WorkshopId(value); }
+}
+// UserId, RegistrationId, PaymentId: same shape.
+
+// ---------- shared.security ----------
+public record Actor(UserId userId, Set<String> permissions) {
+    public Actor { permissions = Set.copyOf(permissions); }
+    public boolean has(String permission) { return permissions.contains(permission); }
+    /** Actor for operations with no human caller (expiry, reconciliation, sync). See §27 item 6. */
+    public static Actor system() { return new Actor(SystemUser.ID, Set.of()); }
+}
+/** The seeded system user's fixed id. Its value and seed migration are decided by §27 item 6. */
+public final class SystemUser {
+    public static final UserId ID = UserId.of(UUID.fromString("<fixed value from the seed migration>"));
+    private SystemUser() {}
+}
+
+// ---------- shared.event ----------
+public interface OutboxMessage {            // §8.2
+    String routingKey();
+    String aggregateType();
+    UUID aggregateId();
+    int schemaVersion();
+    Instant occurredAt();
+}
+
+// ---------- shared.messaging ----------
+public class NonRetryableMessageException extends RuntimeException {
+    public NonRetryableMessageException(String message) { super(message); }
+    public NonRetryableMessageException(String message, Throwable cause) { super(message, cause); }
+}
+
+// ---------- shared.application.port.out ----------
+public interface EventPublisher { void publish(OutboxMessage message); }
+public interface MessageBroker  { void publishConfirmed(PendingPublication publication); } // used only by RelayPendingEvents;
+                                                                                            // returns only after a positive publisher confirm, else throws
+/** One event_publications row as the relay sees it. */
+public record PendingPublication(UUID eventId, String routingKey, String payloadJson, String correlationId) {}
+public interface AuditTrail     { void record(AuditEntry entry); }                          // §12
+
+public record AuditEntry(Actor actor, String action, String targetType, UUID targetId,
+                         Instant occurredAt, Map<String, Object> metadata) {
+    public AuditEntry { metadata = Map.copyOf(metadata); }
+    public static AuditEntry of(Actor actor, String action, String targetType, UUID targetId, Instant occurredAt) {
+        return new AuditEntry(actor, action, targetType, targetId, occurredAt, Map.of());
+    }
+    public AuditEntry withMetadata(Map<String, Object> metadata) {
+        return new AuditEntry(actor, action, targetType, targetId, occurredAt, metadata);
+    }
+}
+/** audit_events.action values. WORKSHOP_CANCELLED and ROLE_PERMISSIONS_CHANGED are fixed by database-schema.md §8.3; add new ones here. */
+public final class AuditActions {
+    public static final String WORKSHOP_CREATED         = "WORKSHOP_CREATED";
+    public static final String WORKSHOP_CANCELLED       = "WORKSHOP_CANCELLED";
+    public static final String WORKSHOP_RESCHEDULED     = "WORKSHOP_RESCHEDULED";
+    public static final String REGISTRATION_CREATED     = "REGISTRATION_CREATED";
+    public static final String REGISTRATION_EXPIRED     = "REGISTRATION_EXPIRED";
+    public static final String ROLE_PERMISSIONS_CHANGED = "ROLE_PERMISSIONS_CHANGED";
+    private AuditActions() {}
+}
+/** audit_events.target_type values. WORKSHOP, PAYMENT, ROLE are fixed by database-schema.md §8.3. */
+public final class AuditTargets {
+    public static final String WORKSHOP = "WORKSHOP", REGISTRATION = "REGISTRATION", PAYMENT = "PAYMENT",
+                               ATTENDANCE = "ATTENDANCE", ROLE = "ROLE";
+    private AuditTargets() {}
+}
+
+public interface IdempotencyStore {                                     // §21
+    <R> Optional<R> find(IdempotencyScope scope, String key, Class<R> resultType);
+    void record(IdempotencyScope scope, String key, Object result);
+}
+public enum IdempotencyScope { REGISTRATION_CREATE, PAYMENT_CHARGE }    // database-schema.md §8.1
+public final class IdempotencyKeyInUseException extends DomainException {
+    public IdempotencyKeyInUseException(IdempotencyScope scope) {
+        super("A request with this Idempotency-Key is already being processed for " + scope);
+    }
+    @Override public ProblemKind kind() { return ProblemKind.CONFLICT; }
+}
+
+// ---------- shared.application.routing ----------
+@Target({ElementType.METHOD, ElementType.TYPE}) @Retention(RetentionPolicy.RUNTIME)
+public @interface ReadFromPrimary {}                                     // §20
+
+// ---------- shared.web ----------
+public final class CurrentActor {
+    /** Builds the Actor from the JWT "sub" and "permissions" claims (auth-and-identity.md). */
+    public static Actor from(Jwt jwt) { ... }
+}
+public final class CorrelationIds {
+    /** The current OpenTelemetry trace ID (32 hex chars), read from the MDC key "correlationId" (observability.md §1). */
+    public static String current() { ... }
+}
+public final class Problems {
+    /** A ProblemDetail response for a sealed-Result variant (§17, §25.3); fills instance and correlationId. */
+    public static ResponseEntity<ProblemDetail> of(HttpStatus status, String detail, HttpServletRequest request) { ... }
+    public static ResponseEntity<ProblemDetail> conflict(HttpServletRequest request, String detail) {
+        return of(HttpStatus.CONFLICT, detail, request);
+    }
+}
+```
+
+Module-specific helpers named in this document — `RegistrationPolicy` (holds `seatHoldDuration`, built from `RegistrationProperties` in `infrastructure/config`), `SeatLock`, `TicketSigner`, `SeatCounter` — belong to their module, not to `shared`. Their signatures are given where they are introduced (§19, §25).
+
+---
+
+## 14. Naming & Ubiquitous Language
+
+### 14.1 Class names
+
+| Element | Convention | Example |
+|---|---|---|
+| Aggregate / value object | Noun | `Workshop`, `Registration`, `Version` |
+| Domain event | Past tense | `SeatReserved`, `RegistrationConfirmed`, `WorkshopCancelled` |
+| Inbound port | `<Verb><Noun>UseCase` | `ReserveSeatUseCase` |
+| Use case implementation | Port name minus `UseCase` — never `*Service` | `ReserveSeat` |
+| Transaction helper of a use case (§19.2) | `<UseCase>Transaction` / `<UseCase>Steps`, package-private | `ReserveSeatTransaction`, `ChargePaymentSteps` |
+| Implementation of a provider `api` port | `<Module><Port>` | `WorkshopSeatInventory implements SeatInventory` |
+| Command / Result | `<UseCase>Command` / `<UseCase>Result` | `ReserveSeatCommand`, `ReserveSeatResult` |
+| Outbound port | Role noun, no `Client`/`I` prefix or suffix | `WorkshopRepository`, `SeatLock`, `TicketSigner`, `PaymentGateway`, `BrochureStorage` |
+| Read-model port | `<Noun>Queries` | `WorkshopCatalogQueries` |
+| Query input | `<Verb><Noun>Criteria` | `SearchWorkshopsCriteria` |
+| Driven adapter | `<Tech><Port>` | `JpaWorkshopRepository`, `RedissonSeatLock`, `StripePaymentGateway`, `OutboxEventPublisher` |
+| Spring Data interface | `SpringData<Noun>Repository`, package-private | `SpringDataWorkshopRepository` |
+| JPA entity | `<Noun>JpaEntity`, package-private | `WorkshopJpaEntity` |
+| Listener / scheduler | `<Trigger>Listener` / `<Job>Scheduler` | `SeatHoldExpiryListener`, `NightlySyncScheduler` |
+| Integration Event | `<Fact>IntegrationEvent` | `RegistrationConfirmedIntegrationEvent` |
+| Deferred Job payload | `<Job>Requested` | `SeatHoldExpiryRequested` |
+| Web DTO | Exactly the OpenAPI schema name | `CreateRegistrationRequest`, `Registration` |
+| Mapper | `<Noun><Boundary>Mapper` | `WorkshopPersistenceMapper`, `WorkshopWebMapper` |
+
+### 14.2 Ubiquitous language — cited, never invented
+
+Names that already exist in the schema, the contract or the message topology are copied here, never renamed. For the seat-reservation concept:
+
+| Concept | Canonical name | Source |
+|---|---|---|
+| The entity | Registration (`registrations`) | `architecture.md` §6.1, `database-schema.md` §4.1 |
+| Status of a held, unpaid seat | `RESERVED` | `registrations.status` CHECK, `RegistrationStatus` in the API contract |
+| Other statuses | `CONFIRMED`, `CANCELLED`, `EXPIRED` | same |
+| The 15-minute window | "hold" — only as a noun for the window: `hold_expires_at`, `SeatHoldExpiryRequested`, `unihub.registration.hold.*` | `registration.md` §1/§3, `messaging.md` §2 |
+| The act of taking a seat | "reserve" — `ReserveSeat`, `SeatReserved` | this document |
+| Ticket confirmed message | `unihub.registration.ticket.confirmed` | `messaging.md` §2 |
+| Idempotency scopes | `REGISTRATION_CREATE`, `PAYMENT_CHARGE` | `database-schema.md` §8.1 |
+
+To change any of these, first change the source (migration, contract, or `messaging.md`), then this table.
+
+---
+
+## 15. Dependency Injection & Bean Naming
+
+- Constructor injection only; no field or setter injection anywhere. Every class can be built with `new` and Mockito mocks in a unit test.
+- Use case, adapter, listener and controller classes are package-private where possible; only port interfaces, `api` types, commands and results need to be public.
+- Class names like `ReserveSeat` can repeat across modules. To make default bean names collision-proof, the application uses fully qualified bean names:
+  ```java
+  @SpringBootApplication(nameGenerator = FullyQualifiedAnnotationBeanNameGenerator.class)
+  public class UniHubApplication { ... }
+  ```
+
+---
+
+## 16. Time
+
+- `domain` never reads a clock. Methods take `Instant` parameters.
+- `application` reads "now" once per use case from an injected `java.time.Clock` (`Clock.systemUTC()` in production, `Clock.fixed(...)` in tests — `mocking-guidelines.md` §3) and passes that value down.
+- Durations (seat-hold length, timeouts) come from `@ConfigurationProperties` (§22). Where a duration is also fixed in infrastructure — the seat-hold delay queue's `x-message-ttl` (`registration.md` §3) — both values must equal the same documented setting. A test asserts they match.
+
+---
+
+## 17. Errors — RFC 7807 Problem Details
+
+Every non-2xx response is `application/problem+json` exactly as `packages/api-contract/common/error.yaml` defines it: `type`, `title`, `status`, `detail`, `instance`, `correlationId`. No module defines its own error envelope; Spring's `ProblemDetail` is the only error body type.
+
+```java
+// shared/domain/DomainException.java
+public abstract class DomainException extends RuntimeException {
+    protected DomainException(String message) { super(message); }
+    public abstract ProblemKind kind();
+}
+
+// shared/domain/ProblemKind.java — the only mapping from business semantics to HTTP lives in shared.web
+public enum ProblemKind { NOT_FOUND, CONFLICT, UNAVAILABLE }
+```
+
+```java
+// shared/web/GlobalProblemHandler.java
+@RestControllerAdvice
+class GlobalProblemHandler extends ResponseEntityExceptionHandler {   // also turns @Valid failures into 400 ProblemDetail
+
+    @ExceptionHandler(DomainException.class)
+    ResponseEntity<ProblemDetail> handle(DomainException ex, HttpServletRequest request) {
+        var status = switch (ex.kind()) {
+            case NOT_FOUND   -> HttpStatus.NOT_FOUND;
+            case CONFLICT    -> HttpStatus.CONFLICT;
+            case UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+        };
+        var body = ProblemDetail.forStatusAndDetail(status, ex.getMessage());
+        body.setInstance(URI.create(request.getRequestURI()));
+        body.setProperty("correlationId", CorrelationIds.current());
+        var response = ResponseEntity.status(status);
+        if (ex instanceof RetryableUnavailable r) {
+            response.header(HttpHeaders.RETRY_AFTER, String.valueOf(r.retryAfter().toSeconds()));
+        }
+        return response.body(body);
+    }
+}
+```
+
+- The single advice lives in `shared.web` and maps by `ProblemKind`, so it never imports a module's exception class. `shared` stays independent of modules (§13), and `domain` stays unaware of HTTP.
+- `401` and `403` come from Spring Security, not the advice. Configure the `AuthenticationEntryPoint` and `AccessDeniedHandler` to write the same `ProblemDetail` body; otherwise those two statuses fail contract-diff.
+- A business outcome that is part of a sealed Result (sold out, §25) is **not** an exception. The controller maps that variant to a `ProblemDetail` itself.
+- Status semantics: `400` malformed request; `401` missing/invalid/expired token; `403` valid token without the permission; `404` not found, or hidden from this caller; `409` conflict with current state; `503` + `Retry-After` for transient contention or an unavailable dependency.
+
+---
+
+## 18. Validation
+
+| Concern | Layer | Mechanism | Result |
+|---|---|---|---|
+| Request shape (required, size, format) | `web/dto` | Bean Validation + `@Valid` | `400` Problem Detail |
+| Command preconditions | `application/command` | Compact constructor of the record | `IllegalArgumentException` = programming error at the mapper → `500`; the web layer must have rejected bad input first |
+| Business rules | `domain` (or use case for Tier B) | `DomainException` subclass, or a sealed Result variant when the outcome must be recorded (§21) | `404` / `409` / `503` |
+
+---
+
+## 19. Transactions, Locking & Concurrency
+
+### 19.1 What may happen inside a transaction
+
+| Allowed inside `@Transactional` | Never inside `@Transactional` |
+|---|---|
+| Local DB reads and writes, including the outbox insert and the idempotency insert | HTTP calls to third parties (Stripe, AI summarization, notification providers, S3) |
+| In-process calls to another module's `api` (§7 types 1–2) | Publishing to RabbitMQ, or waiting for a publisher confirm |
+| `auditTrail.record(...)` — it defers itself to after commit (§12) | Acquiring or waiting on a Redis lock |
+
+`@Transactional` goes on use case methods (or their `*Transaction` helper), never on controllers, listeners, schedulers or repository adapters.
+
+### 19.2 Lock outside, transaction inside
+
+A distributed lock is acquired **before** the transaction opens and released **after** it commits. Doing it inside the transaction holds a pooled connection for the whole lock wait. Worse, a `finally { unlock }` inside the transactional method runs *before* the proxy commits, letting the next caller in against uncommitted state.
+
+The pattern is two beans: an entry use case (no `@Transactional`) owns the lock and calls a separate `*Transaction` bean that owns the transaction. Calling through an injected bean also avoids self-invocation (§19.3). The full code is in §25.
+
+```java
+// registration/application/port/out/SeatLock.java
+public interface SeatLock {
+    /**
+     * Runs work while holding the per-workshop seat lock (key, lease and wait time: registration.md §2).
+     * The lock is acquired before work starts and released after work returns — i.e. after the
+     * transaction inside work has committed.
+     * @throws SeatTemporarilyUnavailableException on contention timeout or when Redis is unreachable
+     */
+    <T> T withLock(WorkshopId workshopId, Supplier<T> work);
+}
+```
+
+`SeatLock` adapter obligations (`RedissonSeatLock`, parameters from `registration.md` §2):
+
+- Contention timeout or Redis unreachable → throw `SeatTemporarilyUnavailableException` (a Registration domain exception, `UNAVAILABLE`, implements `RetryableUnavailable`). Never proceed without the lock.
+- Exceptions thrown by the supplied work are rethrown unchanged — never wrapped — so the entry use case can react to them (§25.1).
+- `unlock()` failing because the lease already expired (`IllegalMonitorStateException`) is caught and logged at `WARN`. By then the transaction has committed and the database's version check already protected it; failing the request here would return an error for a successful operation.
+
+### 19.3 Self-invocation
+
+A `@Transactional` method called through `this.` bypasses the Spring proxy and runs with no transaction. Transactional work that must be called from another method of the same use case goes into a separate injected bean. There are no exceptions to this rule.
+
+### 19.4 Synchronous external calls — orchestrator
+
+When a request must call a third party synchronously (the Stripe charge, `payment.md`):
+
+```
+ChargePayment (no transaction)
+  ├─ steps.begin(command)      @Transactional: idempotency check/record + payments row PENDING, commit
+  ├─ paymentGateway.charge()   no transaction; Resilience4j breaker + TimeLimiter (payment.md ADR)
+  └─ steps.complete(outcome)   @Transactional: PENDING → SUCCEEDED/FAILED with version check, commit
+```
+
+`begin` and `complete` live on a separate `ChargePaymentSteps` bean. `TransactionTemplate` is **not** used in `application` — it sits outside the Spring allow-list (§3), and the two-bean shape already solves the problem.
+
+### 19.5 Cross-module commands use `MANDATORY`
+
+```java
+// workshop/application/port/out/SeatCounter.java — implemented by JdbcSeatCounter in infrastructure/out/persistence
+public interface SeatCounter {
+    /** SELECT status, is_paid, seats_taken, capacity, version FROM workshops WHERE id = ? — on the Master. */
+    Optional<SeatSnapshot> read(WorkshopId workshopId);
+    /**
+     * UPDATE workshops SET seats_taken = seats_taken + delta, version = version + 1
+     *   WHERE id = ? AND version = :expected   (registration.md §2/§3)
+     * @throws OptimisticConflictException when 0 rows are updated
+     */
+    void adjust(WorkshopId workshopId, int delta, Version expected);
+}
+public record SeatSnapshot(WorkshopStatus status, boolean paid, int seatsTaken, int capacity, Version version) {}
+```
+
+```java
+// workshop/application/usecase/WorkshopSeatInventory.java
+@Service
+class WorkshopSeatInventory implements SeatInventory {
+    private final SeatCounter seatCounter;
+
+    WorkshopSeatInventory(SeatCounter seatCounter) { this.seatCounter = seatCounter; }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public SeatClaimOutcome claim(WorkshopId workshopId) {
+        var seats = seatCounter.read(workshopId).orElseThrow(() -> new WorkshopNotFoundException(workshopId));
+        if (seats.status() != WorkshopStatus.PUBLISHED) return new SeatClaimOutcome.NotOpenForRegistration();
+        if (seats.seatsTaken() >= seats.capacity())     return new SeatClaimOutcome.SoldOut();
+        seatCounter.adjust(workshopId, +1, seats.version());   // CHECK constraint is the final backstop
+        return new SeatClaimOutcome.Claimed(seats.paid());
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void release(WorkshopId workshopId) {
+        var seats = seatCounter.read(workshopId).orElseThrow(() -> new WorkshopNotFoundException(workshopId));
+        seatCounter.adjust(workshopId, -1, seats.version());
+    }
+}
+```
+
+`WorkshopStatus` is `DRAFT` / `PUBLISHED` / `CANCELLED` / `COMPLETED` and `is_paid` is a column of `workshops` (`database-schema.md` §3.1). Only a `PUBLISHED` workshop accepts registrations; a reschedule keeps it `PUBLISHED`.
+
+```java
+// workshop/api/SeatInventory.java
+public interface SeatInventory {
+    /** Must run inside the caller's transaction. Throws OptimisticConflictException on a lost version race. */
+    SeatClaimOutcome claim(WorkshopId workshopId);
+    /** Must run inside the caller's transaction. Throws OptimisticConflictException on a lost version race. */
+    void release(WorkshopId workshopId);
+}
+
+// workshop/api/SeatClaimOutcome.java
+public sealed interface SeatClaimOutcome {
+    record Claimed(boolean paid) implements SeatClaimOutcome {}   // server-side isPaid, never from the client
+    record SoldOut() implements SeatClaimOutcome {}
+    record NotOpenForRegistration() implements SeatClaimOutcome {} // not PUBLISHED, cancelled, completed
+}
+```
+
+`MANDATORY` turns "someone called `claim()` without an enclosing transaction" into an immediate error, rather than a silent separate transaction that would break the same-transaction invariant.
+
+**Lost version race.** Under the lock, a version mismatch only happens when the lease expired mid-transaction (`registration.md` §2 trade-off). It surfaces as `OptimisticConflictException` and rolls back — **including** the idempotency insert, which is correct: the outcome was not decided. The entry use case translates it into `503 + Retry-After`, the same response as lock contention.
+
+---
+
+## 20. Read/Write Routing — CQRS-lite & Master/Replica
+
+Implements `architecture.md` §4.1.
+
+- **Query use cases** (catalog, search, reports, dashboards) skip aggregates entirely. A `<Noun>Queries` port returns view records straight from an SQL/JPQL projection.
+- **Routing rule:**
+
+  | Transaction | Routed to |
+  |---|---|
+  | `@Transactional(readOnly = true)` | Replica |
+  | `@Transactional(readOnly = true)` + `@ReadFromPrimary` | Master |
+  | Any read-write transaction | Master |
+
+- Use `@ReadFromPrimary` for consistency-sensitive reads: idempotency lookups, and read-after-own-write views such as an organizer reloading a workshop right after saving it (`architecture.md` §4.1).
+- Consumers re-checking state (§8.7) run in read-write transactions, so they read the Master.
+- **Implementation note** (`shared.infrastructure`): an `AbstractRoutingDataSource` wrapped in a `LazyConnectionDataSourceProxy`. Without the lazy proxy, a connection is taken before the transaction's read-only flag is set, and every query goes to the Master.
+
+```java
+@Transactional(readOnly = true)
+public SearchWorkshopsResult search(SearchWorkshopsCriteria criteria) {
+    return SearchWorkshopsResult.of(catalog.search(criteria));   // WorkshopCatalogQueries → Replica
+}
+```
+
+---
+
+## 21. Idempotency
+
+Implements `architecture.md` §4.5 and `database-schema.md` §8.1.
+
+```java
+// shared/application/port/out/IdempotencyStore.java
+public interface IdempotencyStore {
+    /** Consistency-sensitive: always reads the Master. */
+    <R> Optional<R> find(IdempotencyScope scope, String key, Class<R> resultType);
+    /** Same transaction as the business effect. Throws IdempotencyKeyInUseException on a concurrent duplicate. */
+    void record(IdempotencyScope scope, String key, Object result);
+}
+// IdempotencyScope values: REGISTRATION_CREATE, PAYMENT_CHARGE (database-schema.md §8.1)
+```
+
+Rules:
+
+1. The store records the **use case Result**, serialized, not an HTTP response. `application` does not know HTTP. Because the web layer's Result → HTTP mapping is deterministic, a replay still produces the identical HTTP response. This depends on the schema change in §27, item 1.
+2. `record` runs in the **same transaction** as the business write it guards.
+3. Every outcome that must replay identically — including business rejections such as sold-out — is a **variant of the sealed Result**, never a thrown exception. A thrown exception rolls back the transaction and the `record` call with it.
+4. The adapter inserts with `JdbcTemplate`, so a unique-constraint violation surfaces immediately inside `record`, not later at flush. It translates `DuplicateKeyException` into `IdempotencyKeyInUseException` (`CONFLICT`): another request with the same key committed first. The client's next retry replays that result.
+5. Transient failures (lock contention, lost version race, dependency down) are **not** recorded. They roll back, and the retry executes for real.
+
+---
+
+## 22. Configuration & Secrets
+
+Every environment-dependent or tunable value is a `@ConfigurationProperties` record in the module's `infrastructure/config`, bound from environment, ConfigMap or Secret — never a literal in code (Gitleaks, M-13). `domain` and `application` never see a property source; they receive resolved values through constructor arguments.
+
+```java
+@ConfigurationProperties(prefix = "unihub.registration")
+public record RegistrationProperties(Duration seatHoldDuration) {}
+```
+
+---
+
+## 23. Logging & Correlation
+
+- SLF4J, one `private static final Logger` per class; no `System.out` or `System.err`.
+- `INFO` for business state transitions, `WARN` for expected or recoverable failures (lock timeout, audit publish failure, late unlock), `ERROR` for unexpected ones.
+- Never log a JWT, password, signing key, full payment payload or QR payload.
+- The correlation ID is the OpenTelemetry trace ID (`observability.md` §1). It reaches the MDC automatically; do not generate another one.
+- On RabbitMQ the correlation ID travels in the `correlationId` message header, set once by a global `RabbitTemplate` post-processor and restored into the MDC by a shared listener advice (`observability.md` §1). Do not add header code in individual publishers or listeners.
+- The relay restores each outbox row's stored correlation ID into the MDC before publishing it (§8.2), so a message consumed minutes later still links back to the originating request.
+- Every relay publish and every listener invocation logs `eventId` (AMQP `message-id`), routing key and correlation ID at `INFO`.
+
+---
+
+## 24. Null-Safety & Immutability
+
+- `Optional<T>` only as a return type, never as a field or parameter.
+- Commands, Results, DTOs, value objects, events and port records are immutable records.
+- Aggregates expose behavior methods, never public setters. Every Tier A aggregate carries `Version`.
+- Collections returned from any layer are unmodifiable (`List.copyOf`, `Set.copyOf`).
+
+---
+
+## 25. Worked Example — Seat Reservation End-to-End
+
+Sources: `registration.md` §1–§4, `database-schema.md` §4.1/§8.1, `checkin.md` §4, `architecture.md` §4.2/§4.5/§5.5.
+
+### 25.1 Result, port-in and entry point
+
+```java
+// registration/application/result/ReserveSeatResult.java
+public sealed interface ReserveSeatResult {
+    record Reserved(RegistrationId id, Instant holdExpiresAt) implements ReserveSeatResult {}  // paid → RESERVED
+    record Confirmed(RegistrationId id) implements ReserveSeatResult {}                         // free → CONFIRMED
+    record SoldOut() implements ReserveSeatResult {}
+    record NotOpenForRegistration() implements ReserveSeatResult {}
+}
+
+// registration/application/port/in/ReserveSeatUseCase.java
+public interface ReserveSeatUseCase {
+    ReserveSeatResult reserve(ReserveSeatCommand command);
+}
+// ReserveSeatCommand(Actor actor, WorkshopId workshopId, String idempotencyKey)
+```
+
+```java
+// registration/application/usecase/ReserveSeat.java — entry point, deliberately NOT @Transactional
+@Service
+class ReserveSeat implements ReserveSeatUseCase {
+    private final IdempotencyStore idempotency;
+    private final SeatLock seatLock;
+    private final ReserveSeatTransaction transaction;
+
+    ReserveSeat(IdempotencyStore idempotency, SeatLock seatLock, ReserveSeatTransaction transaction) {
+        this.idempotency = idempotency; this.seatLock = seatLock; this.transaction = transaction;
+    }
+
+    @Override
+    public ReserveSeatResult reserve(ReserveSeatCommand command) {
+        // Fast replay path: a retried request never needs Redis (registration.md §4: "do not re-run … at all")
+        var replay = idempotency.find(IdempotencyScope.REGISTRATION_CREATE, command.idempotencyKey(),
+                                      ReserveSeatResult.class);
+        if (replay.isPresent()) {
+            return replay.get();
+        }
+        try {
+            // lock → transaction opens → commit → lock released (§19.2)
+            return seatLock.withLock(command.workshopId(), () -> transaction.execute(command));
+        } catch (OptimisticConflictException lostRace) {       // lease expired mid-transaction (§19.5)
+            throw new SeatTemporarilyUnavailableException(command.workshopId(), lostRace);
+        }
+    }
+}
+```
+
+### 25.2 The transaction
+
+Registration-owned collaborators used below:
+
+```java
+// registration/application/port/out/TicketSigner.java — implemented by EcdsaTicketSigner (infrastructure/out/crypto)
+public interface TicketSigner {
+    /** Generates the ticket code and signs {ticket_code, workshop_id, iat} with ES256 (checkin.md §4). */
+    IssuedTicket issue(RegistrationId registrationId, WorkshopId workshopId, Instant issuedAt);
+}
+public record IssuedTicket(String ticketCode, String qrPayload) {}   // registrations.ticket_code / qr_payload
+
+// registration/application/usecase/RegistrationPolicy.java — plain value, built in infrastructure/config
+public record RegistrationPolicy(Duration seatHoldDuration) {}      // from RegistrationProperties (§22)
+```
+
+```java
+// registration/application/usecase/ReserveSeatTransaction.java
+@Service
+class ReserveSeatTransaction {
+    private final IdempotencyStore idempotency;
+    private final SeatInventory seatInventory;           // workshop.api — type 2 (§7), MANDATORY
+    private final RegistrationRepository registrations;
+    private final TicketSigner ticketSigner;             // type 3 (§7) — Registration signs (checkin.md §4)
+    private final EventPublisher eventPublisher;
+    private final AuditTrail auditTrail;
+    private final RegistrationPolicy policy;             // seat-hold duration from RegistrationProperties
+    private final Clock clock;
+
+    // constructor omitted
+
+    @Transactional
+    public ReserveSeatResult execute(ReserveSeatCommand command) {
+        // Backstop re-check inside the transaction: a duplicate may have committed while we waited for the lock
+        var replay = idempotency.find(IdempotencyScope.REGISTRATION_CREATE, command.idempotencyKey(),
+                                      ReserveSeatResult.class);
+        if (replay.isPresent()) {
+            return replay.get();
+        }
+
+        var now = clock.instant();
+        ReserveSeatResult result = switch (seatInventory.claim(command.workshopId())) {
+            case SeatClaimOutcome.SoldOut s -> new ReserveSeatResult.SoldOut();
+            case SeatClaimOutcome.NotOpenForRegistration n -> new ReserveSeatResult.NotOpenForRegistration();
+            case SeatClaimOutcome.Claimed claimed -> {
+                var id = RegistrationId.newId();
+                var registration = claimed.paid()
+                    ? Registration.reserve(id, command.workshopId(), command.actor().userId(),
+                                           now, policy.seatHoldDuration())                   // RESERVED
+                    : Registration.confirmFree(id, command.workshopId(), command.actor().userId(),
+                                               ticketSigner.issue(id, command.workshopId(), now), now); // CONFIRMED
+                registrations.save(registration);
+                registration.pullEvents().stream()
+                    .flatMap(event -> RegistrationOutboxTranslator.translate(event).stream())
+                    .forEach(eventPublisher::publish);   // paid: hold-delay Deferred Job; free: ticket.confirmed
+                auditTrail.record(AuditEntry.of(command.actor(), AuditActions.REGISTRATION_CREATED,
+                                                AuditTargets.REGISTRATION, id.value(), now));
+                yield registration.isConfirmed()
+                    ? new ReserveSeatResult.Confirmed(id)
+                    : new ReserveSeatResult.Reserved(id, registration.holdExpiresAt());
+            }
+        };
+
+        // Every decided outcome is recorded, including SoldOut (registration.md §4 "Why a 409 also gets recorded")
+        idempotency.record(IdempotencyScope.REGISTRATION_CREATE, command.idempotencyKey(), result);
+        return result;
+    }
+}
+```
+
+**What each part guarantees:**
+
+| Line | Invariant it upholds |
+|---|---|
+| Lock in `ReserveSeat`, transaction in `ReserveSeatTransaction` | Lock is advisory and wraps the whole commit (`architecture.md` §4.2) |
+| `seatInventory.claim` under `MANDATORY` | `registrations` insert and `workshops.seats_taken`/`version` update commit together (`registration.md` §1) |
+| DB check constraint + version (in Workshop's `SeatCounter` adapter) | The final accept/reject decision (`architecture.md` §4.2, §6.1) |
+| `SoldOut` as a Result variant, then `record` | A retry replays the same `409`, never re-evaluates (`registration.md` §4) |
+| `eventPublisher.publish` inside the transaction | Outbox row commits with the business write (`architecture.md` §6.1) |
+| `auditTrail.record` | Audited after commit, fail-open (`architecture.md` §5.5) |
+
+### 25.3 Web mapping
+
+```java
+// registration/web/controller/RegistrationController.java (excerpt)
+@PostMapping("/api/v1/registrations")
+ResponseEntity<?> create(@Valid @RequestBody CreateRegistrationRequest request,
+                         @RequestHeader("Idempotency-Key") String idempotencyKey,
+                         @AuthenticationPrincipal Jwt jwt, HttpServletRequest http) {
+    var result = reserveSeat.reserve(RegistrationWebMapper.toCommand(request, idempotencyKey, CurrentActor.from(jwt)));
+    return switch (result) {
+        case ReserveSeatResult.Reserved r  -> ResponseEntity.status(201).body(RegistrationWebMapper.toResponse(r));
+        case ReserveSeatResult.Confirmed c -> ResponseEntity.status(201).body(RegistrationWebMapper.toResponse(c));
+        case ReserveSeatResult.SoldOut s   -> Problems.conflict(http, "Workshop is sold out.");
+        case ReserveSeatResult.NotOpenForRegistration n -> Problems.conflict(http, "Workshop is not open for registration.");
+    };
+}
+```
+
+The permission annotation for this endpoint uses whichever permission code `auth-and-identity.md` assigns to student registration. Status codes and bodies follow `packages/api-contract/paths/registration.yaml`.
+
+### 25.4 The expiry path uses the same building blocks
+
+`ExpireSeatHold` (entry, lock) → `ExpireSeatHoldTransaction` (`@Transactional`): load the registration from the Master; if the status is not `RESERVED`, return (redelivery no-op); otherwise `registration.expire(now)`, save, `seatInventory.release(workshopId)`, and `auditTrail.record(...)` with `Actor.system()`. The listener that triggers it is shown in §8.5.
+
+---
+
+## 26. Testability & Structural Enforcement
+
+### 26.1 What a unit test proves — and what it cannot
+
+Use cases, domain objects, translators and mappers are unit-testable with plain constructors and Mockito (no Spring context, `unit-testing.md` §4). Unit tests assert on **decisions** — which Result variant, which exception, which messages were handed to `EventPublisher` — not on the internal sequence of calls.
+
+| Needs a real runtime | Why a unit test can't prove it | Where it is proven |
+|---|---|---|
+| Lock-then-transaction ordering; `MANDATORY` propagation; rollback of the idempotency row on a lost race | Transactions exist only through Spring proxies | `*IT` with real Postgres + Redis (INV-02, INV-06/08) |
+| Explicit version check in repository adapters | Needs Hibernate's persistence context | `*IT` concurrency test |
+| Outbox → relay → broker → listener, redelivery no-op, parking-lot routing | Needs a real broker | `*IT` with RabbitMQ (INV-10, INV-11) |
+| Replica routing and `@ReadFromPrimary` | Needs two datasources | `*IT` with a streaming replica (INV-03) |
+| `@Valid`, `@PreAuthorize`, Problem Detail bodies, JSON shape | Needs the MVC and Security context | `@WebMvcTest` slice (tier: §27, item 7) and contract-diff (M-17) |
+
+### 26.2 ArchUnit — mandatory, runs in `./gradlew test`
+
+This test is the executable form of §1, §3 and the "Rules at a Glance". It is a unit-level test (a structural check with no infrastructure), lives at `src/test/java/com/unihub/ArchitectureTest.java`, and is **the first test written in Phase 1** (evidence for M-12). It is written for ArchUnit 1.x with JUnit 5. The first CI run on the Phase 1 scaffold is what verifies it compiles and passes; after that, a red rule means the change is wrong, never the rule.
+
+Two decisions make the rules unambiguous:
+- `ANY` uses ArchUnit's alternation syntax `[a|b]` to match **business modules only**, so it never matches `com.unihub.shared`.
+- Rules that compare "own module" with "other module" loop over the module list explicitly instead of relying on slice patterns.
+
+```java
+package com.unihub;
+
+import static com.tngtech.archunit.base.DescribedPredicate.not;
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage;
+import static com.tngtech.archunit.core.domain.properties.CanBeAnnotated.Predicates.annotatedWith;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.library.GeneralCodingRules.NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS;
+import static com.tngtech.archunit.library.GeneralCodingRules.NO_CLASSES_SHOULD_USE_FIELD_INJECTION;
+import static com.tngtech.archunit.library.GeneralCodingRules.NO_CLASSES_SHOULD_USE_JAVA_UTIL_LOGGING;
+
+import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.junit.AnalyzeClasses;
+import com.tngtech.archunit.junit.ArchTest;
+import com.tngtech.archunit.lang.ArchRule;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import org.springframework.transaction.annotation.Transactional;
+
+@AnalyzeClasses(packages = "com.unihub", importOptions = ImportOption.DoNotIncludeTests.class)
+class ArchitectureTest {
+
+    private static final List<String> MODULES =
+        List.of("user", "workshop", "registration", "payment", "checkin", "notification");
+
+    /** Any business module. Never matches com.unihub.shared. */
+    private static final String ANY = "com.unihub.[user|workshop|registration|payment|checkin|notification]";
+
+    /**
+     * Libraries only infrastructure.out (and infrastructure.config / shared.infrastructure) may use (§9.3).
+     * Only the publishing side of Spring AMQP is listed: listeners in infrastructure.in legitimately use
+     * @RabbitListener (org.springframework.amqp.rabbit.annotation).
+     */
+    private static final String[] DRIVEN_LIBRARIES = {
+        "jakarta.persistence..", "org.hibernate..", "org.springframework.data..", "org.springframework.jdbc..",
+        "org.springframework.amqp.rabbit.core..", "org.redisson..", "software.amazon..", "com.stripe..",
+        "io.github.resilience4j..", "com.nimbusds..", "org.jose4j.."
+    };
+
+    // ---------- §1 Module boundary ----------
+
+    @ArchTest
+    static void modules_meet_only_through_api(JavaClasses classes) {
+        for (String module : MODULES) {
+            String own = "com.unihub." + module + "..";
+            noClasses().that().resideInAPackage(own)
+                .should().dependOnClassesThat(resideInAPackage(ANY + "..")
+                    .and(not(resideInAPackage(own)))
+                    .and(not(resideInAPackage(ANY + ".api.."))))
+                .as("module '" + module + "' imports other modules only through their api package (§1)")
+                .check(classes);
+        }
+    }
+
+    @ArchTest static final ArchRule shared_is_independent_of_modules =
+        noClasses().that().resideInAPackage("com.unihub.shared..")
+            .should().dependOnClassesThat().resideInAPackage(ANY + "..")
+            .as("shared never depends on a business module (§13)");
+
+    // ---------- §3 Dependency rule, one rule per row ----------
+
+    @ArchTest static final ArchRule domain_is_plain_java =
+        classes().that().resideInAnyPackage(ANY + ".domain..", "com.unihub.shared.domain..")
+            .should().onlyDependOnClassesThat().resideInAnyPackage(
+                "java..", ANY + ".domain..", "com.unihub.shared.domain..")
+            .as("domain is plain Java (§3, §5)");
+
+    @ArchTest static final ArchRule application_stays_framework_free =
+        noClasses().that().resideInAPackage(ANY + ".application..")
+            .should().dependOnClassesThat(
+                resideInAnyPackage(ANY + ".web..", ANY + ".infrastructure..",
+                                   "com.unihub.shared.web..", "com.unihub.shared.infrastructure..")
+                .or(resideInAnyPackage(DRIVEN_LIBRARIES))
+                .or(resideInAPackage("com.fasterxml.jackson.."))
+                .or(resideInAPackage("org.springframework..")
+                    .and(not(resideInAnyPackage("org.springframework.stereotype..",
+                                                "org.springframework.transaction.annotation..")))))
+            .as("application uses only its Spring allow-list (§3)");
+
+    @ArchTest static final ArchRule api_is_a_pure_contract =
+        classes().that().resideInAPackage(ANY + ".api..")
+            .should().onlyDependOnClassesThat().resideInAnyPackage(
+                "java..", ANY + ".api..", "com.unihub.shared.domain..", "com.unihub.shared.event..")
+            .as("api depends only on JDK, shared.domain and shared.event (§1, §3)");
+
+    @ArchTest static final ArchRule web_sees_only_port_in_command_result =
+        noClasses().that().resideInAPackage(ANY + ".web..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                ANY + ".domain..", ANY + ".application.port.out..", ANY + ".application.usecase..",
+                ANY + ".application.event..", ANY + ".infrastructure..", "com.unihub.shared.infrastructure..")
+            .as("web depends on port.in, command and result only (§3, §10)");
+
+    @ArchTest static final ArchRule driving_adapters_call_only_port_in =
+        noClasses().that().resideInAPackage(ANY + ".infrastructure.in..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                ANY + ".domain.model..", ANY + ".application.port.out..", ANY + ".application.usecase..",
+                ANY + ".infrastructure.out..", ANY + ".web..")
+            .orShould().dependOnClassesThat().resideInAnyPackage(DRIVEN_LIBRARIES)
+            .as("listeners and schedulers call port.in only (§3, §8.5, §9.4)");
+
+    @ArchTest static final ArchRule driven_adapters_never_drive =
+        noClasses().that().resideInAPackage(ANY + ".infrastructure.out..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                ANY + ".application.port.in..", ANY + ".application.usecase..",
+                ANY + ".infrastructure.in..", ANY + ".web..")
+            .as("driven adapters implement port.out and never call use cases (§3, §9)");
+
+    @ArchTest static final ArchRule driven_libraries_only_in_infrastructure_out =
+        noClasses().that().resideOutsideOfPackages(
+                ANY + ".infrastructure.out..", ANY + ".infrastructure.config..", "com.unihub.shared.infrastructure..")
+            .should().dependOnClassesThat().resideInAnyPackage(DRIVEN_LIBRARIES)
+            .as("persistence, messaging, Redis, cloud and crypto libraries only in infrastructure.out (§9.3)");
+
+    // ---------- §19 Transactions ----------
+
+    @ArchTest static final ArchRule transactional_only_in_application =
+        noClasses().that().resideInAnyPackage(ANY + ".web..", ANY + ".infrastructure..", ANY + ".domain..", ANY + ".api..")
+            .should().beAnnotatedWith(Transactional.class)
+            .orShould().containAnyMethodsThat(annotatedWith(Transactional.class))
+            .as("@Transactional only on application use cases (§19.1)");
+
+    @ArchTest static final ArchRule no_jakarta_transactional =
+        noClasses().should().dependOnClassesThat().haveFullyQualifiedName("jakarta.transaction.Transactional")
+            .as("use Spring's @Transactional only (§19)");
+
+    // ---------- §16 Time ----------
+
+    @ArchTest static final ArchRule no_system_clock_reads =
+        noClasses().that().resideOutsideOfPackage("com.unihub.shared.infrastructure..")
+            .should().callMethod(Instant.class, "now")
+            .orShould().callMethod(LocalDateTime.class, "now")
+            .orShould().callMethod(LocalDate.class, "now")
+            .orShould().callMethod(Clock.class, "systemUTC")
+            .as("time comes from the injected Clock (§16)");
+
+    // ---------- §8 Messaging ----------
+
+    @ArchTest static final ArchRule no_reject_and_dont_requeue =
+        noClasses().should().dependOnClassesThat()
+            .haveFullyQualifiedName("org.springframework.amqp.AmqpRejectAndDontRequeueException")
+            .as("use NonRetryableMessageException; reject-without-requeue drops messages here (§8.6)");
+
+    // ---------- §6, §14, §15, §23 Conventions ----------
+
+    @ArchTest static final ArchRule no_service_suffix_on_use_cases =
+        noClasses().that().resideInAPackage(ANY + ".application.usecase..")
+            .should().haveSimpleNameEndingWith("Service")
+            .as("use case classes are named after their port, never *Service (§14.1)");
+
+    @ArchTest static final ArchRule constructor_injection_only = NO_CLASSES_SHOULD_USE_FIELD_INJECTION;
+    @ArchTest static final ArchRule slf4j_only = NO_CLASSES_SHOULD_USE_JAVA_UTIL_LOGGING;
+    @ArchTest static final ArchRule no_system_out = NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS;
+}
+```
+
+`com.unihub.shared` is intentionally excluded from the per-layer rules. It holds the cross-cutting machinery (the relay scheduler calls `RelayPendingEvents` directly, and the idempotency adapter carries `@Transactional` for routing, §20). Its only structural rule is independence from business modules. Review changes to `shared` more strictly for that reason.
+
+**Role-name checks cannot be caught by ArchUnit.** `hasRole` appears inside SpEL strings in `@PreAuthorize`, not as a method call. The INV-01 static check is a Checkstyle rule on `src/main` (it runs in the `lint` job, `unit-testing.md` §2). `RegexpSingleline` is a `Checker`-level module, not a `TreeWalker` child:
+
+```xml
+<!-- config/checkstyle/checkstyle.xml, directly under <module name="Checker"> -->
+<module name="RegexpSingleline">
+  <property name="format" value="hasRole\(|hasAnyRole\(|&quot;ROLE_"/>
+  <property name="message" value="Role-name checks are banned; use hasAuthority(Permissions.X) (INV-01, §11)"/>
+  <property name="fileExtensions" value="java"/>
+</module>
+```
+
+---
+
+## 27. Open Items in Other Documents
+
+These changes belong to the documents named, not to this one. Each is a precondition for the rule that cites it.
+
+| # | Change | Document | Needed by |
+|---|---|---|---|
+| 1 | `idempotency_keys`: replace `response_status`/`response_body` with `result_type VARCHAR` + `result_body JSONB` (store the use-case Result, §21); update `registration.md` §4 and `payment.md` wording to match | `database-schema.md` §8.1 | **Phase 2 blocker** (M-20) |
+| 2 | ✅ **Done** — JaCoCo `includes` = `com.unihub.*.application.usecase`, `com.unihub.*.domain.*`; `excludes` = `com.unihub.*.domain.exception`. Confirm on the scaffold that the report actually lists the usecase packages | `unit-testing.md` §3, `deployment-and-cicd.md` Coverage ADR + reference table | Phase 1 (M-15) |
+| 3 | `event_publications`: add a `correlation_id VARCHAR(32) NULL` column (§8.2; NULL for rows written outside a traced request) | `database-schema.md` §8.2 | Phase 1 (first outbox write: workshop cancel) |
+| 4 | Pick the relay mechanism, within §8.3's constraint that no transaction stays open across a publish | `messaging.md`, `database-schema.md` §8.2 | Phase 1 |
+| 5 | `notifications`: add `source_event_id UUID NOT NULL` + `UNIQUE (source_event_id, channel)` (§8.5) | `database-schema.md` §7.1, `notification.md` | Before the first notification consumer |
+| 6 | `audit_events.actor_user_id` is `NOT NULL` + FK to `users`: seed a system user row for `Actor.system()`, or allow `NULL` with an `actor_kind` column | `database-schema.md` §8.3, `user.md` | Phase 1 (first system-initiated audit) |
+| 7 | State the test tier for `@WebMvcTest` slices (proposed: `*IT.java`, since a slice boots a Spring context) | `unit-testing.md` §4, `integration-testing.md` | Phase 1 (first controller) |
+| 8 | Routing keys for "payment succeeded → registration `CONFIRMED`" and "workshop cancelled → cancel its registrations and release seats" (§7 type 4) | `messaging.md` §2, `registration.md`, `payment.md` | **Phase 2 blocker** (M-19) |
+| 9 | `workshops.version` is bumped by both seat claims and organizer edits, so edits will conflict constantly during a registration spike. Decide whether the seat counter keeps sharing that version or relies on the `seats_taken <= capacity` check with an atomic increment | `database-schema.md` §3.1, `registration.md` §2 | Phase 2 |
+| 10 | Name the permission code guarding `POST /api/v1/registrations` | `auth-and-identity.md`, `user.md` | Phase 2 |
+| 11 | ✅ **Done** — the correlation ID is a 32-hex-character trace ID (`observability.md` §1), not a UUID. The contract now declares it once as `headers.yaml#/CorrelationIdValue` (`pattern: '^[0-9a-f]{32}$'`), used by both `X-Correlation-Id` headers and `error.yaml`'s `correlationId`. Redocly lint passes | `packages/api-contract/common/headers.yaml`, `common/error.yaml` | Phase 1 (M-17) |
+
+---
+
+## 28. Reference Table
+
+| Topic | Rule | Section |
+|---|---|---|
+| Module boundary | Only `<module>.api..` and `shared..` are importable across modules | §1 |
+| Layout | `domain` / `application` / `api` / `web` / `infrastructure/{in,out,config}`; cross-cutting code only in `shared` | §2, §13 |
+| Dependency rule | Package-based matrix, enforced by ArchUnit; `application` Spring allow-list = stereotype + transaction.annotation | §3, §26 |
+| Domain | Plain Java, time passed in, sealed domain events, `Version` on every Tier A aggregate | §5 |
+| Use cases | One per operation, no `*Service`; Result is a sealed type when there are several business outcomes | §6 |
+| Interaction types | Read / same-transaction command (`MANDATORY`) / stateless computation / async reaction | §7 |
+| Outbox | Exhaustive translator → `OutboxMessage` (routing key, aggregate, schema version); eventId and correlation ID are transport metadata | §8.1–§8.3 |
+| Deferred Jobs | Self-addressed outbox messages, payload in `application/event` | §8.4 |
+| Consumers | Listener → one `port/in`; re-check state; external effects deduplicated by event id; failures propagate; permanent → `NonRetryableMessageException` → parking-lot | §8.5–§8.7 |
+| Persistence | Tier A separate JPA model + explicit version check; Tier B transaction script | §9 |
+| Web | Names, paths, enums copied from `packages/api-contract` | §10 |
+| RBAC | `@PreAuthorize(hasAuthority)` on controllers; data rules via `Actor` in use cases; no role names | §11 |
+| Audit | Explicit port; after-commit, direct publish, never throws, metric on failure | §12 |
+| Errors | RFC 7807 `ProblemDetail` only; one shared advice mapping `ProblemKind` | §17 |
+| Transactions | No network/broker/lock wait inside; lock outside; two-bean pattern; orchestrator for sync third-party calls | §19 |
+| Reads | `<Noun>Queries` projections; `readOnly` → Replica; `@ReadFromPrimary` → Master | §20 |
+| Idempotency | Result recorded in the same transaction; rejections are Result variants; transients not recorded | §21 |
+| Correlation | Trace ID = correlation ID; stored on the outbox row and republished | §23 |
