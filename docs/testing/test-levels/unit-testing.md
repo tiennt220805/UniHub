@@ -97,7 +97,27 @@ What is deliberately outside the gate, and why: `command`/`result`/`web.dto` (re
 | A real HTTP call to any external provider, even via WireMock | Also Integration — WireMock stands in for the Integration level's HTTP boundary (`../guidelines/mocking-guidelines.md` §2), a Unit test mocks the Java client interface instead |
 | A concurrency scenario (multiple threads racing a shared row) | `../test-levels/integration-testing.md`, `../guidelines/coding-standards.md` §4 — nothing to race against without a real, shared datastore |
 
-**Guarantees:** a reviewer who sees `@Testcontainers`, `@SpringBootTest`, or a `CountDownLatch` in a file ending `Test.java` (not `IT.java`) has found a misnamed file, per `../guidelines/coding-standards.md` §1 — not a new kind of Unit test.
+**Guarantees:** a reviewer who sees `@Testcontainers`, `@SpringBootTest`, or a `CountDownLatch` in a file ending `Test.java` (not `IT.java`) has found a misnamed file, per `../guidelines/coding-standards.md` §1 — not a new kind of Unit test. The one sanctioned exception to "no Spring context" is the web slice in §4.1, and it is recognisable by its own suffix.
+
+### 4.1 Web slice tests (`*WebTest.java`)
+
+**Rationale:** a controller's value is in behavior that only exists inside Spring MVC and Spring Security: `@Valid` producing `400`, `@PreAuthorize` producing `401`/`403`, every error body being an RFC 7807 `ProblemDetail` (`backend-coding-standards.md` §17), and JSON matching `packages/api-contract`. A plain `*Test` can't boot that machinery. An `*IT` can, but would start Postgres/Redis/RabbitMQ/MinIO through `IntegrationTestSupport` for a test that touches none of them, and would only run after the `unit-test` job. A `@WebMvcTest` slice boots only the web layer in a few seconds, with no infrastructure. So it gets its own suffix and runs in `./gradlew test`.
+
+**Model:**
+
+| Rule | Value |
+|---|---|
+| Suffix / task | `*WebTest.java`, in the normal test source set, run by `./gradlew test` (CI `unit-test` job) |
+| Allowed annotation | `@WebMvcTest(<OneController>.class)` plus `@Import` of the shared security and `GlobalProblemHandler` configuration. Never `@SpringBootTest`, `@Testcontainers`, `@DataJpaTest`, or any other slice |
+| Collaborators | The controller's `port/in` interfaces, mocked with `@MockitoBean` (Spring Boot 3.4+; `@MockBean` on earlier 3.x). No repository, adapter or real use case is ever in the context (`backend-coding-standards.md` §3) |
+| Authentication | Test JWTs via Spring Security Test (`jwt().authorities(...)`), built with `Permissions` constants — never a role name (INV-01) |
+| What it proves | Request validation → `400`; missing/invalid token → `401`; token without the permission → `403`; `ProblemDetail` shape including `correlationId`; request → Command and Result → response mapping; status codes and headers per the contract |
+| What it does **not** prove | That RBAC holds end to end against a real JWT and real Postgres-backed permission data (M-01…M-03 stay Integration-level per `../reports/test-matrix.md`); anything about persistence, locking or messaging |
+| Context count | One `@WebMvcTest` per controller, sharing identical `@Import`s so Spring's test-context cache reuses contexts; do not vary configuration per test class without a reason |
+
+**Trade-off:** the `unit-test` job gets a few seconds slower per distinct web context, and "Unit" in the CI job name now covers two kinds of test. In return, the property the Unit tier actually protects — a `unit-test` failure is always a code failure, never Docker or infrastructure flakiness (§2) — is unchanged, and controller contract behavior gets feedback before the slower `integration-test` job runs.
+
+**Guarantees:** a `*WebTest` never starts a container, opens a database connection, or makes a network call; a `*Test` never boots a Spring context at all.
 
 ---
 
@@ -111,3 +131,4 @@ What is deliberately outside the gate, and why: `command`/`result`/`web.dto` (re
 | Coverage gate status | Wired into `deployment-and-cicd.md` §5's `unit-test` job (Coverage Verification Mechanism ADR) | §3 |
 | INV rows provable here | INV-12 (on-device half only) | §1 |
 | Never present | Testcontainers, `@SpringBootTest`, real HTTP, concurrency constructs | §4 |
+| Web slice tests | `*WebTest.java`, `@WebMvcTest` + `@MockitoBean` port/in only, run by `./gradlew test` | §4.1 |

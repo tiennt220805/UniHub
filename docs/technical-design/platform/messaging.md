@@ -4,7 +4,7 @@ This file is the physical-level completion of `architecture.md` §4.3 (RabbitMQ 
 
 **Why this lives in `platform/`, not in one module:** one topic exchange and one retry/dead-lettering policy serve all five message kinds in this system, spanning four different modules plus the audit pipeline. The broker topology (§1), the exchange/routing-key naming convention and full queue index (§2), and the retry/dead-lettering mechanism (§4) are genuinely shared infrastructure — a module doc that redefined its own retry policy would either duplicate this reasoning four times or drift from it. Each business-specific message flow — what triggers it, what its consumer does, what it re-checks before acting — is narrated in full in its owning module doc; this file is the shared mechanism and the index, not the business logic.
 
-**Scope:** broker topology and deployment (§1); the one shared exchange, the full routing-key/queue index across all five message kinds, and the queue-declaration table (§2); async audit-event publishing, which belongs to no single business module (§3); the retry/dead-lettering/idempotent-consumption mechanism, applied identically across all five queues (§4); the full reference table (§5).
+**Scope:** broker topology and deployment (§1); the one shared exchange, the full routing-key/queue index across all five message kinds, and the queue-declaration table (§2); async audit-event publishing, which belongs to no single business module (§3); the retry/dead-lettering/idempotent-consumption mechanism, applied identically across all five queues (§4); the outbox relay that moves `event_publications` rows onto the broker (§5); the full reference table (§6).
 
 **Out of scope, and where it actually lives:** seat-hold expiry (`../modules/registration.md`); lifecycle-event notification dispatch (`../modules/notification.md`); the AI-summarization job (`../modules/workshop.md`); the payment reconciliation task (`../modules/payment.md`); the transactional outbox pattern itself (`database-schema.md` §8.2 `event_publications` — this file owns what happens *after* a row leaves that table, not the same-transaction guarantee that gets it there); JWT/auth (`auth-and-identity.md`).
 
@@ -18,7 +18,8 @@ All configuration in this document targets RabbitMQ via Spring AMQP (per `CLAUDE
 - [2. Exchange & Queue Design](#2-exchange-queue-design)
 - [3. Async Audit Event Publishing](#3-async-audit-event-publishing)
 - [4. Retry, Dead-Lettering & Idempotent Consumption](#4-retry-dead-lettering-idempotent-consumption)
-- [5. Reference Table](#5-reference-table)
+- [5. Outbox Relay](#5-outbox-relay)
+- [6. Reference Table](#6-reference-table)
 
 ---
 
@@ -187,7 +188,68 @@ Each of the other four business queues has an identical-shaped chain and diagram
 
 ---
 
-## 5. Reference Table
+## 5. Outbox Relay
+
+**Rationale:** four of the five message kinds (§2; all except audit, §3) are written to `event_publications` (`database-schema.md` §8.2) in the same transaction as the business change, per `architecture.md` §4.3/§6.1. Something must then move each `PENDING` row onto the broker. With N parallel pods, that something must not publish the same row from several pods at once as a matter of course. It also must not hold a database transaction open while it talks to the broker — a rule `docs/guidelines/backend-coding-standards.md` §8.3/§19.1 applies to all code, because a transaction held across broker latency pins a pooled connection for that whole time.
+
+**Decision (ADR mini):** a **single-instance polling relay per cycle**, coordinated by the same scheduled-job lock as every other recurring job (`architecture.md` §4.6, `distributed-coordination.md` §2).
+
+| Option | Verdict | Why |
+|---|---|---|
+| **Single instance per cycle, job lock, no row locks** | **Chosen** | Reuses an existing primitive; normally exactly one publisher; no connection held during publishing |
+| Multi-instance claim-with-lease (`UPDATE … SET claimed_until … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)` in a short transaction, publish outside it) | Rejected for now | Scales horizontally and doesn't depend on Redis, but adds columns and lease logic to solve a throughput problem this system doesn't have. It is the documented upgrade path if the relay ever becomes a bottleneck. |
+| `SELECT … FOR UPDATE SKIP LOCKED` held across the publish | Rejected | Holds a transaction and a pooled connection across broker round-trips |
+| Publish in `afterCommit`, with polling only as a fallback | Rejected | Lower latency, but two publish paths for the same row: more duplicates and harder to reason about and test |
+| Spring Modulith Event Publication Registry / Debezium CDC | Rejected | Modulith brings its own table shape, conflicting with `event_publications`. Debezium is a new infrastructure component, which `architecture.md`/`proposal.md` never named. |
+
+**Model — one cycle:**
+
+```
+every 1s (fixedDelay), on every pod:
+  tryLock("unihub:lock:job:outbox-relay", wait 0s, lease 30s)   -- lost / Redis down → skip this cycle
+  SELECT id, routing_key, payload, correlation_id
+    FROM event_publications
+   WHERE status = 'PENDING'
+   ORDER BY created_at
+   LIMIT 200                                                      -- Master, no row locks, no open transaction
+  for each row:
+    MDC.put("correlationId", row.correlation_id)                  -- observability.md §1: the global
+    publish to unihub.events with routing_key,                    --   RabbitTemplate post-processor copies it
+            message-id = row.id, persistent, mandatory = true     --   into the correlationId header
+    wait for the publisher confirm (timeout 5s)
+    ack and not returned  → UPDATE event_publications                        -- autocommit, one row
+                               SET status = 'PUBLISHED', published_at = now()
+                             WHERE id = :id AND status = 'PENDING'
+    nack / timeout / returned (unroutable) → leave PENDING, log WARN, continue with the next row
+    finally MDC.remove("correlationId")
+  unlock
+```
+
+| Parameter | Value | Why |
+|---|---|---|
+| Poll interval | 1s, `fixedDelay` | Bounds added latency to about a second. The heaviest consumer of that latency is seat-hold expiry, whose consumer re-reads `hold_expires_at` anyway, so a late release is a delay, never a wrong outcome (`../modules/registration.md` §3). |
+| Batch size | 200 rows | Large enough to drain a registration-spike backlog in a few cycles, small enough that one cycle finishes well inside the lease |
+| Lock lease | 30s, wait 0s | A 200-row batch with per-message confirms completes in a small fraction of this; wait 0s matches every other job (`distributed-coordination.md` §2) |
+| Confirm timeout | 5s per message | A broker that can't confirm within 5s is unhealthy; leaving the row `PENDING` retries it next cycle |
+| `mandatory` | `true` | Without it, a message with no matching binding is acknowledged by the broker and silently discarded. With it, the broker returns the message, and the relay treats a return as a failure and keeps the row `PENDING`. |
+
+**Failure behavior:**
+
+| Situation | Outcome | Why it is acceptable |
+|---|---|---|
+| Redis unavailable | No pod claims the cycle; rows stay `PENDING` and publish once Redis returns | Delay, not loss. During a Redis outage registration writes are already rejected (`architecture.md` §4.2), so few new rows arrive. |
+| Pod dies after the broker confirmed but before the `UPDATE` | The row is published again next cycle | At-least-once is the contract (`architecture.md` §4.3); every consumer is idempotent (§4) and deduplicates on `message-id` where it has external side effects |
+| Lease expires mid-batch, a second pod starts | Some rows may be published twice | Same as above |
+| One row keeps failing (unroutable key, oversized payload) | It stays `PENDING`; the relay skips past it every cycle, so it never blocks rows behind it | `unihub_outbox_oldest_pending_age_seconds` (`observability.md`) grows and alerts; an operator fixes the cause |
+| Relay throughput insufficient | Backlog and the same metric grow | Upgrade path: the claim-with-lease option above. The change stays inside `shared.infrastructure` and touches no module. |
+
+**Ordering:** rows are published in `created_at` order on a best-effort basis. A failing row is skipped rather than blocking, so no strict ordering is promised — consistent with `architecture.md` §4.3's "no global ordering" and with every consumer re-checking current state before acting.
+
+**Guarantees:** every committed `event_publications` row is eventually published, at least once, as long as Redis and RabbitMQ are eventually available; no database transaction or pooled connection is held while waiting on the broker; a permanently failing row surfaces as an alert instead of blocking the rows behind it.
+
+---
+
+## 6. Reference Table
 
 Every exchange, queue, routing key, and retry/TTL value in this document, in one place — the same purpose the closing tables in `database-schema.md` §11 and `distributed-coordination.md` §5 serve for their respective files.
 
@@ -208,3 +270,4 @@ Every exchange, queue, routing key, and retry/TTL value in this document, in one
 | `unihub.reconciliation.retry.5s` / `.30s` / `.5m` | Same TTLs, dead-letter-routing-key `unihub.payment.reconciliation.requested` | Dedicated retry chain for `unihub.reconciliation.queue` (§4) |
 | `unihub.audit.retry.5s` / `.30s` / `.5m` | Same TTLs, dead-letter-routing-key `unihub.system.audit.created` | Dedicated retry chain for `unihub.audit.queue` (§4) |
 | `unihub.parking-lot` | Durable, no TTL, manual processing | Max Retries = 3 exhausted — operator-visible failure surface, shared across all five chains since it's terminal (no further dead-letter hop to get wrong) |
+| Outbox relay | Single instance per cycle via `unihub:lock:job:outbox-relay` (lease 30s, wait 0s); poll every 1s (`fixedDelay`); batch 200; confirm timeout 5s; `mandatory = true`; no transaction held across a publish | Moves `event_publications` rows onto the broker (§5, `database-schema.md` §8.2, `architecture.md` §4.3/§6.1) |

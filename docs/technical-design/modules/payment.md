@@ -298,7 +298,7 @@ flowchart TD
 
 ## 10. Reference Table
 
-Every algorithm, threshold, and endpoint decision in this document, in one place — the same purpose the closing tables in `../platform/database-schema.md` §11, `../platform/distributed-coordination.md` §5, and `../platform/messaging.md` §5 serve for their own documents.
+Every algorithm, threshold, and endpoint decision in this document, in one place — the same purpose the closing tables in `../platform/database-schema.md` §11, `../platform/distributed-coordination.md` §5, and `../platform/messaging.md` §6 serve for their own documents.
 
 | Item | Value | Backs |
 |---|---|---|

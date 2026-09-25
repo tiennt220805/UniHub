@@ -117,6 +117,7 @@ The first four decisions below were reached through the `spec-driven-development
 - **The plain `correlationId` header is mirrored explicitly on top of that**, for the same reason the HTTP side uses a plain header instead of asking an operator to decode `traceparent` by hand:
   - **Producer side:** a `MessagePostProcessor` that copies `MDC.get("correlationId")` into a `correlationId` message header is registered **once**, globally, via `rabbitTemplate.setBeforePublishPostProcessors(...)` on the single shared `RabbitTemplate` bean — not passed manually at each of the five publish points (`messaging.md` §2). This is deliberate: manually attaching the post-processor at every call site would reintroduce the exact "forgot to propagate at the Nth call site" bug class the Correlation ID Identity ADR rejected a dual-ID scheme to avoid — a future sixth message kind gets the header automatically, with no new wiring to remember.
   - **Consumer side:** a shared `@RabbitListener` advice (a `MethodInterceptor`/AOP aspect applied uniformly, not duplicated per listener method) reads the `correlationId` header at message entry, calls `MDC.put("correlationId", ...)` before invoking the listener's business logic, and `MDC.remove("correlationId")` in a `finally` block — the `finally` is required because `@RabbitListener` containers run on a pooled thread; without an explicit clear, a stale `correlationId` from one message could leak into the log lines of the *next*, unrelated message processed on the same reused thread.
+- **Across the transactional outbox:** the four outbox-backed message kinds are not published inside the originating request. The outbox relay publishes them later, from its own scheduled cycle (`messaging.md` §5). The request's correlation id is therefore captured into `event_publications.correlation_id` when the row is written (`database-schema.md` §8.2). Before publishing each row, the relay puts that stored value back into the MDC, so the same global post-processor above writes it into the `correlationId` header, and clears it in `finally`. **Consequence:** the correlation id — and so the log trail — stays continuous from request to consumer. The *trace* does not: the relay's publish belongs to the relay's trace, not the request's, so Grafana Tempo shows the request and the consumer as two traces linked by the same `correlationId`. Only the audit message kind (`messaging.md` §3) is published inside the request and keeps a single continuous trace.
 
 ```mermaid
 flowchart LR
@@ -299,7 +300,7 @@ flowchart TD
 
 ## 7. Reference Table
 
-Every header name, MDC key, dependency, metric name, and threshold decided in this document, in one place — the same purpose the closing tables in `database-schema.md` §11, `distributed-coordination.md` §5, `messaging.md` §5, `auth-and-identity.md` §6, and each `../modules/*.md` file serve for their own documents.
+Every header name, MDC key, dependency, metric name, and threshold decided in this document, in one place — the same purpose the closing tables in `database-schema.md` §11, `distributed-coordination.md` §5, `messaging.md` §6, `auth-and-identity.md` §6, and each `../modules/*.md` file serve for their own documents.
 
 | Item | Value | Backs |
 |---|---|---|

@@ -81,7 +81,7 @@ This file is the physical-level completion of `proposal.md` §13 (Testing & QA S
 
 | Level | Resource size | Tooling | Target share of suite | Maps to |
 |---|---|---|---|---|
-| Unit | Small — single process, no I/O | JUnit 5 + Mockito | ~65% | `../test-levels/unit-testing.md` |
+| Unit | Small — single process, no I/O | JUnit 5 + Mockito; plus `@WebMvcTest` web slices (`*WebTest`) — still single process, no I/O | ~65% | `../test-levels/unit-testing.md` (web slices: §4.1) |
 | Integration | Medium — localhost, real Postgres/Redis/RabbitMQ via Testcontainers | JUnit 5 + Testcontainers | ~25% | `../test-levels/integration-testing.md` |
 | Contract | Medium — schema diff, no runtime infra | springdoc + OpenAPI diff vs. `packages/api-contract` | not measured as a test-case share (see note below) | `../test-levels/contract-testing.md` |
 | E2E | Large — full stack, browser | Playwright | ~5% | `../test-levels/e2e-testing.md` |

@@ -428,7 +428,7 @@ flowchart TB
 
 **Rationale**
 
-Four jobs run on a recurring schedule, not in reaction to a single event: the nightly student data sync, the payment reconciliation sweep for stuck Pending transactions, the idempotency-record cleanup sweep from Section 4.5, and the Event Publication cleanup sweep from Section 6.1. This is a different problem from Section 4.3's messaging: a RabbitMQ message is scheduled once, for one specific piece of work, and whichever instance consumes it does so exactly once by construction. A recurring job has no such built-in exclusivity — every instance's internal clock fires independently, so without coordination, all N parallel instances (Section 1.1) would decide "it's time" at the same moment and run the same job simultaneously.
+Five jobs run on a recurring schedule, not in reaction to a single event: the nightly student data sync, the payment reconciliation sweep for stuck Pending transactions, the idempotency-record cleanup sweep from Section 4.5, the Event Publication cleanup sweep from Section 6.1, and the Event Publication relay that moves committed outbox rows onto the Message Broker (Sections 4.3, 6.1). This is a different problem from Section 4.3's messaging: a RabbitMQ message is scheduled once, for one specific piece of work, and whichever instance consumes it does so exactly once by construction. A recurring job has no such built-in exclusivity — every instance's internal clock fires independently, so without coordination, all N parallel instances (Section 1.1) would decide "it's time" at the same moment and run the same job simultaneously.
 
 **Topology**
 
@@ -455,6 +455,7 @@ flowchart TB
     Job --> Recon["Payment Reconciliation Sweep"]
     Job --> Cleanup["Idempotency Record Cleanup"]
     Job --> EventPubCleanup["Event Publication Cleanup"]
+    Job --> EventPubRelay["Event Publication Relay"]
 
     classDef apiStyle fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
     classDef lockStyle fill:#FDEDEC,stroke:#B03A2E,color:#78281F
@@ -462,16 +463,16 @@ flowchart TB
 
     class API1,API2,API3 apiStyle
     class Lock lockStyle
-    class Job,Skip,Legacy,Recon,Cleanup,EventPubCleanup jobStyle
+    class Job,Skip,Legacy,Recon,Cleanup,EventPubCleanup,EventPubRelay jobStyle
 ```
 
 </div>
 
 **Trade-offs**
 
-- **Skipped cycles, not queued retries.** An instance that loses the lock race doesn't retry the same cycle — it waits for the next tick. All three jobs here tolerate running slightly late, so there's no need for the added complexity of letting a loser pick up after a winner's failure.
+- **Skipped cycles, not queued retries.** An instance that loses the lock race doesn't retry the same cycle — it waits for the next tick. Every job here tolerates running slightly late — for the relay, that means events reach the broker a cycle later, never that they are lost — so there's no need for the added complexity of letting a loser pick up after a winner's failure.
 - **Lock failure means a skipped cycle, not a stuck system.** If the coordination layer is unavailable when a tick fires, no instance safely claims the job that cycle, and the system's choice is to skip rather than guess. Same fail-safe boundary as Section 4.2: uncoordinated execution is worse than a delayed one.
-- **One instance per cycle is also a ceiling.** Only one instance does the work, so a job's runtime is bounded by what a single instance can do alone. That's fine at current data volumes — a nightly batch, a bounded set of pending transactions — but it wouldn't scale to jobs that need to process work in parallel across instances. That's a different problem (partitioned job execution) this architecture doesn't need to solve yet.
+- **One instance per cycle is also a ceiling.** Only one instance does the work, so a job's runtime is bounded by what a single instance can do alone. That's fine at current data volumes — a nightly batch, a bounded set of pending transactions, an outbox that one instance drains in batches — but it wouldn't scale to jobs that need to process work in parallel across instances. That's a different problem (partitioned job execution) this architecture doesn't need to solve yet.
 
 **Consistency Guarantees**
 

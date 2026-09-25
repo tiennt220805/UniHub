@@ -267,7 +267,7 @@ This one-transaction shape is the common case. §19 and §25 cover the shapes th
 ### 6.2 Commands and results
 
 - `<UseCase>Command` / `<UseCase>Result`, paired by use-case name, immutable records.
-- A Command carries the calling `Actor` (§11) whenever the operation is authorized or audited.
+- A Command carries the calling `Actor` (§11) whenever the operation is authorized or audited — `Actor.UserActor` for HTTP-originated commands, `Actor.SystemActor` for job-originated ones.
 - A Result that has more than one business outcome is a **sealed type**, not a record with nullable fields (see `ReserveSeatResult`, §25). The web layer maps each variant to one HTTP response.
 
 ### 6.3 Port granularity
@@ -352,8 +352,9 @@ public record RegistrationConfirmedIntegrationEvent(
 | Metadata | Set by | Carried as |
 |---|---|---|
 | `eventId` | `OutboxEventPublisher`, at insert | `event_publications.id`, then the AMQP `message-id` property |
-| Correlation ID | `OutboxEventPublisher`, read from the MDC key `correlationId` (`observability.md` §1: the trace ID *is* the correlation ID) | Stored on the outbox row (§27, item 3). At publish time the relay puts the stored value back into the MDC, so the global `RabbitTemplate` post-processor (`observability.md` §1) writes it into the `correlationId` message header, then clears the MDC in `finally` |
-| `event_type` | Simple class name of the record | `event_publications.event_type` |
+| Correlation ID | `OutboxEventPublisher`, read from the MDC key `correlationId` (`observability.md` §1: the trace ID *is* the correlation ID) | `event_publications.correlation_id` (`database-schema.md` §8.2). At publish time the relay puts the stored value back into the MDC, so the global `RabbitTemplate` post-processor (`observability.md` §1) writes it into the `correlationId` message header, then clears the MDC in `finally` |
+| `event_type` | Simple class name of the record | `event_publications.event_type` (diagnostic label only) |
+| Routing key | `OutboxMessage.routingKey()` | `event_publications.routing_key` — the relay publishes with this stored value and never derives it |
 
 Routing keys are always copied verbatim from `messaging.md` §2 and never invented here.
 
@@ -365,9 +366,9 @@ Routing keys are always copied verbatim from `messaging.md` §2 and never invent
 | `OutboxEventPublisher` | `shared.infrastructure.out.persistence` | Inserts one `event_publications` row in the caller's transaction. Never touches RabbitMQ. |
 | `RelayPendingEvents` (use case) | `shared.application.usecase` | Reads `PENDING` rows, publishes them through `MessageBroker`, marks them `PUBLISHED` after a publisher confirm |
 | `MessageBroker` (port) / `RabbitMessageBroker` | `shared.application.port.out` / `shared.infrastructure.out.messaging` | The only class that calls `RabbitTemplate` for outbox traffic |
-| `EventRelayScheduler` | `shared.infrastructure.in.scheduling` | `@Scheduled` trigger that calls `RelayPendingEvents` |
+| `EventRelayScheduler` | `shared.infrastructure.in.scheduling` | `@Scheduled(fixedDelay)` trigger: takes the `unihub:lock:job:outbox-relay` job lock (skip the cycle if not acquired), then calls `RelayPendingEvents` |
 
-**Relay constraint (fixed here, whatever mechanism is chosen):** no database transaction stays open while publishing to the broker or waiting for a confirm (§19.1). A `SELECT … FOR UPDATE SKIP LOCKED` held across the publish therefore is **not** allowed. The allowed shapes are: *claim rows in a short transaction → publish outside any transaction → mark `PUBLISHED` in a second short transaction*; or a single-instance relay behind the scheduled-job lock (`distributed-coordination.md` §2) that reads without row locks. The choice between them is §27, item 4.
+**Relay mechanism — decided in `messaging.md` §5:** one instance per cycle behind the scheduled-job lock; it reads a batch of `PENDING` rows from the Master **without row locks and without an open transaction**; for each row it restores `correlation_id` into the MDC, publishes with `message-id = id` and `mandatory = true`, waits for the publisher confirm, and marks the row `PUBLISHED` in its own autocommit update. A row that fails is left `PENDING` and skipped, so it never blocks the rows behind it. Code must not deviate from this shape: in particular, a `SELECT … FOR UPDATE SKIP LOCKED` held across the publish is **forbidden** (§19.1). The multi-instance claim-with-lease variant is the documented upgrade path, not an alternative to pick ad hoc.
 
 ### 8.4 Deferred Jobs (self-addressed messages)
 
@@ -530,13 +531,15 @@ public final class Permissions {
     private Permissions() {}
 }
 
-// shared/security/Actor.java
-public record Actor(UserId userId, Set<String> permissions) {
-    public boolean has(String permission) { return permissions.contains(permission); }
+// shared/security/Actor.java — who performs an operation (full signature: §13.1)
+public sealed interface Actor permits Actor.UserActor, Actor.SystemActor {
+    record UserActor(UserId userId, Set<String> permissions) implements Actor { ... }  // a person, from the JWT
+    record SystemActor(String process) implements Actor { ... }                       // a job, e.g. "seat-hold-expiry"
 }
 ```
 
-- `CurrentActor.from(Jwt)` (`shared.web`) builds the `Actor` from the `sub` and `permissions[]` claims. The JWT authorities converter maps `permissions[]` to authorities **with an empty prefix**, so `hasAuthority('WORKSHOP_CREATE')` matches the claim value exactly.
+- Commands built from an HTTP request carry `Actor.UserActor` — a type-level guarantee that a user is present. `Actor.SystemActor` is used only by use cases triggered by a listener or scheduler for operations no person performs (§12).
+- `CurrentActor.from(Jwt)` (`shared.web`) builds the `Actor.UserActor` from the `sub` and `permissions[]` claims. The JWT authorities converter maps `permissions[]` to authorities **with an empty prefix**, so `hasAuthority('WORKSHOP_CREATE')` matches the claim value exactly.
 - `hasRole(`, `ROLE_` and any comparison against a role name are banned in `src/main` — the static evidence for INV-01 (§26).
 - Add a new permission as a constant here **and** as a `permissions` row via migration, never one without the other.
 
@@ -563,8 +566,9 @@ The adapter (`shared.infrastructure.out.messaging.RabbitAuditTrail`) must:
 1. If a transaction synchronization is active, publish in `afterCommit` — never audit an operation that rolled back. Otherwise publish immediately. Calling `registerSynchronization` without an active synchronization throws, so this check is required.
 2. Publish directly to `unihub.system.audit.created` — **not** through the outbox (`messaging.md` §3).
 3. Catch every exception, log at `WARN`, and increment a failure counter so the gap surfaces as an alert (fail-open but not silent, `architecture.md` §5.5).
+4. Map the actor exactly as `audit_events` stores it (`database-schema.md` §8.3): `UserActor` → `actor_type = 'USER'`, `actor_user_id = userId`; `SystemActor` → `actor_type = 'SYSTEM'`, `actor_user_id = NULL`, and `process` written to `metadata.process`.
 
-Action names follow the `audit_events.action` examples (`WORKSHOP_CANCELLED`, `ROLE_PERMISSIONS_CHANGED`) and live as constants in `shared.application.port.out.AuditActions`. Actions with no human caller (hold expiry, reconciliation) use `Actor.system()`. See §27, item 6 for the `actor_user_id NOT NULL` dependency.
+Action names follow the `audit_events.action` examples (`WORKSHOP_CANCELLED`, `ROLE_PERMISSIONS_CHANGED`) and live as constants in `shared.application.port.out.AuditActions`. Operations no person performs — a hold expiring, the reconciliation sweep resolving a payment — are audited with `Actor.system("<job-name>")`. They are never attributed to a real user (for example the student whose hold expired): that would make the audit trail false.
 
 ---
 
@@ -624,16 +628,29 @@ public record WorkshopId(UUID value) {
 // UserId, RegistrationId, PaymentId: same shape.
 
 // ---------- shared.security ----------
-public record Actor(UserId userId, Set<String> permissions) {
-    public Actor { permissions = Set.copyOf(permissions); }
-    public boolean has(String permission) { return permissions.contains(permission); }
-    /** Actor for operations with no human caller (expiry, reconciliation, sync). See §27 item 6. */
-    public static Actor system() { return new Actor(SystemUser.ID, Set.of()); }
-}
-/** The seeded system user's fixed id. Its value and seed migration are decided by §27 item 6. */
-public final class SystemUser {
-    public static final UserId ID = UserId.of(UUID.fromString("<fixed value from the seed migration>"));
-    private SystemUser() {}
+/**
+ * Who performs an operation. Maps 1:1 onto audit_events.actor_type / actor_user_id (database-schema.md §8.3).
+ * The nested names avoid "User"/"System", which would shadow UserId-adjacent names and java.lang.System.
+ */
+public sealed interface Actor permits Actor.UserActor, Actor.SystemActor {
+
+    /** A person, resolved from the JWT. Every HTTP-originated Command carries this type. */
+    record UserActor(UserId userId, Set<String> permissions) implements Actor {
+        public UserActor {
+            Objects.requireNonNull(userId);
+            permissions = Set.copyOf(permissions);
+        }
+        public boolean has(String permission) { return permissions.contains(permission); }
+    }
+
+    /** An operation no person performs. process names the job, e.g. "seat-hold-expiry", "payment-reconciliation". */
+    record SystemActor(String process) implements Actor {
+        public SystemActor {
+            if (process == null || process.isBlank()) throw new IllegalArgumentException("process is required");
+        }
+    }
+
+    static SystemActor system(String process) { return new SystemActor(process); }
 }
 
 // ---------- shared.event ----------
@@ -704,8 +721,8 @@ public @interface ReadFromPrimary {}                                     // §20
 
 // ---------- shared.web ----------
 public final class CurrentActor {
-    /** Builds the Actor from the JWT "sub" and "permissions" claims (auth-and-identity.md). */
-    public static Actor from(Jwt jwt) { ... }
+    /** Builds the UserActor from the JWT "sub" and "permissions" claims (auth-and-identity.md). */
+    public static Actor.UserActor from(Jwt jwt) { ... }
 }
 public final class CorrelationIds {
     /** The current OpenTelemetry trace ID (32 hex chars), read from the MDC key "correlationId" (observability.md §1). */
@@ -1068,7 +1085,7 @@ public sealed interface ReserveSeatResult {
 public interface ReserveSeatUseCase {
     ReserveSeatResult reserve(ReserveSeatCommand command);
 }
-// ReserveSeatCommand(Actor actor, WorkshopId workshopId, String idempotencyKey)
+// ReserveSeatCommand(Actor.UserActor actor, WorkshopId workshopId, String idempotencyKey)
 ```
 
 ```java
@@ -1204,7 +1221,7 @@ The permission annotation for this endpoint uses whichever permission code `auth
 
 ### 25.4 The expiry path uses the same building blocks
 
-`ExpireSeatHold` (entry, lock) → `ExpireSeatHoldTransaction` (`@Transactional`): load the registration from the Master; if the status is not `RESERVED`, return (redelivery no-op); otherwise `registration.expire(now)`, save, `seatInventory.release(workshopId)`, and `auditTrail.record(...)` with `Actor.system()`. The listener that triggers it is shown in §8.5.
+`ExpireSeatHold` (entry, lock) → `ExpireSeatHoldTransaction` (`@Transactional`): load the registration from the Master; if the status is not `RESERVED`, return (redelivery no-op); otherwise `registration.expire(now)`, save, `seatInventory.release(workshopId)`, and `auditTrail.record(...)` with `Actor.system("seat-hold-expiry")`. The listener that triggers it is shown in §8.5.
 
 ---
 
@@ -1220,7 +1237,7 @@ Use cases, domain objects, translators and mappers are unit-testable with plain 
 | Explicit version check in repository adapters | Needs Hibernate's persistence context | `*IT` concurrency test |
 | Outbox → relay → broker → listener, redelivery no-op, parking-lot routing | Needs a real broker | `*IT` with RabbitMQ (INV-10, INV-11) |
 | Replica routing and `@ReadFromPrimary` | Needs two datasources | `*IT` with a streaming replica (INV-03) |
-| `@Valid`, `@PreAuthorize`, Problem Detail bodies, JSON shape | Needs the MVC and Security context | `@WebMvcTest` slice (tier: §27, item 7) and contract-diff (M-17) |
+| `@Valid`, `@PreAuthorize`, Problem Detail bodies, JSON shape | Needs the MVC and Security context | `*WebTest.java` `@WebMvcTest` slice, run by `./gradlew test` (`unit-testing.md` §4.1), plus contract-diff (M-17). End-to-end RBAC with a real JWT and real permission data stays `*IT` (M-01…M-03) |
 
 ### 26.2 ArchUnit — mandatory, runs in `./gradlew test`
 
@@ -1414,11 +1431,11 @@ These changes belong to the documents named, not to this one. Each is a precondi
 |---|---|---|---|
 | 1 | `idempotency_keys`: replace `response_status`/`response_body` with `result_type VARCHAR` + `result_body JSONB` (store the use-case Result, §21); update `registration.md` §4 and `payment.md` wording to match | `database-schema.md` §8.1 | **Phase 2 blocker** (M-20) |
 | 2 | ✅ **Done** — JaCoCo `includes` = `com.unihub.*.application.usecase`, `com.unihub.*.domain.*`; `excludes` = `com.unihub.*.domain.exception`. Confirm on the scaffold that the report actually lists the usecase packages | `unit-testing.md` §3, `deployment-and-cicd.md` Coverage ADR + reference table | Phase 1 (M-15) |
-| 3 | `event_publications`: add a `correlation_id VARCHAR(32) NULL` column (§8.2; NULL for rows written outside a traced request) | `database-schema.md` §8.2 | Phase 1 (first outbox write: workshop cancel) |
-| 4 | Pick the relay mechanism, within §8.3's constraint that no transaction stays open across a publish | `messaging.md`, `database-schema.md` §8.2 | Phase 1 |
+| 3 | ✅ **Done** — `event_publications` gained `correlation_id VARCHAR(32) NULL` and `routing_key VARCHAR(100) NOT NULL` (the relay needs the key and must not derive it); the index text now matches the DDL. Log trail is continuous across the outbox; the Tempo trace is not (documented trade-off) | `database-schema.md` §8.2, `observability.md` §1 | Phase 1 (in the initial migration) |
+| 4 | ✅ **Done** — single-instance relay per 1s cycle behind `unihub:lock:job:outbox-relay` (lease 30s), batch 200, per-message confirm, `mandatory = true`, no transaction across a publish; failing rows skipped and surfaced by `unihub_outbox_oldest_pending_age_seconds`. Claim-with-lease is the documented upgrade path | `messaging.md` §5, `distributed-coordination.md` §2/§5, `architecture.md` §4.6 | Phase 2 (INV-10); end-to-end in Phase 4 |
 | 5 | `notifications`: add `source_event_id UUID NOT NULL` + `UNIQUE (source_event_id, channel)` (§8.5) | `database-schema.md` §7.1, `notification.md` | Before the first notification consumer |
-| 6 | `audit_events.actor_user_id` is `NOT NULL` + FK to `users`: seed a system user row for `Actor.system()`, or allow `NULL` with an `actor_kind` column | `database-schema.md` §8.3, `user.md` | Phase 1 (first system-initiated audit) |
-| 7 | State the test tier for `@WebMvcTest` slices (proposed: `*IT.java`, since a slice boots a Spring context) | `unit-testing.md` §4, `integration-testing.md` | Phase 1 (first controller) |
+| 6 | ✅ **Done** — `audit_events.actor_type` (`USER`/`SYSTEM`) with `actor_user_id` NULL for `SYSTEM`, paired by a CHECK; the job name goes in `metadata.process`. `Actor` is now a sealed type (`UserActor`/`SystemActor`, §13.1). No seeded system user | `database-schema.md` §8.3, `auth-and-identity.md` | Phase 2 (first system-initiated audit: hold expiry) |
+| 7 | ✅ **Done** — `*WebTest.java` web slices (`@WebMvcTest`, port/in mocked, no containers) run in `./gradlew test`; they don't replace the Integration-level RBAC tests M-01…M-03 | `unit-testing.md` §4.1, test `coding-standards.md` §1, `test-strategy.md` §3 | Phase 1 (first controller) |
 | 8 | Routing keys for "payment succeeded → registration `CONFIRMED`" and "workshop cancelled → cancel its registrations and release seats" (§7 type 4) | `messaging.md` §2, `registration.md`, `payment.md` | **Phase 2 blocker** (M-19) |
 | 9 | `workshops.version` is bumped by both seat claims and organizer edits, so edits will conflict constantly during a registration spike. Decide whether the seat counter keeps sharing that version or relies on the `seats_taken <= capacity` check with an atomic increment | `database-schema.md` §3.1, `registration.md` §2 | Phase 2 |
 | 10 | Name the permission code guarding `POST /api/v1/registrations` | `auth-and-identity.md`, `user.md` | Phase 2 |

@@ -338,20 +338,24 @@ Cross-cutting, not business data (§6.1) — no module "owns" these the way it o
 
 ### 8.2 `event_publications`
 
-**Rationale:** the transactional outbox (`architecture.md` §4.3, §6.1). Written in the same transaction as the business row it announces — that atomicity is the entire guarantee; a relay process (same deployable, consumer role) polls `PENDING` rows and publishes them to RabbitMQ (`messaging.md`).
+**Rationale:** the transactional outbox (`architecture.md` §4.3, §6.1). Written in the same transaction as the business row it announces — that atomicity is the entire guarantee; a relay process (same deployable, consumer role) polls `PENDING` rows and publishes them to RabbitMQ. The relay's mechanism — one instance per cycle behind a job lock, no transaction held across a publish — is `messaging.md` §5.
 
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
-| `id` | UUID | PK | |
+| `id` | UUID | PK | Also the published message's AMQP `message-id` — the event id consumers deduplicate on (`messaging.md` §5). |
 | `aggregate_type` | VARCHAR(50) | NOT NULL | e.g. `REGISTRATION`, `PAYMENT`, `WORKSHOP`. |
 | `aggregate_id` | UUID | NOT NULL | The business row this event describes. No FK — the aggregate may belong to any of several tables; see the same polymorphic trade-off as §7.1. |
-| `event_type` | VARCHAR(100) | NOT NULL | e.g. `RegistrationConfirmed`, `WorkshopCancelled`. |
-| `payload` | JSONB | NOT NULL | The message body to publish. |
+| `event_type` | VARCHAR(100) | NOT NULL | e.g. `RegistrationConfirmed`, `WorkshopCancelled`. Diagnostic label only — the relay routes by `routing_key`, never by this column. |
+| `routing_key` | VARCHAR(100) | NOT NULL | The exact `messaging.md` §2 routing key to publish with, captured when the row is written. Stored rather than derived from `event_type` so the relay needs no type-to-key mapping of its own, and a row always publishes with the key its producer intended. |
+| `payload` | JSONB | NOT NULL | The message body to publish. Business content only — transport metadata (event id, correlation id) lives in its own columns, never inside the payload. |
+| `correlation_id` | VARCHAR(32) | NULL | The originating request's correlation id — the 32-hex-character OpenTelemetry trace id (`observability.md` §1). The relay publishes later, on another thread and outside that request's trace; without this column the correlation id would be lost at the outbox boundary. The relay restores it into the MDC before publishing so the shared `RabbitTemplate` post-processor writes it into the `correlationId` message header (`observability.md` §1). `NULL` only if a row is ever written outside any traced context. |
 | `status` | VARCHAR(20) | NOT NULL, DEFAULT `'PENDING'`, CHECK IN (`PENDING`, `PUBLISHED`) | |
-| `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | |
-| `published_at` | TIMESTAMPTZ | NULL | |
+| `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | The relay's poll order. |
+| `published_at` | TIMESTAMPTZ | NULL | Set when the broker confirms the publish. |
 
-**Indexes:** `(status) WHERE status = 'PENDING'` — the relay's poll target.
+**Indexes:** `(created_at) WHERE status = 'PENDING'` — the relay's poll target, in its poll order.
+
+**Trade-off — `correlation_id` links logs, not traces:** a consumer's processing belongs to a new trace, joined to the originating request only through the `correlationId` header and MDC key. Grepping logs by correlation id shows the whole causal chain; Grafana Tempo shows two traces rather than one. Storing the full W3C `traceparent` instead would let the relay continue the original trace, and is an additive column if that ever becomes a real need.
 
 **Retention:** short-lived — discarded after confirmed publish, by the same `distributed-coordination.md` §2 sweep pattern (§6.1, §6.3).
 
@@ -362,7 +366,8 @@ Cross-cutting, not business data (§6.1) — no module "owns" these the way it o
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
 | `id` | UUID | PK | |
-| `actor_user_id` | UUID | NOT NULL, FK → `users.id` ON DELETE RESTRICT | Who — from the JWT (`auth-and-identity.md`). |
+| `actor_type` | VARCHAR(10) | NOT NULL, DEFAULT `'USER'`, CHECK IN (`USER`, `SYSTEM`) | Who, part 1 — a person, or the system itself. `SYSTEM` covers audited operations no person performs: a seat hold expiring (`../modules/registration.md` §3), the reconciliation sweep resolving a payment (`../modules/payment.md`). |
+| `actor_user_id` | UUID | NULL, FK → `users.id` ON DELETE RESTRICT; CHECK (`(actor_type = 'USER') = (actor_user_id IS NOT NULL)`) | Who, part 2 — for `USER`, the JWT `sub` (`auth-and-identity.md`); for `SYSTEM`, always `NULL`. The job that acted is recorded in `metadata.process` (e.g. `"seat-hold-expiry"`). |
 | `action` | VARCHAR(100) | NOT NULL | What — e.g. `WORKSHOP_CANCELLED`, `ROLE_PERMISSIONS_CHANGED`. |
 | `target_type` | VARCHAR(50) | NOT NULL | e.g. `WORKSHOP`, `PAYMENT`, `ROLE`. |
 | `target_id` | UUID | NOT NULL | On what. No FK — same polymorphic trade-off as §7.1/§8.2. |
@@ -371,6 +376,8 @@ Cross-cutting, not business data (§6.1) — no module "owns" these the way it o
 | `recorded_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | When this row was durably written — may lag `occurred_at` (§5.5: "eventual, not instant"). |
 
 **Indexes:** `(target_type, target_id)`, `(occurred_at)`.
+
+**Why `actor_type` rather than a seeded "system" user:** `architecture.md` §5.5 requires every operation in the five audited categories to be recorded, including those no person performs. Attributing them to a real person (e.g. the student whose hold expired) would make the audit trail false. A fake `users` row would need an invented `email` (UNIQUE, NOT NULL, §2.1), would appear in user listings and reports, and would be one role assignment away from being a usable privileged account. An explicit `SYSTEM` actor states the truth and has no such attack surface. **Trade-off:** readers of this table join `users` with a `LEFT JOIN` and handle `actor_user_id IS NULL`.
 
 **Retention:** long-term, never opportunistically cleaned up (§5.5, §6.3) — deliberately absent from the `distributed-coordination.md` §2 sweep pattern that governs the other two Technical Pattern Entities.
 
@@ -534,7 +541,8 @@ erDiagram
 
     AUDIT_EVENTS {
         uuid id PK
-        uuid actor_user_id FK
+        string actor_type
+        uuid actor_user_id FK "NULL when actor_type = SYSTEM"
         string action
         string target_type
         uuid target_id
@@ -561,7 +569,7 @@ erDiagram
     CHECK_IN_SCANS ||--o| ATTENDANCES : "wins into"
     USERS ||--o{ CHECK_IN_SCANS : "staff scans"
     USERS ||--o{ NOTIFICATIONS : receives
-    USERS ||--o{ AUDIT_EVENTS : "acts as"
+    USERS |o--o{ AUDIT_EVENTS : "acts as"
 ```
 
 ---
@@ -813,7 +821,9 @@ CREATE TABLE event_publications (
     aggregate_type VARCHAR(50) NOT NULL,
     aggregate_id   UUID NOT NULL,
     event_type     VARCHAR(100) NOT NULL,
+    routing_key    VARCHAR(100) NOT NULL,
     payload        JSONB NOT NULL,
+    correlation_id VARCHAR(32),
     status         VARCHAR(20) NOT NULL DEFAULT 'PENDING'
                        CHECK (status IN ('PENDING', 'PUBLISHED')),
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -826,7 +836,11 @@ CREATE INDEX idx_event_publications_pending
 
 CREATE TABLE audit_events (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    actor_user_id  UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    actor_type     VARCHAR(10) NOT NULL DEFAULT 'USER'
+                       CHECK (actor_type IN ('USER', 'SYSTEM')),
+    actor_user_id  UUID REFERENCES users(id) ON DELETE RESTRICT,
+    CONSTRAINT ck_audit_events_actor
+        CHECK ((actor_type = 'USER') = (actor_user_id IS NOT NULL)),
     action         VARCHAR(100) NOT NULL,
     target_type    VARCHAR(50) NOT NULL,
     target_id      UUID NOT NULL,
@@ -853,6 +867,8 @@ Every guarantee-bearing constraint above, mapped back to what it enforces. For r
 | `UNIQUE (scope, idempotency_key)` | `idempotency_keys` | Exactly-once guarantee (`architecture.md` §4.5, `proposal.md` §11.2), scoped per operation type so a key can't spuriously collide across unrelated operations |
 | Written in same transaction as business row (documented, not a DB feature) | `idempotency_keys` | Same — the atomicity is what §4.5 actually requires |
 | `status` PENDING/PUBLISHED + relay poll | `event_publications` | Transactional outbox (`architecture.md` §4.3, §6.1) |
+| `correlation_id` | `event_publications` | End-to-end correlation through the outbox (`docs/requirement.md` §3.1, `observability.md` §1) |
+| `actor_type` + CHECK pairing it with `actor_user_id` | `audit_events` | Every audited operation has a truthful actor, including system-initiated ones (`architecture.md` §5.5) |
 | `ON DELETE RESTRICT` on `workshops`←`registrations`, `registrations`←`payments`, `registrations`←`check_in_scans`, `registrations`←`attendances` | multiple | History protection (§6.1) |
 | `UNIQUE (registration_id)` | `attendances` | Exactly one valid check-in, ever (`architecture.md` §5.3, `proposal.md` §11.4) |
 | `check_in_scans.outcome` revision + `attendances.winning_scan_id`/`checked_in_at` update, same transaction | `check_in_scans` → `attendances` | Earliest-timestamp-wins duplicate resolution (`proposal.md` §11.4) — §6.1/§6.2 make the two-table update explicitly atomic, not just the projection alone |

@@ -69,7 +69,7 @@ A symmetric key works exactly as long as issuer and verifier are the same party 
 
 | Claim | Type | Meaning | Why it's here (or why something else isn't) |
 |---|---|---|---|
-| `sub` | UUID string | The authenticated user's `users.id` | Standard JWT subject claim; every audit event's `actor_user_id` (`database-schema.md` §8.3) traces back to this. |
+| `sub` | UUID string | The authenticated user's `users.id` | Standard JWT subject claim; every `USER`-actor audit event's `actor_user_id` (`database-schema.md` §8.3) traces back to this (system-initiated events carry `actor_type = 'SYSTEM'` and no user id). |
 | `permissions` | array of strings | The resolved permission codes (`permissions.code`, e.g. `WORKSHOP_CREATE`), flattened across every role assigned to this user | This is the claim §2.11 mandates. Flattened and de-duplicated at issuance — a user with two roles that both grant `REPORT_VIEW` gets it once, not twice; the array is a set, not a role-by-role breakdown. |
 | `iat` | Unix timestamp | Issued-at | Standard; also the reference point `exp` is computed from. |
 | `exp` | Unix timestamp | Expiry | Bounds the revocation-lag window §5.2's Trade-offs section already names; see §4 for the actual duration. |

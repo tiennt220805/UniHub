@@ -178,7 +178,7 @@ The queue topology itself doesn't need to know about channels at all — routing
 
 ## 6. Reference Table
 
-Every interface, table, and mechanism decision in this document, in one place — the same purpose the closing tables in `../platform/database-schema.md` §11 and `../platform/messaging.md` §5 serve for their own documents.
+Every interface, table, and mechanism decision in this document, in one place — the same purpose the closing tables in `../platform/database-schema.md` §11 and `../platform/messaging.md` §6 serve for their own documents.
 
 | Item | Value | Backs |
 |---|---|---|
