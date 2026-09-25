@@ -31,12 +31,12 @@ build/
 *.iml
 *.iws
 *.ipr
-out/
+/out/
 .vscode/
 .classpath
 .project
 .settings/
-bin/
+/bin/
 
 # ==========================================
 # 4. Logs, Database & Containers Cache

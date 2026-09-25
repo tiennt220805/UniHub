@@ -7,16 +7,16 @@
 | Trường | Giá trị |
 |---|---|
 | Phase | 1 — Foundation |
-| Ngày bắt đầu | `___` |
-| Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☐ Đang làm` / `☐ Chờ sign-off` / `☐ Hoàn tất` |
-| Nhánh làm việc | `___` |
+| Ngày bắt đầu | 2026-09-25 |
+| Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☑ Đang làm` / `☐ Chờ sign-off` / `☐ Hoàn tất` |
+| Nhánh làm việc | `phase-1-foundation` |
 | Tham chiếu | `proposal.md` §15 (Phase 1 scope) · `test-matrix.md` M-01…M-17 · `coding-standards.md` (quy ước code test) · `mocking-guidelines.md`, `test-data-management.md` (hỗ trợ viết test) |
 
 ---
 
 ## 0. Tooling & Scaffolding (làm trước TDD, không viết logic nghiệp vụ ở bước này)
 
-- [ ] Cấu trúc Gradle multi-module khớp ranh giới module trong `architecture.md` §1.1 (`com.unihub.user`, `com.unihub.workshop`, ...), `src/test/java` mirror `src/main/java` (`coding-standards.md` §1)
+- [x] Cấu trúc Gradle **single-project** (Modular Monolith — KHÔNG multi-project) khớp ranh giới module trong `architecture.md` §1.1 (`com.unihub.user`, `com.unihub.workshop`, ...); ranh giới được enforce bằng `ArchitectureTest` (ArchUnit, `backend-coding-standards.md` §26.2 — 18 rule, xanh); `src/test/java` mirror `src/main/java` (`coding-standards.md` §1) — *Mục 0.1*
 - [ ] Checkstyle + Spotless cấu hình, chạy được qua `./gradlew check` (lint job)
 - [ ] JaCoCo (`jacocoTestCoverageVerification`) cấu hình đúng scope `service`/`domain` package, ngưỡng 80% (`unit-testing.md` §3)
 - [ ] Hai Gradle task tách biệt: `test` (Unit, `*Test.java`, không Testcontainers) và `integrationTest` (`*IT.java`, Testcontainers) (`coding-standards.md` §1)

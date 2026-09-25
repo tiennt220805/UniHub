@@ -1253,9 +1253,9 @@ package com.unihub;
 import static com.tngtech.archunit.base.DescribedPredicate.not;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage;
-import static com.tngtech.archunit.core.domain.properties.CanBeAnnotated.Predicates.annotatedWith;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static com.tngtech.archunit.library.GeneralCodingRules.NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS;
 import static com.tngtech.archunit.library.GeneralCodingRules.NO_CLASSES_SHOULD_USE_FIELD_INJECTION;
 import static com.tngtech.archunit.library.GeneralCodingRules.NO_CLASSES_SHOULD_USE_JAVA_UTIL_LOGGING;
@@ -1368,11 +1368,19 @@ class ArchitectureTest {
 
     // ---------- §19 Transactions ----------
 
+    // containAnyMethodsThat exists only on ArchUnit's `.that()` (predicate) side, never on `.should()`,
+    // so a single `.orShould().containAnyMethodsThat(...)` rule does not compile (§27 item 12). Split into
+    // a class-level and a method-level rule over the same packages, preserving the full §19.1 intent.
     @ArchTest static final ArchRule transactional_only_in_application =
         noClasses().that().resideInAnyPackage(ANY + ".web..", ANY + ".infrastructure..", ANY + ".domain..", ANY + ".api..")
             .should().beAnnotatedWith(Transactional.class)
-            .orShould().containAnyMethodsThat(annotatedWith(Transactional.class))
-            .as("@Transactional only on application use cases (§19.1)");
+            .as("@Transactional only on application use cases — no class-level @Transactional here (§19.1)");
+
+    @ArchTest static final ArchRule transactional_methods_only_in_application =
+        noMethods().that().areDeclaredInClassesThat().resideInAnyPackage(
+                ANY + ".web..", ANY + ".infrastructure..", ANY + ".domain..", ANY + ".api..")
+            .should().beAnnotatedWith(Transactional.class)
+            .as("@Transactional only on application use cases — no method-level @Transactional here (§19.1)");
 
     @ArchTest static final ArchRule no_jakarta_transactional =
         noClasses().should().dependOnClassesThat().haveFullyQualifiedName("jakarta.transaction.Transactional")
@@ -1440,6 +1448,7 @@ These changes belong to the documents named, not to this one. Each is a precondi
 | 9 | `workshops.version` is bumped by both seat claims and organizer edits, so edits will conflict constantly during a registration spike. Decide whether the seat counter keeps sharing that version or relies on the `seats_taken <= capacity` check with an atomic increment | `database-schema.md` §3.1, `registration.md` §2 | Phase 2 |
 | 10 | Name the permission code guarding `POST /api/v1/registrations` | `auth-and-identity.md`, `user.md` | Phase 2 |
 | 11 | ✅ **Done** — the correlation ID is a 32-hex-character trace ID (`observability.md` §1), not a UUID. The contract now declares it once as `headers.yaml#/CorrelationIdValue` (`pattern: '^[0-9a-f]{32}$'`), used by both `X-Correlation-Id` headers and `error.yaml`'s `correlationId`. Redocly lint passes | `packages/api-contract/common/headers.yaml`, `common/error.yaml` | Phase 1 (M-17) |
+| 12 | ✅ **Done** — `ArchitectureTest`'s §19.1 rule as printed doesn't compile: `containAnyMethodsThat` exists only on `ClassesThat` (predicate side), never on `ClassesShould`/`.orShould()` (verified via `javac`, see commit/PR). Split into `transactional_only_in_application` (class-level `beAnnotatedWith`) + `transactional_methods_only_in_application` (`noMethods().that().areDeclaredInClassesThat()...should().beAnnotatedWith(...)`), same target packages, preserving full §19.1 intent at both class and method level. Rule count in §26.2 is now 18, not 17 — update the printed snippet to match. | `backend-coding-standards.md` §26.2 | Phase 1 (M-12) |
 
 ---
 
