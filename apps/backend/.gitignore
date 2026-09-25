@@ -1,0 +1,67 @@
+# ==========================================
+# 1. Operating System & System Junk (macOS / Windows)
+# ==========================================
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ==========================================
+# 2. Java & Build Tool (Gradle)
+# ==========================================
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# ==========================================
+# 3. Editors & IDEs (IntelliJ IDEA, VS Code, Eclipse)
+# ==========================================
+.idea/
+*.iml
+*.iws
+*.ipr
+/out/
+.vscode/
+.classpath
+.project
+.settings/
+/bin/
+
+# ==========================================
+# 4. Logs, Database & Containers Cache
+# ==========================================
+*.log
+.logs/
+data/
+db_data/
+redis_data/
+.testcontainers/
+
+# ==========================================
+# 5. Sensitive Data & Credentials
+# ==========================================
+.env
+*.pem
+*.key
+*.p12
+
+# ==========================================
+# 6. Ephemeral spec-driven-development task files
+# ==========================================
+/tasks/
+
+# ==========================================
+# 7. Generated OpenAPI bundle (source of truth is the multi-file spec)
+# ==========================================
+blueprint/technical-design/api/dist/
