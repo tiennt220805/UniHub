@@ -55,8 +55,15 @@ jacocoTestCoverageVerification {
     violationRules {
         rule {
             element = 'PACKAGE'
-            includes = ['com.unihub.*.service.*', 'com.unihub.*.domain.*'] // core business-logic packages only
-            excludes = ['com.unihub.*.dto.*', 'com.unihub.*.config.*', 'com.unihub.*.mapper.*']
+            // Core business-logic packages only, per docs/guidelines/backend-coding-standards.md §2:
+            //   application.usecase — every use case, and every module's api-port implementation
+            //   domain.*            — domain.model and domain.event of Tier A modules
+            // JaCoCo's '*' also matches '.', and with element = 'PACKAGE' each pattern is matched against
+            // the full package name — so 'usecase' has no trailing '.*' (it has no sub-packages; a trailing
+            // '.*' would match nothing and the gate would pass vacuously).
+            includes = ['com.unihub.*.application.usecase', 'com.unihub.*.domain.*']
+            // Trivial types inside the included trees: exception classes carry no branching logic.
+            excludes = ['com.unihub.*.domain.exception']
             limit {
                 counter = 'LINE'
                 minimum = 0.80
@@ -66,6 +73,10 @@ jacocoTestCoverageVerification {
 }
 check.dependsOn jacocoTestCoverageVerification
 ```
+
+What is deliberately outside the gate, and why: `command`/`result`/`web.dto` (records, no logic), `web`/`infrastructure` (adapters — translation, proven at Integration level, `backend-coding-standards.md` §26.1), `config` (wiring), and mappers (in `web.mapper` / `infrastructure.out.persistence`, so never inside an included package). None of these need an explicit `excludes` entry, because the `includes` patterns never reach them. Tier B modules (User, Notification) have no `domain` package, so their `application.usecase` package is their entire gated surface. `com.unihub.shared.application.usecase` (the outbox relay) is included by the same pattern.
+
+**Verify on the Phase 1 scaffold:** once the first use case exists, run `./gradlew jacocoTestReport` and confirm the report lists `com.unihub.<module>.application.usecase` as a measured package. A gate that measures zero packages passes silently — that is the failure mode this pattern was corrected for.
 
 **Wired into CI:** `deployment-and-cicd.md` §5's `unit-test` job runs `./gradlew jacocoTestCoverageVerification --no-daemon` as its second step, after `./gradlew test --no-daemon` — the 80% figure is now an enforced Gradle rule the `unit-test` job actually fails on, not only a number `test-strategy.md`'s prose promises.
 
@@ -96,7 +107,7 @@ check.dependsOn jacocoTestCoverageVerification
 |---|---|---|
 | Gradle task | `./gradlew test` | §2 |
 | CI job | `unit-test`, gated by `lint` | §2 |
-| Coverage tool | JaCoCo (`jacocoTestCoverageVerification`, 80% line minimum, core business-logic packages) | §3 |
+| Coverage tool | JaCoCo (`jacocoTestCoverageVerification`, 80% line minimum per package, `com.unihub.*.application.usecase` + `com.unihub.*.domain.*`) | §3 |
 | Coverage gate status | Wired into `deployment-and-cicd.md` §5's `unit-test` job (Coverage Verification Mechanism ADR) | §3 |
 | INV rows provable here | INV-12 (on-device half only) | §1 |
 | Never present | Testcontainers, `@SpringBootTest`, real HTTP, concurrency constructs | §4 |

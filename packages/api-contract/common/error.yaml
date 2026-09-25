@@ -39,11 +39,11 @@ properties:
     description: URI identifying this specific occurrence — the request path, by convention in this API.
     example: /api/v1/registrations
   correlationId:
-    type: string
-    format: uuid
+    allOf:
+      - $ref: './headers.yaml#/CorrelationIdValue'
     description: >-
       Echoes the request's `X-Correlation-Id` (`../../../docs/technical-design/platform/observability.md`
       §1) — the value to hand an operator when reporting this error. Always
       present, even when the client never supplied one, since the server
-      generates one for every request.
-    example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+      generates one for every request. A 32-hex-character OpenTelemetry trace
+      ID, not a UUID.
