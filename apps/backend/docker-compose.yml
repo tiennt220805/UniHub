@@ -1,26 +1,38 @@
-# Local dev only — developer convenience, outside Kustomize's scope
-# (docs/technical-design/platform/deployment-and-cicd.md §6's Environment Matrix).
-# Deliberately separate from Testcontainers (docs/testing/test-levels/integration-testing.md):
-# `./gradlew test`/`integrationTest` never read this file, and this stack is never started by Gradle.
-# Same images the Kustomize base and Testcontainers both pull, for consistency across all three
-# environments (deployment-and-cicd.md §6's guarantee) — MinIO is intentionally not included here
-# (Phase 1 Muc 0.5 scope is Postgres/Redis/RabbitMQ only; object storage comes later).
+# DEV ONLY — not a deployment deliverable (K8s/Minikube per docs/requirement.md is the real target;
+# see docs/technical-design/platform/deployment-and-cicd.md §2 for the Kustomize base that actually ships).
+# Developer convenience only, outside Kustomize's scope (deployment-and-cicd.md §6's Environment Matrix).
 #
-# Usage: copy .env.example to .env (git-ignored, never committed) and fill in real values, then
-# `docker compose up -d`.
+# Deliberately separate from Testcontainers (docs/testing/test-levels/integration-testing.md §1):
+# `./gradlew test`/`integrationTest` never read this file, this stack is never started by Gradle, and the
+# explicit `name:` below keeps this project's containers/volumes/network out of Testcontainers' own
+# (auto-generated, hash-named) namespace — no port, name, or volume this file creates is ever reused by it.
+#
+# Images match what integration-testing.md §2's IntegrationTestSupport (Testcontainers) and the Kustomize
+# base (deployment-and-cicd.md §2) both pull, so a schema/behavior difference is never just "which
+# environment you're running against" (deployment-and-cicd.md §6's cross-environment guarantee):
+# postgres:16-alpine, redis:7, rabbitmq:3-management. No `latest` tag anywhere.
+#
+# Usage: `docker compose up -d` works with zero setup (every var below has a dev-only default). To
+# override, copy env.example to .env (git-ignored, never committed — see apps/backend/.gitignore) and set
+# your own local-only values; .env is picked up by `docker compose` automatically. The defaults here are
+# throwaway dev values, never anything meant to protect real data.
+name: unihub-dev
+
 services:
   postgres:
+    # Single instance — local dev deliberately collapses Master+Replica into one container; only the K8s
+    # Kustomize base runs a Master + streaming Replica (deployment-and-cicd.md §2/§3's overlays/loadtest).
     image: postgres:16-alpine
     container_name: unihub-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-unihub}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-unihub_dev_only}
       POSTGRES_DB: ${POSTGRES_DB:-unihub}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - ./db_data:/var/lib/postgresql/data
+      - unihub-postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-unihub} -d ${POSTGRES_DB:-unihub}"]
       interval: 5s
@@ -32,9 +44,9 @@ services:
     container_name: unihub-redis
     restart: unless-stopped
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
-      - ./redis_data:/data
+      - unihub-redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -47,12 +59,16 @@ services:
     restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-unihub}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-unihub_dev_only}
     ports:
-      - "${RABBITMQ_PORT:-5672}:5672"
-      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10
+
+volumes:
+  unihub-postgres-data:
+  unihub-redis-data:
