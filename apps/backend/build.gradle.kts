@@ -22,6 +22,22 @@ repositories {
     mavenCentral()
 }
 
+// `integrationTest` is a distinct Gradle source set (not just a task filtering on file name), per
+// test-levels/integration-testing.md §3 / guidelines/coding-standards.md §1 — `src/integrationTest/java`
+// mirrors `src/main/java`/`src/test/java`, holds only `*IT.java`, and is Testcontainers-backed. It shares
+// `test`'s dependencies (JUnit 5, AssertJ, Mockito via spring-boot-starter-test) plus Testcontainers on top.
+sourceSets {
+    create("integrationTest") {
+        compileClasspath += sourceSets.main.get().output
+        runtimeClasspath += sourceSets.main.get().output
+    }
+}
+
+val integrationTestImplementation: Configuration by configurations.getting {
+    extendsFrom(configurations.testImplementation.get())
+}
+configurations["integrationTestRuntimeOnly"].extendsFrom(configurations.testRuntimeOnly.get())
+
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter")
     // spring-tx supplies org.springframework.transaction.annotation.Transactional — the ONLY @Transactional
@@ -32,6 +48,17 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // ArchUnit 1.x (latest stable) — powers com.unihub.ArchitectureTest, the first test of Phase 1 (M-12).
     testImplementation("com.tngtech.archunit:archunit-junit5:1.4.0")
+
+    // Pinned explicitly. 2.0.5 is the latest stable as of this writing (Java 21 / Gradle 8.14 compatible;
+    // requires JUnit 5, which this project already uses exclusively). Testcontainers 2.x renamed every
+    // module artifact except the BOM and the core `testcontainers` artifact to a `testcontainers-` prefix.
+    // (1.21.4 was tried during troubleshooting on 2026-09-28 and hit the identical docker-java/Docker
+    // Desktop 4.55 failure that src/integrationTest/resources/docker-java.properties works around —
+    // confirms it isn't an API-negotiation regression that 2.x fixes, so there is no reason to trade the
+    // latest-stable pin away for it.)
+    integrationTestImplementation(platform("org.testcontainers:testcontainers-bom:2.0.5"))
+    integrationTestImplementation("org.testcontainers:testcontainers")
+    integrationTestImplementation("org.testcontainers:testcontainers-junit-jupiter")
 }
 
 tasks.withType<JavaCompile> {
@@ -40,6 +67,25 @@ tasks.withType<JavaCompile> {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+}
+
+// Unit (`test`) never touches Testcontainers/Docker — belt-and-suspenders alongside the fact that its
+// testClassesDirs (src/test/java's output) never contains `*IT` classes to begin with (separate source set).
+tasks.test {
+    exclude("**/*IT.class")
+}
+
+tasks.register<Test>("integrationTest") {
+    description = "Runs *IT.java integration tests (Testcontainers-backed: Postgres/Redis/RabbitMQ/MinIO)."
+    group = "verification"
+    testClassesDirs = sourceSets["integrationTest"].output.classesDirs
+    classpath = sourceSets["integrationTest"].runtimeClasspath
+    include("**/*IT.class")
+    // Independent from `test`/`check` on purpose (guidelines/coding-standards.md §1,
+    // test-levels/integration-testing.md §3): `unit-test` and `integration-test` are separate,
+    // sequentially-gated CI jobs (`./gradlew test` then `./gradlew integrationTest`), not one Gradle
+    // invocation — `check`/`build` must stay fast and never implicitly boot containers.
+    shouldRunAfter(tasks.test)
 }
 
 // Formatting (Spotless) and semantic/banned-pattern linting (Checkstyle) are two separate concerns
@@ -73,6 +119,13 @@ checkstyle {
 // contain "ROLE_..." string literals as negative-path test data (e.g. asserting such a check is rejected).
 // Checkstyle's own formatting-adjacent rules are Spotless's job, not Checkstyle's — see checkstyle.xml header.
 tasks.named("checkstyleTest") {
+    enabled = false
+}
+
+// Same reasoning as checkstyleTest above: *IT.java may also legitimately hold "ROLE_..." as negative-path
+// test data. The checkstyle plugin auto-registers this task (and auto-wires it into `check`) the moment
+// the integrationTest source set exists, so it must be explicitly turned off, same as checkstyleTest.
+tasks.named("checkstyleIntegrationTest") {
     enabled = false
 }
 
