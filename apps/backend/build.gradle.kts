@@ -26,10 +26,13 @@ repositories {
 // test-levels/integration-testing.md §3 / guidelines/coding-standards.md §1 — `src/integrationTest/java`
 // mirrors `src/main/java`/`src/test/java`, holds only `*IT.java`, and is Testcontainers-backed. It shares
 // `test`'s dependencies (JUnit 5, AssertJ, Mockito via spring-boot-starter-test) plus Testcontainers on top.
+// It also sees `test`'s own compiled output, not just `main`'s: shared fixture builders
+// (guidelines/test-data-management.md §1) are expected to live in src/test/java rather than be
+// duplicated per source set, and an `*IT` needs to build the same fixtures a `*Test` does.
 sourceSets {
     create("integrationTest") {
-        compileClasspath += sourceSets.main.get().output
-        runtimeClasspath += sourceSets.main.get().output
+        compileClasspath += sourceSets.main.get().output + sourceSets.test.get().output
+        runtimeClasspath += sourceSets.main.get().output + sourceSets.test.get().output
     }
 }
 
@@ -56,9 +59,17 @@ dependencies {
     // Desktop 4.55 failure that src/integrationTest/resources/docker-java.properties works around —
     // confirms it isn't an API-negotiation regression that 2.x fixes, so there is no reason to trade the
     // latest-stable pin away for it.)
+    //
+    // Versions are repeated explicitly on each dependency below, not left to the BOM alone: Spring Boot's
+    // io.spring.dependency-management plugin (spring-boot-dependencies) manages its own, much older
+    // org.testcontainers:testcontainers version (1.19.8, still on JUnit 4) globally across the whole
+    // project, and that managed constraint otherwise wins over a platform()-imported BOM's suggested
+    // version — verified via `./gradlew dependencies --configuration integrationTestRuntimeClasspath`,
+    // which showed `testcontainers:2.0.5 -> 1.19.8 (c)` before this fix. An explicit version on the
+    // dependency declaration itself takes precedence over Spring's managed constraint.
     integrationTestImplementation(platform("org.testcontainers:testcontainers-bom:2.0.5"))
-    integrationTestImplementation("org.testcontainers:testcontainers")
-    integrationTestImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    integrationTestImplementation("org.testcontainers:testcontainers:2.0.5")
+    integrationTestImplementation("org.testcontainers:testcontainers-junit-jupiter:2.0.5")
 }
 
 tasks.withType<JavaCompile> {
