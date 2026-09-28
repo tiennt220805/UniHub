@@ -17,7 +17,7 @@
 ## 0. Tooling & Scaffolding (làm trước TDD, không viết logic nghiệp vụ ở bước này)
 
 - [x] Cấu trúc Gradle **single-project** (Modular Monolith — KHÔNG multi-project) khớp ranh giới module trong `architecture.md` §1.1 (`com.unihub.user`, `com.unihub.workshop`, ...); ranh giới được enforce bằng `ArchitectureTest` (ArchUnit, `backend-coding-standards.md` §26.2 — 18 rule, xanh); `apps/backend/src/test/java` mirror `apps/backend/src/main/java` (`coding-standards.md` §1) — *Mục 0.1*
-- [ ] Checkstyle + Spotless cấu hình, chạy được qua `apps/backend/gradlew check` (lint job)
+- [x] Checkstyle + Spotless cấu hình, chạy được qua `apps/backend/gradlew check` (lint job) — *Mục 0.2*
 - [ ] JaCoCo (`jacocoTestCoverageVerification`) cấu hình đúng scope `service`/`domain` package, ngưỡng 80% (`unit-testing.md` §3)
 - [ ] Hai Gradle task tách biệt: `test` (Unit, `*Test.java`, không Testcontainers) và `integrationTest` (`*IT.java`, Testcontainers) (`coding-standards.md` §1)
 - [ ] `docker-compose.yml` cho local dev (Postgres, Redis, RabbitMQ) — tách biệt với Testcontainers
