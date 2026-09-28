@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+        "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+        "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<!--
+  Role split with Spotless (build.gradle.kts `spotless {}`):
+    - Spotless owns formatting: indentation, whitespace, import order/removal, line endings.
+    - Checkstyle (this file) owns semantics and banned patterns: INV-01 (role-name checks), unused/star
+      imports, naming conventions, structural smells. No formatting/whitespace/indent/line-length rule
+      belongs here — see backend-coding-standards.md §26.
+-->
+<module name="Checker">
+
+    <!-- INV-01: role-name checks are banned (RegexpSingleline is Checker-level, not TreeWalker — hasRole/
+         hasAnyRole/"ROLE_ appear inside @PreAuthorize SpEL strings, not as method calls ArchUnit can see).
+         Verbatim from backend-coding-standards.md §26. Applies to src/main only; checkstyleTest is disabled
+         in build.gradle.kts because tests may hold "ROLE_..." as negative-path test data. -->
+    <module name="RegexpSingleline">
+        <property name="format" value="hasRole\(|hasAnyRole\(|&quot;ROLE_"/>
+        <property name="message" value="Role-name checks are banned; use hasAuthority(Permissions.X) (INV-01, §11)"/>
+        <property name="fileExtensions" value="java"/>
+    </module>
+
+    <module name="TreeWalker">
+
+        <!-- Imports -->
+        <module name="AvoidStarImport"/>
+        <module name="RedundantImport"/>
+        <module name="UnusedImports"/>
+
+        <!-- Naming conventions -->
+        <module name="PackageName"/>
+        <module name="TypeName"/>
+        <module name="MethodName"/>
+        <module name="MemberName"/>
+        <module name="ParameterName"/>
+        <module name="LocalVariableName"/>
+        <module name="ConstantName"/>
+
+        <!-- Structural smells -->
+        <module name="EmptyBlock"/>
+        <module name="EmptyCatchBlock"/>
+        <module name="NeedBraces"/>
+        <module name="EqualsHashCode"/>
+        <module name="ModifierOrder"/>
+        <module name="MultipleVariableDeclarations"/>
+        <module name="SimplifyBooleanExpression"/>
+        <module name="OneTopLevelClass"/>
+
+        <!-- NOT included, deliberately:
+             - MissingSwitchDefault: this codebase relies on switch exhaustiveness over sealed types
+               (backend-coding-standards.md §6, §8.1); a forced default would defeat compile-time
+               exhaustiveness checking.
+             - Any Javadoc rule, MagicNumber, FinalParameters: not part of this gate's scope.
+        -->
+
+    </module>
+
+</module>
