@@ -1,6 +1,7 @@
 plugins {
     java
     checkstyle
+    jacoco
     id("org.springframework.boot") version "3.3.5"
     id("io.spring.dependency-management") version "1.1.6"
     // Pinned explicitly (repo convention, see other plugins above). 8.10.2 is the latest stable as of
@@ -75,6 +76,56 @@ tasks.named("checkstyleTest") {
     enabled = false
 }
 
+jacoco {
+    // Pinned explicitly. 0.8.15 is the latest stable as of this writing; official Java 21 support has
+    // been in place since 0.8.11 and carries forward (JaCoCo instruments bytecode, not source, so newer
+    // releases stay backward compatible with the class files this toolchain produces).
+    toolVersion = "0.8.15"
+}
+
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+}
+
+tasks.test {
+    finalizedBy(tasks.jacocoTestReport)
+}
+
+tasks.jacocoTestCoverageVerification {
+    dependsOn(tasks.test)
+    // Explicit rather than relying on the plugin's default wiring: only `test` (Unit) execution data
+    // feeds this gate. When `integrationTest` (Testcontainers) is added later, it must never be allowed
+    // to dilute or inflate this number (unit-testing.md §2/§3 keep coverage and infra-level proof separate).
+    executionData(tasks.test.get())
+    violationRules {
+        rule {
+            element = "PACKAGE"
+            // Core business-logic packages only, per backend-coding-standards.md §27 #2 (this repo's
+            // authority for this gate's scope):
+            //   application.usecase — every use case, and every module's api-port implementation
+            //   domain.*            — domain.model and domain.event of Tier A modules
+            // JaCoCo's '*' also matches '.', and with element = "PACKAGE" each pattern is matched against
+            // the full package name — so "usecase" has no trailing ".*" (it has no sub-packages; a trailing
+            // ".*" would match nothing and the gate would pass vacuously).
+            includes = listOf("com.unihub.*.application.usecase", "com.unihub.*.domain.*")
+            // Trivial types inside the included trees: exception classes carry no branching logic.
+            excludes = listOf("com.unihub.*.domain.exception")
+            limit {
+                counter = "LINE"
+                minimum = "0.80".toBigDecimal()
+            }
+        }
+    }
+}
+
 tasks.named("check") {
-    dependsOn(tasks.named("spotlessCheck"), tasks.named("checkstyleMain"))
+    dependsOn(
+        tasks.named("spotlessCheck"),
+        tasks.named("checkstyleMain"),
+        tasks.named("jacocoTestCoverageVerification"),
+    )
 }
