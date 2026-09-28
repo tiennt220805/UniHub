@@ -1,0 +1,58 @@
+# Local dev only — developer convenience, outside Kustomize's scope
+# (docs/technical-design/platform/deployment-and-cicd.md §6's Environment Matrix).
+# Deliberately separate from Testcontainers (docs/testing/test-levels/integration-testing.md):
+# `./gradlew test`/`integrationTest` never read this file, and this stack is never started by Gradle.
+# Same images the Kustomize base and Testcontainers both pull, for consistency across all three
+# environments (deployment-and-cicd.md §6's guarantee) — MinIO is intentionally not included here
+# (Phase 1 Muc 0.5 scope is Postgres/Redis/RabbitMQ only; object storage comes later).
+#
+# Usage: copy .env.example to .env (git-ignored, never committed) and fill in real values, then
+# `docker compose up -d`.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: unihub-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-unihub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-unihub}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ./db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-unihub} -d ${POSTGRES_DB:-unihub}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: unihub-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ./redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: unihub-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-unihub}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
