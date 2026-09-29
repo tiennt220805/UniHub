@@ -1,3 +1,18 @@
+// The Flyway Gradle plugin's tasks (flywayMigrate, flywayInfo, ...) run against the plugin's own
+// buildscript classloader, not the project's compile/runtime classpath — the JDBC driver and the
+// Postgres-specific Flyway module must be declared here, never in the regular `dependencies {}` block
+// below, or flywayMigrate fails with "No Flyway database plugin found to handle jdbc:...". This does NOT
+// put a Postgres driver on the application's own runtime classpath (Mục 2's concern, not this task's).
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath("org.postgresql:postgresql:42.7.13")
+        classpath("org.flywaydb:flyway-database-postgresql:13.8.0")
+    }
+}
+
 plugins {
     java
     checkstyle
@@ -7,6 +22,27 @@ plugins {
     // Pinned explicitly (repo convention, see other plugins above). 8.10.2 is the latest stable as of
     // this writing; requires Gradle >=7.3 and Java >=17, both satisfied by this project (Gradle 8.14 / Java 21).
     id("com.diffplug.spotless") version "8.10.2"
+    // Pinned explicitly. 13.8.0 is the latest stable as of this writing and the first line to require
+    // Java 21 (this project's toolchain) as its minimum — earlier 10.x/11.x/12.x lines only required 17.
+    // Supports PostgreSQL 12-18, covering the postgres:16-alpine this project runs (docker-compose.yml).
+    // NOTE: deployment-and-cicd.md §4's Kubernetes Migration Job pins a separate artifact, the Flyway CLI
+    // Docker image `flyway/flyway:10-alpine` (floating tag on the 10.x line) — that document doesn't fix
+    // a Gradle-plugin version for local dev, so this pin doesn't contradict it, but the two now run
+    // different Flyway major versions against the same migration files. Both understand the same
+    // versioned-SQL-file format, so this is not expected to cause a migration to behave differently
+    // between local dev and the K8s Job, but flagging it here since nothing in the corpus reconciled the
+    // two numbers explicitly.
+    id("org.flywaydb.flyway") version "13.8.0"
+}
+
+// Reuses docker-compose.yml's own env vars and dev-only defaults (env.example) so `./gradlew
+// flywayMigrate` works with zero extra setup against the Postgres `docker compose up -d` starts — same
+// zero-setup philosophy as docker-compose.yml itself. Host is 127.0.0.1, matching docker-compose.yml's
+// explicit `127.0.0.1:<port>:5432` binding (no POSTGRES_HOST var exists in env.example to read instead).
+flyway {
+    url = "jdbc:postgresql://127.0.0.1:${System.getenv("POSTGRES_PORT") ?: "5432"}/${System.getenv("POSTGRES_DB") ?: "unihub"}"
+    user = System.getenv("POSTGRES_USER") ?: "unihub"
+    password = System.getenv("POSTGRES_PASSWORD") ?: "unihub_dev_only"
 }
 
 group = "com.unihub"

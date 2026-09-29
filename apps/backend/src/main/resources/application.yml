@@ -1,0 +1,9 @@
+# INV-15 (architecture.md §6.2): schema migration runs exactly once, from a single place, before any
+# application instance starts — never from inside the application itself. Locally that place is
+# `./gradlew flywayMigrate` (build.gradle.kts); in Kubernetes it's the flyway-migrate Job
+# (docs/technical-design/platform/deployment-and-cicd.md §4). Spring Boot's own migrate-on-startup is
+# neither of those, so it stays disabled here. There is no DataSource yet for this flag to actually gate
+# (Mục 2 adds one) — set now so it isn't accidentally left enabled (or omitted) once one exists.
+spring:
+  flyway:
+    enabled: false
