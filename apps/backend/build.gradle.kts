@@ -222,10 +222,47 @@ tasks.jacocoTestCoverageVerification {
     }
 }
 
+// Validates and bundles packages/api-contract/openapi.yaml (multi-file, $ref-linked across schemas/
+// and paths/) into one JSON file via `redocly bundle` — the same tool/command
+// docs/testing/test-levels/contract-testing.md §2 uses for local contract-diff reproduction. A broken
+// $ref or invalid spec fails `redocly bundle` with a non-zero exit, which fails this task, catching the
+// error here instead of only downstream in the Mục 1 contract-diff job. This does NOT generate any Java
+// DTO/server interface — backend-coding-standards.md §10/§14.2 requires DTOs to be hand-written from the
+// schema names, not codegen'd; that's a separate, deliberately-not-done thing, not this task's job.
+val bundleApiContract = tasks.register<Exec>("bundleApiContract") {
+    description = "Validates and bundles packages/api-contract/openapi.yaml into build/api-contract/bundled.json."
+    group = "verification"
+
+    // Declared explicitly so Gradle's up-to-date check reruns the bundle whenever any source file
+    // under packages/api-contract changes, not just when build/api-contract/bundled.json is missing.
+    inputs.dir(rootDir.resolve("../../packages/api-contract")).skipWhenEmpty(false)
+    val outputFile = layout.buildDirectory.file("api-contract/bundled.json")
+    outputs.file(outputFile)
+    doFirst {
+        outputFile.get().asFile.parentFile.mkdirs()
+    }
+
+    // Windows can't exec a .cmd shim (npx.cmd) directly via ProcessBuilder without going through cmd.exe;
+    // other OSes run npx directly, same as the reference command in contract-testing.md §2.
+    val npxArgs = listOf(
+        "npx", "--yes", "@redocly/cli", "bundle",
+        "../../packages/api-contract/openapi.yaml",
+        "-o", outputFile.get().asFile.absolutePath,
+    )
+    commandLine(
+        if (org.gradle.internal.os.OperatingSystem.current().isWindows) {
+            listOf("cmd", "/c") + npxArgs
+        } else {
+            npxArgs
+        },
+    )
+}
+
 tasks.named("check") {
     dependsOn(
         tasks.named("spotlessCheck"),
         tasks.named("checkstyleMain"),
         tasks.named("jacocoTestCoverageVerification"),
+        bundleApiContract,
     )
 }

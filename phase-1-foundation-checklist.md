@@ -22,7 +22,7 @@
 - [x] Hai Gradle task tách biệt: `test` (Unit, `*Test.java`, không Testcontainers) và `integrationTest` (`*IT.java`, Testcontainers) (`coding-standards.md` §1) — *Mục 0.4*
 - [x] `docker-compose.yml` cho local dev (Postgres, Redis, RabbitMQ) — tách biệt với Testcontainers — *Mục 0.5*
 - [x] Flyway/Liquibase migration setup, chạy được trên Postgres local
-- [ ] Wire `packages/api-contract` vào build: generate DTO/server stub từ OpenAPI (contract-first)
+- [x] Wire `packages/api-contract` vào build: validate + bundle spec (DTO viết tay theo §10, verify bằng `contract-diff` ở Mục 1, không codegen) — *Mục 0.7*
 - [ ] `generateOpenApiDocs` (springdoc) task hoạt động, sinh `build/openapi.json` từ controller annotation
 - [ ] GitHub Actions workflow file khởi tạo: tối thiểu job `lint` + `unit-test`, xanh trên 1 commit trống/hello-world
 - [ ] React + TypeScript (Vite) scaffold cho **Web Application**: TanStack Query, Zustand, Tailwind CSS, Shadcn UI, React Hook Form + Zod cài đặt
