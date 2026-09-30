@@ -1,0 +1,54 @@
+name: CI
+
+# Targets `main`: matches deployment-and-cicd.md §5's CI Job Structuring ADR model, and also matches
+# this repo's actual practice so far — every Phase 1 commit through Mục 0.8 landed directly on `main`
+# and is already pushed there, not on the `phase-1-foundation` branch
+# phase-1-foundation-checklist.md names as the working branch (that local branch is 15 commits stale,
+# still sitting at Mục 0.1 — see this task's VIỆC 0 report). `main` is therefore where CI needs to run.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # spotlessCheck + checkstyleMain, per deployment-and-cicd.md §5's `lint` job model, plus
+  # bundleApiContract (Mục 0.7) — not in that doc's model since it predates Mục 0.7, but it belongs
+  # here: a fast, no-infrastructure syntax/`$ref` validation of packages/api-contract, same spirit as
+  # the Checkstyle/Spotless checks already in this job, and already wired into Gradle's own `check`
+  # alongside them. `test`/coverage stays out of `lint` — that is `unit-test`'s job below.
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'gradle'
+      # bundleApiContract shells out to `npx @redocly/cli` — pinned here rather than relying on
+      # whatever Node version happens to be preinstalled on ubuntu-latest.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: ./gradlew spotlessCheck checkstyleMain bundleApiContract --no-daemon
+
+  # test + jacocoTestCoverageVerification (Coverage Verification Mechanism ADR, deployment-and-cicd.md
+  # §5) — Unit only, no Testcontainers/Docker (integration-test is a separate job, out of scope here).
+  unit-test:
+    needs: lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'gradle'
+      - run: ./gradlew test jacocoTestCoverageVerification --no-daemon
