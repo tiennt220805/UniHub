@@ -23,7 +23,7 @@
 - [x] `docker-compose.yml` cho local dev (Postgres, Redis, RabbitMQ) — tách biệt với Testcontainers — *Mục 0.5*
 - [x] Flyway/Liquibase migration setup, chạy được trên Postgres local
 - [x] Wire `packages/api-contract` vào build: validate + bundle spec (DTO viết tay theo §10, verify bằng `contract-diff` ở Mục 1, không codegen) — *Mục 0.7*
-- [ ] `generateOpenApiDocs` (springdoc) task hoạt động, sinh `build/openapi.json` từ controller annotation
+- [x] `generateOpenApiDocs` (springdoc) task hoạt động, sinh `build/openapi.json` từ controller annotation — *Mục 0.8*
 - [ ] GitHub Actions workflow file khởi tạo: tối thiểu job `lint` + `unit-test`, xanh trên 1 commit trống/hello-world
 - [ ] React + TypeScript (Vite) scaffold cho **Web Application**: TanStack Query, Zustand, Tailwind CSS, Shadcn UI, React Hook Form + Zod cài đặt
 - [ ] Vitest + React Testing Library cấu hình cho FE component test (`e2e-testing.md` §1)

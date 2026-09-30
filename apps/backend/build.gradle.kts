@@ -33,6 +33,12 @@ plugins {
     // between local dev and the K8s Job, but flagging it here since nothing in the corpus reconciled the
     // two numbers explicitly.
     id("org.flywaydb.flyway") version "13.8.0"
+    // Pinned explicitly. 1.9.0 is the latest stable as of this writing. Registers `generateOpenApiDocs`,
+    // which boots the app in a forked JVM (`forkedSpringBootRun`) and fetches its live `/v3/api-docs` —
+    // contract-testing.md §2's local-repro step 1, standing alone, deliberately NOT wired into `check`
+    // (same section; it reads live controller annotations, not the hand-written contract in
+    // packages/api-contract, so it has nothing to do with `bundleApiContract` above).
+    id("org.springdoc.openapi-gradle-plugin") version "1.9.0"
 }
 
 // Reuses docker-compose.yml's own env vars and dev-only defaults (env.example) so `./gradlew
@@ -43,6 +49,15 @@ flyway {
     url = "jdbc:postgresql://127.0.0.1:${System.getenv("POSTGRES_PORT") ?: "5432"}/${System.getenv("POSTGRES_DB") ?: "unihub"}"
     user = System.getenv("POSTGRES_USER") ?: "unihub"
     password = System.getenv("POSTGRES_PASSWORD") ?: "unihub_dev_only"
+}
+
+// contract-testing.md §2's local-repro step 1 (`cp build/openapi.json /tmp/generated.json`) hardcodes
+// this exact path — outputDir/outputFileName pinned explicitly here so that path never drifts, even
+// though both already match the plugin's own defaults. `generateOpenApiDocs` is standalone (not wired
+// into `check`, see plugin block above), so no other task depends on this config.
+openApi {
+    outputDir.set(layout.buildDirectory.get().asFile)
+    outputFileName.set("openapi.json")
 }
 
 group = "com.unihub"
@@ -83,6 +98,20 @@ dependencies {
     // allowed on application use cases (backend-coding-standards.md §3, §19). It is not transitive via
     // spring-boot-starter, yet the verbatim ArchitectureTest (§26.2) references it. Version managed by the Boot BOM.
     implementation("org.springframework:spring-tx")
+
+    // Spring MVC — needed only so `generateOpenApiDocs` (Mục 0.8) has a live `/v3/api-docs` endpoint to
+    // fetch from a booted app. Version managed by the Boot BOM. No controller/business logic added here
+    // (Mục 1/2's job); the app currently boots with zero @RestController beans.
+    implementation("org.springframework.boot:spring-boot-starter-web")
+    // Pinned explicitly to 2.6.0, NOT the newer 2.8.6 latest-stable: springdoc 2.7.0+ switched to
+    // Spring Boot 3.4's webjars-locator-lite (references org.springframework.web.servlet.resource.
+    // LiteWebJarsResourceResolver, a Spring Framework 6.2+ class) and fails to boot on this project's
+    // pinned Spring Boot 3.3.5 (Spring Framework 6.1.14) with `NoClassDefFoundError` on that class,
+    // verified while probing this task. 2.6.0 is the last release on the Boot-3.3-compatible line.
+    // Supplies the `/v3/api-docs` endpoint that `generateOpenApiDocs` fetches; the `-ui` artifact also
+    // bundles Swagger UI, unused here but is the conventional single starter for this rather than
+    // pulling the non-UI core artifact separately.
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // ArchUnit 1.x (latest stable) — powers com.unihub.ArchitectureTest, the first test of Phase 1 (M-12).
