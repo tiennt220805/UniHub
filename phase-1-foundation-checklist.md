@@ -25,8 +25,8 @@
 - [x] Wire `packages/api-contract` vào build: validate + bundle spec (DTO viết tay theo §10, verify bằng `contract-diff` ở Mục 1, không codegen) — *Mục 0.7*
 - [x] `generateOpenApiDocs` (springdoc) task hoạt động, sinh `build/openapi.json` từ controller annotation — *Mục 0.8*
 - [x] GitHub Actions workflow file khởi tạo: tối thiểu job `lint` + `unit-test`, xanh trên 1 commit trống/hello-world — *Mục 0.9*
-- [ ] React + TypeScript (Vite) scaffold cho **Web Application**: TanStack Query, Zustand, Tailwind CSS, Shadcn UI, React Hook Form + Zod cài đặt
-- [ ] Vitest + React Testing Library cấu hình cho FE component test (`e2e-testing.md` §1)
+- [x] React + TypeScript (Vite) scaffold cho **Web Application**: TanStack Query, Zustand, Tailwind CSS, Shadcn UI, React Hook Form + Zod cài đặt
+- [x] Vitest + React Testing Library cấu hình cho FE component test (`e2e-testing.md` §1)
 
 > ⚠ **Không** khởi tạo Mobile Application (React Native/Expo) ở Phase 1 — đó là Phase 5, chỉ dành cho Check-in Client.
 
