@@ -56,7 +56,8 @@ It combines three architectural styles that hold at the same time: a **Modular M
 ```
 UniHub/
 ├── apps/
-│   └── backend/          # Java 21 · Spring Boot · Gradle (Modular Monolith)
+│   ├── backend/          # Java 21 · Spring Boot · Gradle (Modular Monolith)
+│   └── web/              # React · TypeScript · Vite
 ├── packages/
 │   └── api-contract/     # OpenAPI 3.1 - the contract-first HTTP surface
 └── docs/                 # SRS · proposal · C4 architecture · technical design
@@ -66,4 +67,4 @@ The `docs/` corpus is the source of truth: requirements, the rationale behind ea
 
 ## Status
 
-This is a **design-first** project. The requirements, architecture and API contracts are complete, and the backend project skeleton with its boundary tests is in place; business implementation is underway. **Setup and run instructions will be added as the codebase lands.**
+This is a **design-first** project. The requirements, architecture and API contracts are complete, and the backend/web project skeletons (including the backend's ArchUnit boundary tests) are in place; no entity, migration, or business endpoint has been implemented yet. **Setup and run instructions will be added as the codebase lands.**
