@@ -103,6 +103,14 @@ dependencies {
     // fetch from a booted app. Version managed by the Boot BOM. No controller/business logic added here
     // (Mục 1/2's job); the app currently boots with zero @RestController beans.
     implementation("org.springframework.boot:spring-boot-starter-web")
+    // JdbcTemplate — the adapter style backend-coding-standards.md §21 item 4 already establishes for
+    // simple read/insert adapters; chosen over spring-boot-starter-data-jpa (not otherwise needed yet,
+    // and architecture.md §6.2 / INV-15 keep schema generation out of the ORM's hands regardless).
+    implementation("org.springframework.boot:spring-boot-starter-jdbc")
+    // Runtime JDBC driver for the application itself. The buildscript{} block above declares the same
+    // artifact separately for the Flyway Gradle plugin's own classloader (see that block's comment) —
+    // the two are independent dependency graphs, so this is not a duplicate.
+    runtimeOnly("org.postgresql:postgresql:42.7.13")
     // Pinned explicitly to 2.6.0, NOT the newer 2.8.6 latest-stable: springdoc 2.7.0+ switched to
     // Spring Boot 3.4's webjars-locator-lite (references org.springframework.web.servlet.resource.
     // LiteWebJarsResourceResolver, a Spring Framework 6.2+ class) and fails to boot on this project's
@@ -135,6 +143,18 @@ dependencies {
     integrationTestImplementation(platform("org.testcontainers:testcontainers-bom:2.0.5"))
     integrationTestImplementation("org.testcontainers:testcontainers:2.0.5")
     integrationTestImplementation("org.testcontainers:testcontainers-junit-jupiter:2.0.5")
+    // Module-specific containers: PostgreSQLContainer, RabbitMQContainer, MinIOContainer. Redis uses the
+    // core GenericContainer above directly (test-levels/integration-testing.md §2), so no Redis module.
+    integrationTestImplementation("org.testcontainers:testcontainers-postgresql:2.0.5")
+    integrationTestImplementation("org.testcontainers:testcontainers-rabbitmq:2.0.5")
+    integrationTestImplementation("org.testcontainers:testcontainers-minio:2.0.5")
+
+    // Flyway Java API, called directly from IntegrationTestSupport (not Spring Boot's
+    // spring.flyway.enabled autoconfig — INV-15, migration never runs from inside the application
+    // itself, test context included). Same version as the Gradle plugin (buildscript{} block above) for
+    // one less number to reconcile locally; deployment-and-cicd.md §4's K8s Job is a separate concern.
+    integrationTestImplementation("org.flywaydb:flyway-core:13.8.0")
+    integrationTestImplementation("org.flywaydb:flyway-database-postgresql:13.8.0")
 }
 
 tasks.withType<JavaCompile> {

@@ -57,7 +57,13 @@ public abstract class IntegrationTestSupport {
 
     static final RabbitMQContainer RABBITMQ = new RabbitMQContainer("rabbitmq:3-management");
 
-    static final MinIOContainer MINIO = new MinIOContainer("minio/minio:latest");
+    // minio/minio stopped being pullable (Docker Hub repository removed, 10/2025 — verified against
+    // live Docker Hub/quay.io, not a sandbox/network issue). cgr.dev/chainguard/minio is a real MinIO
+    // build under a different registry/namespace; asCompatibleSubstituteFor is Testcontainers' own
+    // mechanism for exactly this case — verified end-to-end: the container still starts and its
+    // /minio/health/live check still passes, not just "no constructor exception."
+    static final MinIOContainer MINIO = new MinIOContainer(
+        DockerImageName.parse("cgr.dev/chainguard/minio:latest").asCompatibleSubstituteFor("minio/minio"));
 
     static {
         // Started once, when this class is first loaded by the JVM. No @Container/@Testcontainers:
