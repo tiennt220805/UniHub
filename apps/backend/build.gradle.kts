@@ -103,6 +103,10 @@ dependencies {
     // fetch from a booted app. Version managed by the Boot BOM. No controller/business logic added here
     // (Mục 1/2's job); the app currently boots with zero @RestController beans.
     implementation("org.springframework.boot:spring-boot-starter-web")
+    // Bean Validation (Hibernate Validator) — backend-coding-standards.md §18: request shape is validated
+    // in `web` with constraint annotations. Without it `@Min`/`@Max` on a controller parameter compile but
+    // are silently never evaluated (spring-boot-starter-web does not pull a validator in).
+    implementation("org.springframework.boot:spring-boot-starter-validation")
     // JdbcTemplate — the adapter style backend-coding-standards.md §21 item 4 already establishes for
     // simple read/insert adapters; chosen over spring-boot-starter-data-jpa (not otherwise needed yet,
     // and architecture.md §6.2 / INV-15 keep schema generation out of the ORM's hands regardless).

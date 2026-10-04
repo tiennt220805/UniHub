@@ -7,3 +7,10 @@
 spring:
   flyway:
     enabled: false
+
+# packages/api-contract is OpenAPI 3.1; springdoc 2.6.0 defaults to 3.0.x. Pinned so the spec
+# `generateOpenApiDocs` produces (contract-testing.md §2) is the same dialect as the hand-written one —
+# otherwise `openAPI: 3.1.0 vs 3.0.1` alone fails contract-diff.
+springdoc:
+  api-docs:
+    version: openapi_3_1
