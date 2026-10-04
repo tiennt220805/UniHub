@@ -13,6 +13,13 @@ export default defineConfig({
       '@': path.resolve(import.meta.dirname, './src'),
     },
   },
+  server: {
+    // Paths in packages/api-contract already carry the /api/v1 prefix, so forward /api as-is to the
+    // Backend API (server.port is not overridden in application.yml → Spring Boot default 8080).
+    proxy: {
+      '/api': 'http://localhost:8080',
+    },
+  },
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
