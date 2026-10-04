@@ -246,6 +246,14 @@ None of these carries an invariant except M-31, M-32 (INV-06 — `REQ-2.6.3` and
 - **`ARC-INV`** — invariants with no bullet of `requirement.md` behind them (§2.1): INV-03 (the Master-routing refinement), INV-08, INV-10, INV-11, INV-14 (the fail-open half), INV-15, INV-19, INV-20 (M-22, M-25, M-34, M-41, M-40, M-55, M-58, M-51, M-63, M-65).
 - **Success criteria with no INV:** `SC-02`, `SC-03`, `SC-08`, `SC-09` (M-72, M-73, M-17, M-15) — evidence for these is a load result or a CI gate, not an invariant.
 
+### 4.4 Gate exclusions with a removal condition
+
+A gate that is green while deliberately not checking something is a gap too. Unlike §4.1–§4.3 these rows are not snapshots of unwritten tests: each is a standing exclusion that names what it skips and the condition that ends it.
+
+| Gate | Skipped on purpose | Why | Removed when |
+|---|---|---|---|
+| `contract-diff` (`apps/backend/scripts/contract-diff.sh`, step 4) | Global `security` and `components.securitySchemes` — deleted from both specs before the diff, so the authentication scheme is **not** proved | Spring Security is not wired in, so the generated spec cannot describe the contract's global `bearerAuth` default | M-02 and M-03 (Phase 1 Mục 2.2) are `Passing`: delete `.security, .components.securitySchemes` from the script's `NORMALISE` filter and confirm the job is still green |
+
 **Guarantees:** every gap above is a fact about the corpus at this snapshot, reported here rather than repaired here — this file never adds an INV, a technique or a test plan entry to close one.
 
 ---
