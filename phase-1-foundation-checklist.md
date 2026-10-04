@@ -37,8 +37,8 @@
 - [x] Một endpoint tối giản (vd. `GET /workshops` trả danh sách rỗng) đi hết: Controller → Service → Repository → Postgres thật
 - [x] Integration test (`*IT.java`) chứng minh endpoint chạy được với DB thật (Testcontainers)
 - [x] Web app gọi được endpoint này và render kết quả (component test tương ứng)
-- [ ] `contract-diff` chạy và pass cho path này (đường ống hand-written spec ↔ generated spec hoạt động — `contract-testing.md` §4)
-- [ ] Toàn bộ pipeline (`lint → unit-test → integration-test → contract-diff`) xanh trên 1 lần push thẳng `main` cho lát cắt này (dự án cá nhân, không qua PR)
+- [x] `contract-diff` chạy và pass cho path này (đường ống hand-written spec ↔ generated spec hoạt động — `contract-testing.md` §4)
+- [x] Toàn bộ pipeline (`lint → unit-test → integration-test → contract-diff`) xanh trên 1 lần push thẳng `main` cho lát cắt này (dự án cá nhân, không qua PR)
 
 *Mục tiêu: xác nhận sớm mọi giả định kiến trúc (JWT stateless, routing, DB connection, CORS, contract-diff) trước khi đổ effort TDD sâu vào nghiệp vụ.*
 
