@@ -34,7 +34,7 @@
 
 ## 1. Walking Skeleton (lát cắt mỏng xuyên suốt kiến trúc)
 
-- [ ] Một endpoint tối giản (vd. `GET /workshops` trả danh sách rỗng) đi hết: Controller → Service → Repository → Postgres thật
+- [x] Một endpoint tối giản (vd. `GET /workshops` trả danh sách rỗng) đi hết: Controller → Service → Repository → Postgres thật
 - [ ] Integration test (`*IT.java`) chứng minh endpoint chạy được với DB thật (Testcontainers)
 - [ ] Web app gọi được endpoint này và render kết quả (component test tương ứng)
 - [ ] `contract-diff` chạy và pass cho path này (đường ống hand-written spec ↔ generated spec hoạt động — `contract-testing.md` §4)
