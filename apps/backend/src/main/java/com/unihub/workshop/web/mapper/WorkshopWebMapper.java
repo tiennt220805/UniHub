@@ -11,32 +11,34 @@ import java.util.List;
 
 public final class WorkshopWebMapper {
 
-  private WorkshopWebMapper() {}
+    private WorkshopWebMapper() {}
 
-  public static SearchWorkshopsCriteria toCriteria(
-      String q,
-      String speaker,
-      String location,
-      Instant dateFrom,
-      Instant dateTo,
-      int page,
-      int size) {
-    return new SearchWorkshopsCriteria(q, speaker, location, dateFrom, dateTo, page, size);
-  }
+    public static SearchWorkshopsCriteria toCriteria(
+            String q,
+            String speaker,
+            String location,
+            Instant dateFrom,
+            Instant dateTo,
+            int page,
+            int size) {
+        return new SearchWorkshopsCriteria(q, speaker, location, dateFrom, dateTo, page, size);
+    }
 
-  public static WorkshopListResponse toResponse(SearchWorkshopsResult result) {
-    List<WorkshopSummary> items =
-        result.items().stream()
-            .map(
-                i ->
-                    new WorkshopSummary(
-                        i.id(),
-                        i.title(),
-                        i.location(),
-                        i.startTime(),
-                        WorkshopStatus.valueOf(i.status())))
-            .toList();
-    PageMeta page = new PageMeta(result.page(), result.size(), result.totalElements(), result.totalPages());
-    return new WorkshopListResponse(items, page);
-  }
+    public static WorkshopListResponse toResponse(SearchWorkshopsResult result) {
+        List<WorkshopSummary> items =
+                result.items().stream()
+                        .map(
+                                i ->
+                                        new WorkshopSummary(
+                                                i.id(),
+                                                i.title(),
+                                                i.location(),
+                                                i.startTime(),
+                                                WorkshopStatus.valueOf(i.status())))
+                        .toList();
+        PageMeta page =
+                new PageMeta(
+                        result.page(), result.size(), result.totalElements(), result.totalPages());
+        return new WorkshopListResponse(items, page);
+    }
 }

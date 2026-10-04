@@ -4,5 +4,5 @@ import com.unihub.workshop.application.command.SearchWorkshopsCriteria;
 import com.unihub.workshop.application.result.SearchWorkshopsResult;
 
 public interface SearchWorkshopsUseCase {
-  SearchWorkshopsResult search(SearchWorkshopsCriteria criteria);
+    SearchWorkshopsResult search(SearchWorkshopsCriteria criteria);
 }

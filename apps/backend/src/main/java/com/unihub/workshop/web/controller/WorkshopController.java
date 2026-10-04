@@ -14,23 +14,24 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/workshops")
 class WorkshopController {
-  private final SearchWorkshopsUseCase searchWorkshops;
+    private final SearchWorkshopsUseCase searchWorkshops;
 
-  WorkshopController(SearchWorkshopsUseCase searchWorkshops) {
-    this.searchWorkshops = searchWorkshops;
-  }
+    WorkshopController(SearchWorkshopsUseCase searchWorkshops) {
+        this.searchWorkshops = searchWorkshops;
+    }
 
-  @GetMapping
-  WorkshopListResponse search(
-      @RequestParam(required = false) String q,
-      @RequestParam(required = false) String speaker,
-      @RequestParam(required = false) String location,
-      @RequestParam(required = false) Instant dateFrom,
-      @RequestParam(required = false) Instant dateTo,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size) {
-    var criteria = WorkshopWebMapper.toCriteria(q, speaker, location, dateFrom, dateTo, page, size);
-    var result = searchWorkshops.search(criteria);
-    return WorkshopWebMapper.toResponse(result);
-  }
+    @GetMapping
+    WorkshopListResponse search(
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String speaker,
+            @RequestParam(required = false) String location,
+            @RequestParam(required = false) Instant dateFrom,
+            @RequestParam(required = false) Instant dateTo,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        var criteria =
+                WorkshopWebMapper.toCriteria(q, speaker, location, dateFrom, dateTo, page, size);
+        var result = searchWorkshops.search(criteria);
+        return WorkshopWebMapper.toResponse(result);
+    }
 }

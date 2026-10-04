@@ -9,15 +9,16 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 class SearchWorkshops implements SearchWorkshopsUseCase {
-  private final WorkshopCatalogQueries catalog;
+    private final WorkshopCatalogQueries catalog;
 
-  SearchWorkshops(WorkshopCatalogQueries catalog) {
-    this.catalog = catalog;
-  }
+    SearchWorkshops(WorkshopCatalogQueries catalog) {
+        this.catalog = catalog;
+    }
 
-  @Override
-  @Transactional(readOnly = true)
-  public SearchWorkshopsResult search(SearchWorkshopsCriteria criteria) {
-    return SearchWorkshopsResult.of(catalog.search(criteria)); // WorkshopCatalogQueries → Replica
-  }
+    @Override
+    @Transactional(readOnly = true)
+    public SearchWorkshopsResult search(SearchWorkshopsCriteria criteria) {
+        return SearchWorkshopsResult.of(
+                catalog.search(criteria)); // WorkshopCatalogQueries → Replica
+    }
 }
