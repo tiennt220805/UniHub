@@ -38,7 +38,7 @@
 - [x] Integration test (`*IT.java`) chứng minh endpoint chạy được với DB thật (Testcontainers)
 - [x] Web app gọi được endpoint này và render kết quả (component test tương ứng)
 - [ ] `contract-diff` chạy và pass cho path này (đường ống hand-written spec ↔ generated spec hoạt động — `contract-testing.md` §4)
-- [ ] Toàn bộ pipeline (`lint → unit-test → integration-test → contract-diff`) xanh trên 1 PR cho lát cắt này
+- [ ] Toàn bộ pipeline (`lint → unit-test → integration-test → contract-diff`) xanh trên 1 lần push thẳng `main` cho lát cắt này (dự án cá nhân, không qua PR)
 
 *Mục tiêu: xác nhận sớm mọi giả định kiến trúc (JWT stateless, routing, DB connection, CORS, contract-diff) trước khi đổ effort TDD sâu vào nghiệp vụ.*
 
