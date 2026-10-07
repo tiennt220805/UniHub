@@ -107,6 +107,10 @@ dependencies {
     // in `web` with constraint annotations. Without it `@Min`/`@Max` on a controller parameter compile but
     // are silently never evaluated (spring-boot-starter-web does not pull a validator in).
     implementation("org.springframework.boot:spring-boot-starter-validation")
+    // Spring Security + JWT verification (auth-and-identity.md §3): the resource server decodes the auth
+    // JWT via nimbus-jose-jwt (pulled in transitively, the JOSE library the design names). Verification
+    // only — no token is issued by production code yet (no login endpoint, Mục 2.2 decision).
+    implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
     // JdbcTemplate — the adapter style backend-coding-standards.md §21 item 4 already establishes for
     // simple read/insert adapters; chosen over spring-boot-starter-data-jpa (not otherwise needed yet,
     // and architecture.md §6.2 / INV-15 keep schema generation out of the ORM's hands regardless).

@@ -39,7 +39,7 @@ bash apps/backend/scripts/contract-diff.sh
 
 | # | Step | What it runs |
 |---|---|---|
-| 1 | Generate the spec from the controller annotations | `SPRING_DATASOURCE_URL=<any JDBC URL> ./gradlew generateOpenApiDocs --no-daemon` → `build/openapi.json`. The application context is real, so a `DataSource` URL must exist; no database has to be listening, nothing connects. springdoc is pinned to OpenAPI 3.1 (`application.yml`), the contract's dialect |
+| 1 | Generate the spec from the controller annotations | `SPRING_DATASOURCE_URL=<any JDBC URL> UNIHUB_SECURITY_JWT_SECRET=<any string of 32+ bytes> ./gradlew generateOpenApiDocs --no-daemon` → `build/openapi.json`. The application context is real, so a `DataSource` URL and a JWT secret must exist (the app refuses to boot without one; the spec generation never verifies a token, so a throwaway value is enough); no database has to be listening, nothing connects. springdoc is pinned to OpenAPI 3.1 (`application.yml`), the contract's dialect |
 | 2 | Bundle the hand-written contract into one JSON file | `npx --yes @redocly/cli bundle ../../packages/api-contract/openapi.yaml -o …/hand-written-full.json` |
 | 3 | Keep only the operations already implemented (§4) | `jq` filters the bundled spec's `paths` to the (path, method) pairs the generated spec has |
 | 4 | Normalise both sides | `npx --yes @redocly/cli bundle <spec> --dereferenced --remove-unused-components` (every `$ref` resolved, unused components dropped), then `jq` deletes `info`, `servers`, `tags`, `security`, `components.securitySchemes` and `format: "int32"` |

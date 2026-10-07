@@ -3,6 +3,7 @@ package com.unihub.workshop.web.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.unihub.shared.infrastructure.IntegrationTestSupport;
+import com.unihub.shared.security.TestJwts;
 import com.unihub.workshop.web.dto.WorkshopListResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,7 @@ class WorkshopControllerIT extends IntegrationTestSupport {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("unihub.security.jwt.secret", () -> TestJwts.SECRET);
     }
 
     @Autowired private TestRestTemplate restTemplate;

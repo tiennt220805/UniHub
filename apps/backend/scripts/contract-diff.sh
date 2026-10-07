@@ -12,6 +12,8 @@
 # Env:
 #   SPRING_DATASOURCE_URL  generateOpenApiDocs boots the app, and JdbcTemplate needs *a* DataSource URL to
 #                          exist. No database has to be listening — nothing connects while the spec is read.
+#   UNIHUB_SECURITY_JWT_SECRET  the app refuses to boot without a JWT secret; generateOpenApiDocs only reads the
+#                          spec and never verifies a token, so a throwaway placeholder is enough (not a credential).
 #   CONTRACT_DIFF_DIR      where intermediate specs are written (default: a fresh mktemp dir, kept on exit).
 set -euo pipefail
 
@@ -49,6 +51,7 @@ NORMALISE='
 echo "[1/5] generateOpenApiDocs (controller annotations -> spec)"
 rm -f build/openapi.json   # never diff a stale spec from an earlier run
 SPRING_DATASOURCE_URL="${SPRING_DATASOURCE_URL:-jdbc:postgresql://127.0.0.1:5432/unihub}" \
+UNIHUB_SECURITY_JWT_SECRET="${UNIHUB_SECURITY_JWT_SECRET:-contract-diff-placeholder-not-a-credential-0123456789abcdef}" \
   ./gradlew generateOpenApiDocs --no-daemon
 cp build/openapi.json "$TMP/generated.json"
 

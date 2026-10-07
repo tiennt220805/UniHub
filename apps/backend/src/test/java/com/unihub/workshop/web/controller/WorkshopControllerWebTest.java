@@ -10,6 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.unihub.shared.infrastructure.security.SecurityConfig;
+import com.unihub.shared.security.TestJwts;
 import com.unihub.workshop.application.command.SearchWorkshopsCriteria;
 import com.unihub.workshop.application.port.in.SearchWorkshopsUseCase;
 import com.unihub.workshop.application.result.SearchWorkshopsResult;
@@ -22,7 +24,9 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 // Web slice (backend-coding-standards.md §27 #7): the use case is mocked, no container, no
@@ -30,6 +34,8 @@ import org.springframework.test.web.servlet.MockMvc;
 // Pins the request-shape rules packages/api-contract/common/pagination.yaml states for
 // `page`/`size`.
 @WebMvcTest(WorkshopController.class)
+@Import(SecurityConfig.class)
+@TestPropertySource(properties = "unihub.security.jwt.secret=" + TestJwts.SECRET)
 class WorkshopControllerWebTest {
 
     @Autowired private MockMvc mockMvc;

@@ -85,7 +85,7 @@ A row may carry several Req IDs when one set of tests proves them all (many-to-m
 | Row | Req ID | Requirement | Related INV | Technique | Test case(s) | Level | Phase | Status |
 |---|---|---|---|---|---|---|---|---|
 | M-01 | REQ-2.11.5 | Users–roles–permissions mapping; a role's permission set can be reconfigured without code changes | INV-01 | [DT §3.4][dt] (has-permission column) | `JdbcUserPermissionQueriesIT#reconfiguringRolePermissions_changesResult_withoutCodeChange`, `JdbcUserPermissionQueriesIT#reassigningRole_changesResult_withoutCodeChange`, `DefaultRbacSeedIT#organizerBundle`, `ResolveUserPermissionsTest#resolve_returnsPermissionCodesFromPort` | Integration | 1 | Passing |
-| M-02 | REQ-2.11.6 | The JWT carries the resolved permission list; tampered, forged, `alg`-confused, expired or malformed tokens are rejected with no side effect | INV-01 | [DT §3.4][dt] row 1 (`403`); attack vectors S-1…S-6, `security-testing.md` §2.2 | chưa viết | Integration — `security-testing.md` §2.2 | 1 | Not started |
+| M-02 | REQ-2.11.6 | The JWT carries the resolved permission list; tampered, forged, `alg`-confused, expired or malformed tokens are rejected with no side effect | INV-01 | [DT §3.4][dt] row 1 (`403`); attack vectors S-1…S-6, `security-testing.md` §2.2 | `AuthJwtDecoderTest#rejects_tamperedPayload`, `AuthJwtDecoderTest#rejects_wrongSecret`, `AuthJwtDecoderTest#rejects_algNone`, `AuthJwtDecoderTest#rejects_justExpiredToken_noLeeway`, `AuthJwtDecoderTest#rejects_tokenWithoutExpiry`, `AuthJwtSecurityIT#protectedPath_rejectsBadToken` (every vector → 401, handler never reached), `CurrentActorTest#from_buildsUserActor` | Integration — `security-testing.md` §2.2 | 1 | Passing |
 | M-03 | REQ-2.11.7 | Endpoint access is decided by `hasAuthority(permission)`, never by role name; `401` (bad token) and `403` (good token, no permission) are never confused | INV-01 | [DT §3.4][dt] rows 1–4; S-7, S-8, `security-testing.md` §2.2 | chưa viết | Integration | 1 | Not started |
 | M-04 | REQ-1.3.3.1 | Organizer/Admin can create, edit, cancel and reschedule workshops | — | [ST §2][st] `workshops.status` (terminal `COMPLETED`/`CANCELLED` must-reject); [BVA §4][bva] title/speaker/location `VARCHAR(255)` | chưa viết | Unit / Integration | 1 | Not started |
 | M-05 | REQ-1.3.1.1 | Student browses workshops by schedule and searches/filters by topic, speaker, location | — | [PW §5][pw] row 2 (list endpoints × `DRAFT`/`PUBLISHED` leak); search/filter semantics: none catalogued | chưa viết | Integration | 1 | Not started |
@@ -219,11 +219,11 @@ grep -c '^| M-[0-9][0-9] .*| Not started |$' docs/testing/reports/test-matrix.md
 
 ### 4.1 Not started, by phase
 
-At this snapshot **73 of 74 rows** are `Not started` (M-01 is `Passing`). By phase:
+At this snapshot **72 of 74 rows** are `Not started` (M-01 and M-02 are `Passing`). By phase:
 
 | Phase | Rows |
 |---|---|
-| 1 | M-02 … M-17 (16 rows) |
+| 1 | M-03 … M-17 (15 rows) |
 | 2 | M-18 … M-27 (10 rows) |
 | 3 | M-28 … M-36 (9 rows) |
 | 4 | M-37 … M-41 (5 rows) |
