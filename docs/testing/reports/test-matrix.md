@@ -86,7 +86,7 @@ A row may carry several Req IDs when one set of tests proves them all (many-to-m
 |---|---|---|---|---|---|---|---|---|
 | M-01 | REQ-2.11.5 | Users–roles–permissions mapping; a role's permission set can be reconfigured without code changes | INV-01 | [DT §3.4][dt] (has-permission column) | `JdbcUserPermissionQueriesIT#reconfiguringRolePermissions_changesResult_withoutCodeChange`, `JdbcUserPermissionQueriesIT#reassigningRole_changesResult_withoutCodeChange`, `DefaultRbacSeedIT#organizerBundle`, `ResolveUserPermissionsTest#resolve_returnsPermissionCodesFromPort` | Integration | 1 | Passing |
 | M-02 | REQ-2.11.6 | The JWT carries the resolved permission list; tampered, forged, `alg`-confused, expired or malformed tokens are rejected with no side effect | INV-01 | [DT §3.4][dt] row 1 (`403`); attack vectors S-1…S-6, `security-testing.md` §2.2 | `AuthJwtDecoderTest#rejects_tamperedPayload`, `AuthJwtDecoderTest#rejects_wrongSecret`, `AuthJwtDecoderTest#rejects_algNone`, `AuthJwtDecoderTest#rejects_justExpiredToken_noLeeway`, `AuthJwtDecoderTest#rejects_tokenWithoutExpiry`, `AuthJwtSecurityIT#protectedPath_rejectsBadToken` (every vector → 401, handler never reached), `CurrentActorTest#from_buildsUserActor` | Integration — `security-testing.md` §2.2 | 1 | Passing |
-| M-03 | REQ-2.11.7 | Endpoint access is decided by `hasAuthority(permission)`, never by role name; `401` (bad token) and `403` (good token, no permission) are never confused | INV-01 | [DT §3.4][dt] rows 1–4; S-7, S-8, `security-testing.md` §2.2 | chưa viết | Integration | 1 | Not started |
+| M-03 | REQ-2.11.7 | Endpoint access is decided by `hasAuthority(permission)`, never by role name; `401` (bad token) and `403` (good token, no permission) are never confused | INV-01 | [DT §3.4][dt] rows 1–4; S-7, S-8, `security-testing.md` §2.2 | `PermissionAuthorizationIT#permissionMissing_is403`, `PermissionAuthorizationIT#roleClaim_isNotHonored` (S-7), `PermissionAuthorizationIT#noToken_is401`, `PermissionAuthorizationIT#invalidToken_is401_withoutInternalDetail`, `PermissionAuthoritiesTest#scopeClaims_areIgnored`, `ProblemDetailSecurityHandlersTest#accessDeniedHandler_writesProblem`; S-8 deferred (§4.5) | Integration | 1 | Passing |
 | M-04 | REQ-1.3.3.1 | Organizer/Admin can create, edit, cancel and reschedule workshops | — | [ST §2][st] `workshops.status` (terminal `COMPLETED`/`CANCELLED` must-reject); [BVA §4][bva] title/speaker/location `VARCHAR(255)` | chưa viết | Unit / Integration | 1 | Not started |
 | M-05 | REQ-1.3.1.1 | Student browses workshops by schedule and searches/filters by topic, speaker, location | — | [PW §5][pw] row 2 (list endpoints × `DRAFT`/`PUBLISHED` leak); search/filter semantics: none catalogued | chưa viết | Integration | 1 | Not started |
 | M-06 | REQ-1.3.1.2 | Detail page shows speaker, location and seat availability; a `DRAFT` workshop is `404` to an under-permissioned caller | — | [DT §3.4][dt] row 4; seat-availability freshness: none catalogued | chưa viết | Integration | 1 | Not started |
@@ -219,11 +219,11 @@ grep -c '^| M-[0-9][0-9] .*| Not started |$' docs/testing/reports/test-matrix.md
 
 ### 4.1 Not started, by phase
 
-At this snapshot **72 of 74 rows** are `Not started` (M-01 and M-02 are `Passing`). By phase:
+At this snapshot **71 of 74 rows** are `Not started` (M-01, M-02 and M-03 are `Passing`). By phase:
 
 | Phase | Rows |
 |---|---|
-| 1 | M-03 … M-17 (15 rows) |
+| 1 | M-04 … M-17 (14 rows) |
 | 2 | M-18 … M-27 (10 rows) |
 | 3 | M-28 … M-36 (9 rows) |
 | 4 | M-37 … M-41 (5 rows) |
@@ -252,7 +252,9 @@ A gate that is green while deliberately not checking something is a gap too. Unl
 
 | Gate | Skipped on purpose | Why | Removed when |
 |---|---|---|---|
-| `contract-diff` (`apps/backend/scripts/contract-diff.sh`, step 4) | Global `security` and `components.securitySchemes` — deleted from both specs before the diff, so the authentication scheme is **not** proved | Spring Security is not wired in, so the generated spec cannot describe the contract's global `bearerAuth` default | M-02 and M-03 (Phase 1 Mục 2.2) are `Passing`: delete `.security, .components.securitySchemes` from the script's `NORMALISE` filter and confirm the job is still green |
+| `contract-diff` (`apps/backend/scripts/contract-diff.sh`, step 4) | Only the prose `description` of `components.securitySchemes.bearerAuth` — deleted from both specs before the diff. The global `security` requirement, the scheme's `type`/`scheme`/`bearerFormat` and each operation's own `security` **are** compared | The contract's multi-paragraph description lives only in the contract; copying it into an annotation would make the two drift | Not planned: it is prose, not behaviour |
+
+The earlier, wider exclusion (all of `.security` and `.components.securitySchemes`) was removed when M-02 and M-03 became `Passing`; the job stayed green.
 
 ### 4.5 Deferred by decision
 
@@ -261,6 +263,7 @@ A test the catalog names but the team has chosen not to write yet, with the reas
 | Item | Source | Deferred from | Reason | Revisit when |
 |---|---|---|---|---|
 | S-9 — suspended user: fresh login refused, token issued before suspension keeps working until `exp` | `security-testing.md` §2.2 | Phase 1 Mục 2.2 (M-01…M-03) | It characterizes a deliberate limit (`architecture.md` §5.2/§5.6) that needs a login endpoint and token issuance flow; Mục 2.2 uses a test-only JWT signer and ships no login endpoint | A real login endpoint exists (driven by the Web Application) |
+| S-8 — a Student token on `GET /api/v1/checkin/verification-key` is `403` | `security-testing.md` §2.2 | Phase 1 Mục 2.2 (M-03) | That endpoint belongs to the Check-in module (`checkin.md` §6) and does not exist yet; M-03 proves the same `hasAuthority` → `403` mechanism on a test-only endpoint guarded by `WORKSHOP_CREATE` | The Check-in verification-key endpoint is built (Phase 5), guarded by `CHECKIN_SCAN` |
 
 **Guarantees:** every gap above is a fact about the corpus at this snapshot, reported here rather than repaired here — this file never adds an INV, a technique or a test plan entry to close one.
 

@@ -54,7 +54,7 @@ Với mỗi mục bên dưới: viết test trước (Red) → code tối thiể
 ### 2.2 RBAC / JWT — INV-01
 - [x] **M-01** — Users–roles–permissions mapping, permission set cấu hình lại không cần sửa code
 - [x] **M-02** — JWT mang permission list đã resolve; token giả mạo/hết hạn/sai `alg` bị từ chối không side-effect
-- [ ] **M-03** — Endpoint access quyết định bởi `hasAuthority(permission)`, không theo tên role; `401` vs `403` không bị lẫn
+- [x] **M-03** — Endpoint access quyết định bởi `hasAuthority(permission)`, không theo tên role; `401` vs `403` không bị lẫn
 
 ### 2.3 Workshop CRUD (Organizer/Admin)
 - [ ] **M-04** — Tạo/sửa/hủy/dời lịch workshop (state transition, terminal states `COMPLETED`/`CANCELLED` phải reject)

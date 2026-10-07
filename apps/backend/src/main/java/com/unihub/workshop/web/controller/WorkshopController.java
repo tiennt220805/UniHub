@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import java.time.Instant;
@@ -21,7 +22,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 // GET /api/v1/workshops is public (packages/api-contract/paths/workshop.yaml: security: []) — no
-// @PreAuthorize, no Spring Security dependency added (VIỆC 0.4: not wired in yet, Mục 2.2's job).
+// @PreAuthorize: SecurityConfig permits this path; the empty @SecurityRequirements below mirrors
+// it.
 @RestController
 @RequestMapping("/api/v1/workshops")
 class WorkshopController {
@@ -80,6 +82,8 @@ class WorkshopController {
                     @Content(
                             mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
                             schema = @Schema(implementation = ProblemSchema.class)))
+    @SecurityRequirements // public: the contract says `security: []`, overriding the global
+    // bearerAuth
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     WorkshopListResponse search(
             @RequestParam(required = false) String q,

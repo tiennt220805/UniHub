@@ -13,6 +13,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -49,6 +50,22 @@ public final class TestJwts {
                 JWSAlgorithm.HS256,
                 SECRET,
                 claims(subject, List.of(permissions), now, now.plus(Duration.ofMinutes(30))));
+    }
+
+    /**
+     * Correctly signed and unexpired, with {@code permissions[]} empty plus arbitrary extra claims
+     * — e.g. a {@code role} or {@code scope} claim that must never be honored (S-7).
+     */
+    public static String withClaims(UUID subject, Map<String, Object> extraClaims) {
+        var now = Instant.now();
+        var builder =
+                new JWTClaimsSet.Builder()
+                        .subject(subject.toString())
+                        .claim("permissions", List.of())
+                        .issueTime(Date.from(now))
+                        .expirationTime(Date.from(now.plus(Duration.ofMinutes(30))));
+        extraClaims.forEach(builder::claim);
+        return sign(JWSAlgorithm.HS256, SECRET, builder.build());
     }
 
     /** Correctly signed, but {@code exp} lies {@code ago} in the past. */

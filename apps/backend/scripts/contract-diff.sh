@@ -37,14 +37,14 @@ run_jq() {
 # Descriptive metadata of the whole API, not of an implemented operation; plus two things that are
 # compared only through a normalisation that must be reviewed when it changes:
 #   - info/servers/tags: API-level metadata.
-#   - security/securitySchemes: TEMPORARY. The contract declares a global bearerAuth default; Spring
-#     Security (RBAC/JWT, M-02/M-03, checklist Mục 2.2) is not wired in yet, so the generated spec cannot
-#     describe it. REMOVE `.security` and `.components.securitySchemes` below when Mục 2.2 lands —
-#     tracked in docs/testing/reports/test-matrix.md §4.4.
+#   - securitySchemes.bearerAuth.description: prose only. The global `security` requirement, the scheme's
+#     type/scheme/bearerFormat and each operation's own `security` ARE compared (Mục 2.2 wired Spring
+#     Security in; the earlier blanket exclusion of `.security`/`.components.securitySchemes` is gone —
+#     test-matrix.md §4.4). The long description lives in the contract only.
 #   - format: "int32": springdoc always emits it for a Java `int`; the contract writes plain
 #     `type: integer`. Only int32 is dropped — int64 (`long`) is still compared.
 NORMALISE='
-  del(.info, .servers, .tags, .security, .components.securitySchemes)
+  del(.info, .servers, .tags, .components.securitySchemes.bearerAuth.description)
   | walk(if type == "object" and .format == "int32" then del(.format) else . end)
 '
 

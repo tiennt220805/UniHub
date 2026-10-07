@@ -20,59 +20,26 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.client.TestRestTemplate;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RestController;
 
 /**
  * M-02 over real HTTP: the booted application, with its real filter chain, answers 401 to every bad
  * token <em>without ever reaching a handler</em>, and lets a good one through. "No side effect" is
- * proven with a test-only probe endpoint that counts how often it runs; Mục 2.2's M-03 adds the
- * real guarded {@code POST /workshops}.
+ * proven with the shared test-only probe endpoint ({@link SecurityProbeConfig}) that counts how
+ * often its handler runs.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Import(AuthJwtSecurityIT.ProbeConfig.class)
+@Import(SecurityProbeConfig.class)
 class AuthJwtSecurityIT extends IntegrationTestSupport {
 
-    private static final String PROBE_PATH = "/api/v1/test-only/probe";
+    private static final String PROBE_PATH = SecurityProbeConfig.PROBE_PATH;
     private static final UUID USER = UUID.randomUUID();
-
-    /** A handler that records each invocation: the stand-in for "a business write happened". */
-    @TestConfiguration
-    static class ProbeConfig {
-        @Bean
-        AtomicInteger probeInvocations() {
-            return new AtomicInteger();
-        }
-
-        @Bean
-        ProbeController probeController(AtomicInteger probeInvocations) {
-            return new ProbeController(probeInvocations);
-        }
-    }
-
-    @RestController
-    static class ProbeController {
-        private final AtomicInteger invocations;
-
-        ProbeController(AtomicInteger invocations) {
-            this.invocations = invocations;
-        }
-
-        @GetMapping(PROBE_PATH)
-        String probe() {
-            invocations.incrementAndGet();
-            return "reached";
-        }
-    }
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
