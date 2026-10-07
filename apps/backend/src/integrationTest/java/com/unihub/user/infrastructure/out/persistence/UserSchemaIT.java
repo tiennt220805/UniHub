@@ -124,10 +124,10 @@ class UserSchemaIT extends RolledBackJdbcSupport {
     @Test
     @DisplayName("rejects a second permission with the same code")
     void permission_codeIsUnique() {
-        aPermission().withCode("WORKSHOP_CREATE").insert(jdbc);
+        aPermission().withCode("T_DUPLICATE_CODE").insert(jdbc);
 
         assertRejected(
-                () -> aPermission().withCode("WORKSHOP_CREATE").insert(jdbc), UNIQUE_VIOLATION);
+                () -> aPermission().withCode("T_DUPLICATE_CODE").insert(jdbc), UNIQUE_VIOLATION);
     }
 
     @Test

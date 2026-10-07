@@ -1,5 +1,6 @@
 package com.unihub.shared.infrastructure;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.sql.Connection;
@@ -23,6 +24,7 @@ public abstract class RolledBackJdbcSupport extends IntegrationTestSupport {
     protected static final String FOREIGN_KEY_VIOLATION = "23503";
     protected static final String NOT_NULL_VIOLATION = "23502";
     protected static final String VALUE_TOO_LONG = "22001";
+    protected static final String NUMERIC_OVERFLOW = "22003";
 
     protected JdbcTemplate jdbc;
     private Connection connection;
@@ -42,16 +44,26 @@ public abstract class RolledBackJdbcSupport extends IntegrationTestSupport {
         connection.close();
     }
 
-    /** Asserts the statement fails with the given Postgres SQLSTATE and, if given, constraint. */
+    /** Asserts the statement fails with the given Postgres SQLSTATE (any constraint). */
     protected void assertRejected(Runnable statement, String sqlState) {
+        assertRejected(statement, sqlState, null);
+    }
+
+    /**
+     * Asserts the statement fails with the given SQLSTATE <em>and</em>, when {@code constraint} is
+     * not null, that the named constraint is the one Postgres reports. SQLSTATE alone cannot tell
+     * two CHECKs apart, so a case could stay green after its own constraint was dropped.
+     */
+    protected void assertRejected(Runnable statement, String sqlState, String constraint) {
         assertThatThrownBy(statement::run)
                 .hasRootCauseInstanceOf(SQLException.class)
                 .satisfies(
                         e -> {
-                            var root = rootCause(e);
-                            org.assertj.core.api.Assertions.assertThat(
-                                            ((SQLException) root).getSQLState())
-                                    .isEqualTo(sqlState);
+                            var root = (SQLException) rootCause(e);
+                            assertThat(root.getSQLState()).isEqualTo(sqlState);
+                            if (constraint != null) {
+                                assertThat(root.getMessage()).contains("\"" + constraint + "\"");
+                            }
                         });
     }
 

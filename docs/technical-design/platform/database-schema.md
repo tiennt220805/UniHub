@@ -576,7 +576,7 @@ erDiagram
 
 ## 10. DDL Appendix
 
-Reference-only — this is the schema described above expressed as literal PostgreSQL DDL. It is not a runnable migration file: there is no Spring Boot module or migration tool wired up yet (per `CLAUDE.md`'s Project Status), so nothing here has a home to run from until that scaffolding exists.
+Reference-only — this is the schema described above expressed as literal PostgreSQL DDL. It is not a runnable migration file: the runnable files are `src/main/resources/db/migration/V1__initial_schema.sql` plus the corrections applied after it (`V1_1__workshop_paid_price_not_null.sql`, `V1_2__workshop_text_not_blank.sql`). This appendix shows the **cumulative** result of those files, so it intentionally differs from `V1__initial_schema.sql` alone (an applied migration is never edited, so the header comment of `V1__initial_schema.sql`, which still says "verbatim", is left as is to keep its Flyway checksum); a new correction is made here first and lands as the next `V1_n` file.
 
 ```sql
 -- ============================================================

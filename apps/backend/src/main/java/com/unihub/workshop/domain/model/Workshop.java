@@ -18,6 +18,10 @@ public final class Workshop {
     private static final int SHORT_TEXT_MAX = 255;
     private static final int BROCHURE_KEY_MAX = 512;
 
+    // workshops.price is NUMERIC(12,2): at most 2 decimals and 10 integer digits.
+    private static final int PRICE_MAX_SCALE = 2;
+    private static final int PRICE_MAX_INTEGER_DIGITS = 10;
+
     private final WorkshopId id;
     private final String title;
     private final String description;
@@ -75,6 +79,15 @@ public final class Workshop {
         if (paid ? (price == null || price.signum() <= 0) : price != null) {
             throw new InvalidWorkshopException(
                     "a paid workshop needs a positive price; a free one must have none");
+        }
+        if (price != null) {
+            // Trailing zeros are not information ("1.500" == "1.5"), so judge the stripped value.
+            var stripped = price.stripTrailingZeros();
+            if (stripped.scale() > PRICE_MAX_SCALE
+                    || stripped.precision() - stripped.scale() > PRICE_MAX_INTEGER_DIGITS) {
+                throw new InvalidWorkshopException(
+                        "price must fit NUMERIC(12,2): at most 2 decimals and 10 integer digits");
+            }
         }
         if (brochureS3Key != null && brochureS3Key.length() > BROCHURE_KEY_MAX) {
             throw new InvalidWorkshopException("brochureS3Key exceeds " + BROCHURE_KEY_MAX);

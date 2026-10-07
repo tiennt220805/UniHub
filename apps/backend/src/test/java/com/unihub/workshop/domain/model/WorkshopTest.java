@@ -208,6 +208,68 @@ class WorkshopTest {
     }
 
     @Test
+    @DisplayName("rejects speaker name and location longer than their 255-character columns")
+    void rejects_speakerNameAndLocationLongerThanColumn() {
+        assertThatThrownBy(() -> aDraftWorkshop().withSpeakerName("x".repeat(256)).build())
+                .isInstanceOf(InvalidWorkshopException.class);
+        assertThatThrownBy(() -> aDraftWorkshop().withLocation("x".repeat(256)).build())
+                .isInstanceOf(InvalidWorkshopException.class);
+    }
+
+    @Test
+    @DisplayName("rejects a brochure key longer than its 512-character column")
+    void rejects_brochureKeyLongerThanColumn() {
+        assertThatThrownBy(() -> aDraftWorkshop().withBrochureS3Key("k".repeat(513)).build())
+                .isInstanceOf(InvalidWorkshopException.class);
+    }
+
+    @Test
+    @DisplayName("accepts text exactly at the column limits (255 / 255 / 255 / 512)")
+    void accepts_textAtColumnLimits() {
+        var workshop =
+                aDraftWorkshop()
+                        .withTitle("t".repeat(255))
+                        .withSpeakerName("s".repeat(255))
+                        .withLocation("l".repeat(255))
+                        .withBrochureS3Key("k".repeat(512))
+                        .build();
+
+        assertThat(workshop.title()).hasSize(255);
+        assertThat(workshop.brochureS3Key()).hasSize(512);
+    }
+
+    @Test
+    @DisplayName("rejects a price with more than 2 decimal places (NUMERIC(12,2) would round it)")
+    void rejects_priceWithMoreThanTwoDecimals() {
+        assertThatThrownBy(() -> aPaidWorkshop().withPrice(new BigDecimal("1.234")).build())
+                .isInstanceOf(InvalidWorkshopException.class);
+    }
+
+    @Test
+    @DisplayName("accepts a price whose extra decimal places are only trailing zeros")
+    void accepts_priceWithTrailingZeros() {
+        var workshop = aPaidWorkshop().withPrice(new BigDecimal("1.500")).build();
+
+        assertThat(workshop.price()).isEqualByComparingTo("1.5");
+    }
+
+    @Test
+    @DisplayName("rejects a price with more than 10 integer digits (NUMERIC(12,2) would overflow)")
+    void rejects_priceWithMoreThanTenIntegerDigits() {
+        assertThatThrownBy(
+                        () -> aPaidWorkshop().withPrice(new BigDecimal("12345678901.00")).build())
+                .isInstanceOf(InvalidWorkshopException.class);
+    }
+
+    @Test
+    @DisplayName("accepts the largest price NUMERIC(12,2) can hold")
+    void accepts_largestRepresentablePrice() {
+        var workshop = aPaidWorkshop().withPrice(new BigDecimal("9999999999.99")).build();
+
+        assertThat(workshop.price()).isEqualByComparingTo("9999999999.99");
+    }
+
+    @Test
     @DisplayName("the exception is a DomainException reported as CONFLICT")
     void exception_kindIsConflict() {
         assertThatThrownBy(() -> aDraftWorkshop().withCapacity(-1).build())
