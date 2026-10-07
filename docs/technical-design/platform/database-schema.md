@@ -181,7 +181,7 @@ Rationale for each column is narrated in `../modules/workshop.md`; this section 
 | `capacity` | INT | NOT NULL, CHECK (`capacity >= 0`) | Fixed at creation/edit; not decremented directly. |
 | `seats_taken` | INT | NOT NULL, DEFAULT 0, CHECK (`seats_taken >= 0 AND seats_taken <= capacity`) | Counts `RESERVED` + `CONFIRMED` registrations — a hold occupies the seat for its 15-minute window exactly as much as a confirmed one does. This is the counter the check constraint protects from going negative or over capacity even under a bug in application logic. |
 | `is_paid` | BOOLEAN | NOT NULL, DEFAULT `false` | |
-| `price` | NUMERIC(12,2) | NULL, CHECK (`(is_paid = false AND price IS NULL) OR (is_paid = true AND price > 0)`) | |
+| `price` | NUMERIC(12,2) | NULL, CHECK `chk_workshop_price` (`(is_paid = false AND price IS NULL) OR (is_paid = true AND price IS NOT NULL AND price > 0)`) | `price IS NOT NULL` is explicit: `NULL > 0` is unknown, which a CHECK treats as passing, so without it a paid workshop with no price would be accepted. Added by `V1_1__workshop_paid_price_not_null.sql`. |
 | `brochure_s3_key` | VARCHAR(512) | NULL | Object storage pointer (`../modules/workshop.md`) — the PDF itself lives in S3, never in Postgres. |
 | `status` | VARCHAR(20) | NOT NULL, DEFAULT `'DRAFT'`, CHECK IN (`DRAFT`, `PUBLISHED`, `CANCELLED`, `COMPLETED`) | Reschedule is an update to `start_time`/`end_time` on a `PUBLISHED` row, not a status value — it's an event (notified via `event_publications`/`audit_events`), not a persistent state. |
 | `version` | INT | NOT NULL, DEFAULT 0 | Optimistic-concurrency marker (§6.1, `distributed-coordination.md` §2). Every capacity-affecting update is `UPDATE workshops SET seats_taken = ..., version = version + 1 WHERE id = ... AND version = :expected`. |
@@ -680,8 +680,9 @@ CREATE TABLE workshops (
                          CHECK (seats_taken >= 0 AND seats_taken <= capacity),
     is_paid          BOOLEAN NOT NULL DEFAULT false,
     price            NUMERIC(12,2)
+                         CONSTRAINT chk_workshop_price
                          CHECK ((is_paid = false AND price IS NULL)
-                             OR (is_paid = true AND price > 0)),
+                             OR (is_paid = true AND price IS NOT NULL AND price > 0)),
     brochure_s3_key  VARCHAR(512),
     status           VARCHAR(20) NOT NULL DEFAULT 'DRAFT'
                          CHECK (status IN ('DRAFT', 'PUBLISHED', 'CANCELLED', 'COMPLETED')),

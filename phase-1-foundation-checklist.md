@@ -49,7 +49,7 @@
 Với mỗi mục bên dưới: viết test trước (Red) → code tối thiểu để pass (Green) → refactor → nếu cần, viết thêm Integration test (`*IT.java`) → cập nhật `test-matrix.md` (`Not started` → `Drafted` → `Passing`, điền `Class#method` thật).
 
 ### 2.1 Domain Model
-- [ ] Entity `User`, `Role`, `Permission`, `Workshop` + migration script tương ứng
+- [x] Entity `User`, `Role`, `Permission`, `Workshop` + migration script tương ứng — `Workshop` là aggregate Tier A (`domain/model`); `User`/`Role`/`Permission` là Tier B (`backend-coding-standards.md` §9.1, transaction script) nên chỉ có bảng + test ràng buộc schema + row builder, không có aggregate; migration `V1` + `V1_1`
 
 ### 2.2 RBAC / JWT — INV-01
 - [ ] **M-01** — Users–roles–permissions mapping, permission set cấu hình lại không cần sửa code
