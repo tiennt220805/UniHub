@@ -170,12 +170,12 @@ Rationale for each column is narrated in `../modules/workshop.md`; this section 
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
 | `id` | UUID | PK | |
-| `title` | VARCHAR(255) | NOT NULL | |
+| `title` | VARCHAR(255) | NOT NULL, CHECK `chk_workshop_title_not_blank` (`title ~ '\S'`) | Non-blank, matching the `Workshop` aggregate. `NOT NULL` alone admits `''`. Added by `V1_2__workshop_text_not_blank.sql`. |
 | `description` | TEXT | NULL | Organizer-authored description. |
 | `ai_summary` | TEXT | NULL | Generated from the uploaded brochure (`../modules/workshop.md`); NULL until the AI Summarization Service returns. |
-| `speaker_name` | VARCHAR(255) | NOT NULL | |
+| `speaker_name` | VARCHAR(255) | NOT NULL, CHECK `chk_workshop_speaker_name_not_blank` (`speaker_name ~ '\S'`) | Same reason as `title`. |
 | `speaker_bio` | TEXT | NULL | |
-| `location` | VARCHAR(255) | NOT NULL | Venue/room string — no separate `Location` entity; §6.1 names only `Workshop` as this module's entity. |
+| `location` | VARCHAR(255) | NOT NULL, CHECK `chk_workshop_location_not_blank` (`location ~ '\S'`) | Non-blank, as `title`. Venue/room string — no separate `Location` entity; §6.1 names only `Workshop` as this module's entity. |
 | `start_time` | TIMESTAMPTZ | NOT NULL | |
 | `end_time` | TIMESTAMPTZ | NOT NULL, CHECK (`end_time > start_time`) | |
 | `capacity` | INT | NOT NULL, CHECK (`capacity >= 0`) | Fixed at creation/edit; not decremented directly. |
@@ -667,12 +667,15 @@ CREATE INDEX idx_legacy_sync_errors_reviewed ON legacy_sync_errors (reviewed) WH
 
 CREATE TABLE workshops (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    title            VARCHAR(255) NOT NULL,
+    title            VARCHAR(255) NOT NULL
+                         CONSTRAINT chk_workshop_title_not_blank CHECK (title ~ '\S'),
     description      TEXT,
     ai_summary       TEXT,
-    speaker_name     VARCHAR(255) NOT NULL,
+    speaker_name     VARCHAR(255) NOT NULL
+                         CONSTRAINT chk_workshop_speaker_name_not_blank CHECK (speaker_name ~ '\S'),
     speaker_bio      TEXT,
-    location         VARCHAR(255) NOT NULL,
+    location         VARCHAR(255) NOT NULL
+                         CONSTRAINT chk_workshop_location_not_blank CHECK (location ~ '\S'),
     start_time       TIMESTAMPTZ NOT NULL,
     end_time         TIMESTAMPTZ NOT NULL,
     capacity         INT NOT NULL CHECK (capacity >= 0),

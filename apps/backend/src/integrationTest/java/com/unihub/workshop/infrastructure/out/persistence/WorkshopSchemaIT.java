@@ -147,7 +147,38 @@ class WorkshopSchemaIT extends RolledBackJdbcSupport {
                 Arguments.of(
                         "null location",
                         java.util.Collections.singletonMap("location", null),
-                        NOT_NULL_VIOLATION));
+                        NOT_NULL_VIOLATION),
+                Arguments.of(
+                        "speaker_name over 255 chars",
+                        Map.<String, Object>of("speaker_name", "x".repeat(256)),
+                        VALUE_TOO_LONG),
+                Arguments.of(
+                        "location over 255 chars",
+                        Map.<String, Object>of("location", "x".repeat(256)),
+                        VALUE_TOO_LONG),
+                Arguments.of("empty title", Map.<String, Object>of("title", ""), CHECK_VIOLATION),
+                Arguments.of(
+                        "spaces-only title",
+                        Map.<String, Object>of("title", "   "),
+                        CHECK_VIOLATION),
+                Arguments.of(
+                        "tab/newline-only title",
+                        Map.<String, Object>of("title", " \t\n"),
+                        CHECK_VIOLATION),
+                Arguments.of(
+                        "empty speaker_name",
+                        Map.<String, Object>of("speaker_name", ""),
+                        CHECK_VIOLATION),
+                Arguments.of(
+                        "spaces-only speaker_name",
+                        Map.<String, Object>of("speaker_name", "   "),
+                        CHECK_VIOLATION),
+                Arguments.of(
+                        "empty location", Map.<String, Object>of("location", ""), CHECK_VIOLATION),
+                Arguments.of(
+                        "spaces-only location",
+                        Map.<String, Object>of("location", "   "),
+                        CHECK_VIOLATION));
     }
 
     @ParameterizedTest(name = "rejects {0}")
