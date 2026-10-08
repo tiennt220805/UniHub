@@ -102,6 +102,40 @@ class WorkshopTest {
     }
 
     @Test
+    @DisplayName("restore with audit timestamps exposes them; a draft has none until persisted")
+    void restore_withAuditTimestamps() {
+        var created = Instant.parse("2026-10-01T08:00:00Z");
+        var updated = Instant.parse("2026-10-02T09:30:00Z");
+        var base = aPublishedWorkshop().build();
+
+        var restored =
+                Workshop.restore(
+                        base.id(),
+                        base.title(),
+                        base.description(),
+                        base.aiSummary(),
+                        base.speakerName(),
+                        base.speakerBio(),
+                        base.location(),
+                        base.startTime(),
+                        base.endTime(),
+                        base.capacity(),
+                        base.seatsTaken(),
+                        base.isPaid(),
+                        base.price(),
+                        base.brochureS3Key(),
+                        base.status(),
+                        base.version(),
+                        created,
+                        updated);
+
+        assertThat(restored.createdAt()).isEqualTo(created);
+        assertThat(restored.updatedAt()).isEqualTo(updated);
+        assertThat(aDraftWorkshop().build().createdAt()).isNull();
+        assertThat(aDraftWorkshop().build().updatedAt()).isNull();
+    }
+
+    @Test
     @DisplayName("accepts a workshop that is exactly full (seatsTaken == capacity)")
     void accepts_whenFull() {
         var workshop = aPublishedWorkshop().withCapacity(10).withSeatsTaken(10).build();

@@ -111,6 +111,10 @@ dependencies {
     // JWT via nimbus-jose-jwt (pulled in transitively, the JOSE library the design names). Verification
     // only — no token is issued by production code yet (no login endpoint, Mục 2.2 decision).
     implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
+    // Hibernate/JPA for the Tier A persistence adapters (backend-coding-standards.md §9.1/§9.2: a separate
+    // JPA entity + Spring Data interface + mapper per aggregate; Workshop is the first). JdbcTemplate below
+    // stays for read-model queries and Tier B adapters. Schema generation stays off (application.yml).
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     // JdbcTemplate — the adapter style backend-coding-standards.md §21 item 4 already establishes for
     // simple read/insert adapters; chosen over spring-boot-starter-data-jpa (not otherwise needed yet,
     // and architecture.md §6.2 / INV-15 keep schema generation out of the ORM's hands regardless).

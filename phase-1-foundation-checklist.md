@@ -57,7 +57,7 @@ Với mỗi mục bên dưới: viết test trước (Red) → code tối thiể
 - [x] **M-03** — Endpoint access quyết định bởi `hasAuthority(permission)`, không theo tên role; `401` vs `403` không bị lẫn
 
 ### 2.3 Workshop CRUD (Organizer/Admin)
-- [ ] **M-04** — Tạo/sửa/hủy/dời lịch workshop (state transition, terminal states `COMPLETED`/`CANCELLED` phải reject)
+- [x] **M-04** — Tạo/sửa/hủy/dời lịch workshop (state transition, terminal states `COMPLETED`/`CANCELLED` phải reject)
 
 ### 2.4 Workshop Listing/Search/Detail (Student)
 - [ ] **M-05** — Duyệt/tìm/lọc workshop theo lịch, chủ đề, speaker, địa điểm

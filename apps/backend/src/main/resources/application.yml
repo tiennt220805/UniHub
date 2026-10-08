@@ -8,6 +8,21 @@ spring:
   flyway:
     enabled: false
 
+  # Hibernate backs the Tier A persistence adapters (backend-coding-standards.md §9.2). It never touches
+  # the schema: Flyway owns DDL (INV-15), so ddl-auto is pinned to none instead of left to a default.
+  # open-in-view is off — a lazy load must never reach into the web layer. Hibernate is also told the
+  # dialect and forbidden JDBC metadata access, so booting the app (contract-diff's generateOpenApiDocs)
+  # does not need a listening database: nothing connects until a query runs.
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    properties:
+      hibernate:
+        boot:
+          allow_jdbc_metadata_access: false
+
 # packages/api-contract is OpenAPI 3.1; springdoc 2.6.0 defaults to 3.0.x. Pinned so the spec
 # `generateOpenApiDocs` produces (contract-testing.md §2) is the same dialect as the hand-written one —
 # otherwise `openAPI: 3.1.0 vs 3.0.1` alone fails contract-diff.

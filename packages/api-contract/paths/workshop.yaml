@@ -267,6 +267,21 @@ workshopById:
           application/problem+json:
             schema:
               $ref: '../common/error.yaml'
+      '409':
+        description: >-
+          The edit conflicts with the workshop's current state: it is
+          `CANCELLED` or `COMPLETED` (terminal — every edit and reschedule is
+          refused, even an empty one); or the new values contradict stored
+          ones in a way the request body alone cannot show (`capacity` below
+          the seats already taken, a `price` on a free workshop, an
+          `endTime`/`startTime` that is not after the other, stored, one —
+          the stateful checks the `startTime`/`price` descriptions above
+          leave to the handler); or another update changed the workshop
+          first (optimistic-concurrency loss).
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
 
 workshopPublish:
   post:

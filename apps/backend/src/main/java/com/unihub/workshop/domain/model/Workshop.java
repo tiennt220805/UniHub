@@ -2,16 +2,23 @@ package com.unihub.workshop.domain.model;
 
 import com.unihub.shared.domain.Version;
 import com.unihub.shared.domain.id.WorkshopId;
+import com.unihub.workshop.domain.event.WorkshopCancelled;
+import com.unihub.workshop.domain.event.WorkshopDomainEvent;
+import com.unihub.workshop.domain.event.WorkshopRescheduled;
 import com.unihub.workshop.domain.exception.InvalidWorkshopException;
+import com.unihub.workshop.domain.exception.InvalidWorkshopStateException;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /**
  * Workshop aggregate (Tier A). Invariants mirror the {@code workshops} table CHECK constraints so
  * that the domain and the database reject exactly the same states; the database stays the backstop,
- * never the only guard (architecture.md §4.2). Behavior methods (publish, cancel, reschedule, seat
- * claim) arrive with their use cases.
+ * never the only guard (architecture.md §4.2). State changes go through behavior methods ({@link
+ * #cancel}, {@link #reschedule}, {@link #revise}); a rejected change leaves the aggregate exactly
+ * as it was. Publish and seat claim arrive with their own use cases.
  */
 public final class Workshop {
 
@@ -23,21 +30,25 @@ public final class Workshop {
     private static final int PRICE_MAX_INTEGER_DIGITS = 10;
 
     private final WorkshopId id;
-    private final String title;
-    private final String description;
+    private String title;
+    private String description;
     private final String aiSummary;
-    private final String speakerName;
-    private final String speakerBio;
-    private final String location;
-    private final Instant startTime;
-    private final Instant endTime;
-    private final int capacity;
+    private String speakerName;
+    private String speakerBio;
+    private String location;
+    private Instant startTime;
+    private Instant endTime;
+    private int capacity;
     private final int seatsTaken;
     private final boolean paid;
-    private final BigDecimal price;
+    private BigDecimal price;
     private final String brochureS3Key;
-    private final WorkshopStatus status;
+    private WorkshopStatus status;
     private final Version version;
+    // Persistence metadata (workshops.created_at/updated_at): read-only, absent until first saved.
+    private final Instant createdAt;
+    private final Instant updatedAt;
+    private final List<WorkshopDomainEvent> events = new ArrayList<>();
 
     private Workshop(
             WorkshopId id,
@@ -55,7 +66,9 @@ public final class Workshop {
             BigDecimal price,
             String brochureS3Key,
             WorkshopStatus status,
-            Version version) {
+            Version version,
+            Instant createdAt,
+            Instant updatedAt) {
         this.id = Objects.requireNonNull(id);
         this.title = requireText("title", title, SHORT_TEXT_MAX);
         this.description = description;
@@ -67,6 +80,8 @@ public final class Workshop {
         this.endTime = Objects.requireNonNull(endTime);
         this.status = Objects.requireNonNull(status);
         this.version = Objects.requireNonNull(version);
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
         if (!endTime.isAfter(startTime)) {
             throw new InvalidWorkshopException("endTime must be after startTime");
         }
@@ -128,7 +143,9 @@ public final class Workshop {
                 price,
                 null,
                 WorkshopStatus.DRAFT,
-                Version.initial());
+                Version.initial(),
+                null,
+                null);
     }
 
     /**
@@ -152,6 +169,47 @@ public final class Workshop {
             String brochureS3Key,
             WorkshopStatus status,
             Version version) {
+        return restore(
+                id,
+                title,
+                description,
+                aiSummary,
+                speakerName,
+                speakerBio,
+                location,
+                startTime,
+                endTime,
+                capacity,
+                seatsTaken,
+                paid,
+                price,
+                brochureS3Key,
+                status,
+                version,
+                null,
+                null);
+    }
+
+    /** As above, carrying the row's audit timestamps. */
+    public static Workshop restore(
+            WorkshopId id,
+            String title,
+            String description,
+            String aiSummary,
+            String speakerName,
+            String speakerBio,
+            String location,
+            Instant startTime,
+            Instant endTime,
+            int capacity,
+            int seatsTaken,
+            boolean paid,
+            BigDecimal price,
+            String brochureS3Key,
+            WorkshopStatus status,
+            Version version,
+            Instant createdAt,
+            Instant updatedAt) {
         return new Workshop(
                 id,
                 title,
@@ -168,7 +226,125 @@ public final class Workshop {
                 price,
                 brochureS3Key,
                 status,
-                version);
+                version,
+                createdAt,
+                updatedAt);
+    }
+
+    /**
+     * Cancels a DRAFT or PUBLISHED workshop. Seats are not released here: that is Registration's
+     * reaction to the {@link WorkshopCancelled} event, not this aggregate's concern.
+     */
+    public void cancel(Instant occurredAt) {
+        requireNotTerminal("cancel");
+        this.status = WorkshopStatus.CANCELLED;
+        events.add(new WorkshopCancelled(id, occurredAt));
+    }
+
+    /** Moves the workshop to new times; a no-op (no event) when the times are unchanged. */
+    public void reschedule(Instant newStartTime, Instant newEndTime, Instant occurredAt) {
+        requireNotTerminal("reschedule");
+        // The constructor holds every invariant; apply the change only once a copy has passed it.
+        var rescheduled =
+                withState(
+                        title,
+                        description,
+                        speakerName,
+                        speakerBio,
+                        location,
+                        newStartTime,
+                        newEndTime,
+                        capacity,
+                        price);
+        if (rescheduled.startTime.equals(startTime) && rescheduled.endTime.equals(endTime)) {
+            return;
+        }
+        var previousStart = startTime;
+        var previousEnd = endTime;
+        this.startTime = rescheduled.startTime;
+        this.endTime = rescheduled.endTime;
+        events.add(
+                new WorkshopRescheduled(
+                        id, previousStart, previousEnd, startTime, endTime, occurredAt));
+    }
+
+    /**
+     * Replaces the editable, non-time details with the given full values. {@code isPaid} cannot
+     * change, so {@code price} is validated against it; {@code capacity} may not fall below the
+     * seats already taken.
+     */
+    public void revise(
+            String title,
+            String description,
+            String speakerName,
+            String speakerBio,
+            String location,
+            int capacity,
+            BigDecimal price) {
+        requireNotTerminal("edit");
+        var revised =
+                withState(
+                        title,
+                        description,
+                        speakerName,
+                        speakerBio,
+                        location,
+                        startTime,
+                        endTime,
+                        capacity,
+                        price);
+        this.title = revised.title;
+        this.description = revised.description;
+        this.speakerName = revised.speakerName;
+        this.speakerBio = revised.speakerBio;
+        this.location = revised.location;
+        this.capacity = revised.capacity;
+        this.price = revised.price;
+    }
+
+    /** Returns and clears the events recorded since the aggregate was loaded or last pulled. */
+    public List<WorkshopDomainEvent> pullEvents() {
+        var pulled = List.copyOf(events);
+        events.clear();
+        return pulled;
+    }
+
+    private void requireNotTerminal(String attempted) {
+        if (status.isTerminal()) {
+            throw new InvalidWorkshopStateException(id, status, attempted);
+        }
+    }
+
+    // A validated copy carrying new editable values; everything else is this aggregate's own.
+    private Workshop withState(
+            String title,
+            String description,
+            String speakerName,
+            String speakerBio,
+            String location,
+            Instant startTime,
+            Instant endTime,
+            int capacity,
+            BigDecimal price) {
+        return new Workshop(
+                id,
+                title,
+                description,
+                aiSummary,
+                speakerName,
+                speakerBio,
+                location,
+                startTime,
+                endTime,
+                capacity,
+                seatsTaken,
+                paid,
+                price,
+                brochureS3Key,
+                status,
+                version,
+                createdAt,
+                updatedAt);
     }
 
     private static String requireText(String field, String value, int maxLength) {
@@ -243,5 +419,15 @@ public final class Workshop {
 
     public Version version() {
         return version;
+    }
+
+    /** When the row was first saved; {@code null} for a workshop not yet persisted. */
+    public Instant createdAt() {
+        return createdAt;
+    }
+
+    /** When the row was last written; {@code null} for a workshop not yet persisted. */
+    public Instant updatedAt() {
+        return updatedAt;
     }
 }

@@ -13,7 +13,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.unihub.shared.infrastructure.security.SecurityConfig;
 import com.unihub.shared.security.TestJwts;
 import com.unihub.workshop.application.command.SearchWorkshopsCriteria;
+import com.unihub.workshop.application.port.in.CancelWorkshopUseCase;
+import com.unihub.workshop.application.port.in.CreateWorkshopUseCase;
 import com.unihub.workshop.application.port.in.SearchWorkshopsUseCase;
+import com.unihub.workshop.application.port.in.UpdateWorkshopUseCase;
 import com.unihub.workshop.application.result.SearchWorkshopsResult;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -41,6 +44,10 @@ class WorkshopControllerWebTest {
     @Autowired private MockMvc mockMvc;
 
     @MockBean private SearchWorkshopsUseCase searchWorkshops;
+    // The controller also serves the write endpoints; this class only exercises the search one.
+    @MockBean private CreateWorkshopUseCase createWorkshop;
+    @MockBean private UpdateWorkshopUseCase updateWorkshop;
+    @MockBean private CancelWorkshopUseCase cancelWorkshop;
 
     @ParameterizedTest(name = "page={0}, size={1} → 400 problem+json, use case never called")
     @CsvSource({"0,0", "0,101", "0,-1", "-1,20"})
