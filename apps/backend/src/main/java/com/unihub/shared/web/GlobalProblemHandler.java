@@ -29,6 +29,7 @@ class GlobalProblemHandler extends ResponseEntityExceptionHandler {
     ResponseEntity<ProblemDetail> handleDomain(DomainException ex, HttpServletRequest request) {
         var status =
                 switch (ex.kind()) {
+                    case INVALID_REQUEST -> HttpStatus.BAD_REQUEST;
                     case NOT_FOUND -> HttpStatus.NOT_FOUND;
                     case CONFLICT -> HttpStatus.CONFLICT;
                     case UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;

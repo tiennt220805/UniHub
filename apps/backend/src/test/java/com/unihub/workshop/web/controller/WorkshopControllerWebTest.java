@@ -106,4 +106,39 @@ class WorkshopControllerWebTest {
         assertThat(criteria.getValue().page()).isZero();
         assertThat(criteria.getValue().size()).isEqualTo(20);
     }
+
+    @Test
+    @DisplayName("GET /api/v1/workshops passes q, speaker, location and the date range on")
+    void search_passesFiltersOn() throws Exception {
+        when(searchWorkshops.search(any()))
+                .thenReturn(new SearchWorkshopsResult(List.of(), 0, 20, 0, 0));
+
+        mockMvc.perform(
+                        get("/api/v1/workshops")
+                                .param("q", "kubernetes")
+                                .param("speaker", "Ada")
+                                .param("location", "Room 1")
+                                .param("dateFrom", "2026-01-01T00:00:00Z")
+                                .param("dateTo", "2026-02-01T00:00:00Z"))
+                .andExpect(status().isOk());
+
+        var criteria = ArgumentCaptor.forClass(SearchWorkshopsCriteria.class);
+        verify(searchWorkshops).search(criteria.capture());
+        var c = criteria.getValue();
+        assertThat(c.q()).isEqualTo("kubernetes");
+        assertThat(c.speaker()).isEqualTo("Ada");
+        assertThat(c.location()).isEqualTo("Room 1");
+        assertThat(c.dateFrom()).isEqualTo(java.time.Instant.parse("2026-01-01T00:00:00Z"));
+        assertThat(c.dateTo()).isEqualTo(java.time.Instant.parse("2026-02-01T00:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/workshops rejects a malformed dateFrom with 400 problem+json")
+    void search_rejectsMalformedDate() throws Exception {
+        mockMvc.perform(get("/api/v1/workshops").param("dateFrom", "tomorrow"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
+
+        verifyNoInteractions(searchWorkshops);
+    }
 }
