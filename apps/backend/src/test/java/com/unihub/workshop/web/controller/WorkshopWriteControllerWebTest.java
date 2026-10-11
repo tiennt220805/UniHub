@@ -20,6 +20,7 @@ import com.unihub.workshop.application.command.CreateWorkshopCommand;
 import com.unihub.workshop.application.command.UpdateWorkshopCommand;
 import com.unihub.workshop.application.port.in.CancelWorkshopUseCase;
 import com.unihub.workshop.application.port.in.CreateWorkshopUseCase;
+import com.unihub.workshop.application.port.in.GetWorkshopUseCase;
 import com.unihub.workshop.application.port.in.SearchWorkshopsUseCase;
 import com.unihub.workshop.application.port.in.UpdateWorkshopUseCase;
 import com.unihub.workshop.application.result.WorkshopResult;
@@ -74,6 +75,7 @@ class WorkshopWriteControllerWebTest {
     @MockBean private CreateWorkshopUseCase createWorkshop;
     @MockBean private UpdateWorkshopUseCase updateWorkshop;
     @MockBean private CancelWorkshopUseCase cancelWorkshop;
+    @MockBean private GetWorkshopUseCase getWorkshop;
 
     private static WorkshopResult result(String status) {
         return new WorkshopResult(

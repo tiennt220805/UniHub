@@ -61,7 +61,7 @@ Với mỗi mục bên dưới: viết test trước (Red) → code tối thiể
 
 ### 2.4 Workshop Listing/Search/Detail (Student)
 - [x] **M-05** — Duyệt/tìm/lọc workshop theo lịch, chủ đề, speaker, địa điểm
-- [ ] **M-06** — Trang detail hiển thị speaker/địa điểm/số ghế còn; workshop `DRAFT` trả `404` cho người không đủ quyền
+- [x] **M-06** — Trang detail hiển thị speaker/địa điểm/số ghế còn; workshop `DRAFT` trả `404` cho người không đủ quyền
 
 ### 2.5 Web Application Scaffold
 - [ ] **M-07** — Component list + detail render đúng dữ liệu từ 2 endpoint trên (Vitest + RTL)

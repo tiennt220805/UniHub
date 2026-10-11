@@ -57,6 +57,11 @@ public class SecurityConfig {
                                         // Public catalog (packages/api-contract: listWorkshops).
                                         .requestMatchers(HttpMethod.GET, "/api/v1/workshops")
                                         .permitAll()
+                                        // Public detail (getWorkshop): a token is optional, but
+                                        // one that is sent is still verified (bad token → 401) and
+                                        // lets the use case show a DRAFT to its managers.
+                                        .requestMatchers(HttpMethod.GET, "/api/v1/workshops/*")
+                                        .permitAll()
                                         // generateOpenApiDocs / contract-diff read the live spec.
                                         .requestMatchers("/v3/api-docs", "/v3/api-docs/**")
                                         .permitAll()

@@ -10,15 +10,21 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.unihub.shared.domain.id.WorkshopId;
 import com.unihub.shared.infrastructure.security.SecurityConfig;
 import com.unihub.shared.security.TestJwts;
+import com.unihub.workshop.application.command.GetWorkshopQuery;
 import com.unihub.workshop.application.command.SearchWorkshopsCriteria;
 import com.unihub.workshop.application.port.in.CancelWorkshopUseCase;
 import com.unihub.workshop.application.port.in.CreateWorkshopUseCase;
+import com.unihub.workshop.application.port.in.GetWorkshopUseCase;
 import com.unihub.workshop.application.port.in.SearchWorkshopsUseCase;
 import com.unihub.workshop.application.port.in.UpdateWorkshopUseCase;
 import com.unihub.workshop.application.result.SearchWorkshopsResult;
+import com.unihub.workshop.application.result.WorkshopResult;
+import com.unihub.workshop.domain.exception.WorkshopNotFoundException;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -48,6 +54,7 @@ class WorkshopControllerWebTest {
     @MockBean private CreateWorkshopUseCase createWorkshop;
     @MockBean private UpdateWorkshopUseCase updateWorkshop;
     @MockBean private CancelWorkshopUseCase cancelWorkshop;
+    @MockBean private GetWorkshopUseCase getWorkshop;
 
     @ParameterizedTest(name = "page={0}, size={1} → 400 problem+json, use case never called")
     @CsvSource({"0,0", "0,101", "0,-1", "-1,20"})
@@ -140,5 +147,97 @@ class WorkshopControllerWebTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
 
         verifyNoInteractions(searchWorkshops);
+    }
+
+    private static WorkshopResult detail(UUID id) {
+        var now = java.time.Instant.parse("2026-12-01T09:00:00Z");
+        return new WorkshopResult(
+                id,
+                "T",
+                null,
+                null,
+                "Ada",
+                null,
+                "Room 1",
+                now,
+                now.plusSeconds(3600),
+                30,
+                12,
+                false,
+                null,
+                false,
+                "PUBLISHED",
+                0,
+                now,
+                now);
+    }
+
+    @Test
+    @DisplayName(
+            "GET /api/v1/workshops/{id} is public: no token → 200 with an empty permission set")
+    void detail_anonymous() throws Exception {
+        var id = UUID.randomUUID();
+        when(getWorkshop.get(any())).thenReturn(detail(id));
+
+        mockMvc.perform(get("/api/v1/workshops/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.speakerName").value("Ada"))
+                .andExpect(jsonPath("$.location").value("Room 1"))
+                .andExpect(jsonPath("$.seatsTaken").value(12));
+
+        var query = ArgumentCaptor.forClass(GetWorkshopQuery.class);
+        verify(getWorkshop).get(query.capture());
+        assertThat(query.getValue().workshopId()).isEqualTo(id);
+        assertThat(query.getValue().permissions()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/workshops/{id} passes the token's permissions to the use case")
+    void detail_withToken() throws Exception {
+        var id = UUID.randomUUID();
+        when(getWorkshop.get(any())).thenReturn(detail(id));
+
+        mockMvc.perform(
+                        get("/api/v1/workshops/{id}", id)
+                                .header(
+                                        "Authorization",
+                                        "Bearer "
+                                                + TestJwts.valid(
+                                                        UUID.randomUUID(), "WORKSHOP_EDIT")))
+                .andExpect(status().isOk());
+
+        var query = ArgumentCaptor.forClass(GetWorkshopQuery.class);
+        verify(getWorkshop).get(query.capture());
+        assertThat(query.getValue().permissions()).containsExactly("WORKSHOP_EDIT");
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/workshops/{id} maps 'not found' to 404 problem+json")
+    void detail_notFound() throws Exception {
+        var id = UUID.randomUUID();
+        when(getWorkshop.get(any())).thenThrow(new WorkshopNotFoundException(WorkshopId.of(id)));
+
+        mockMvc.perform(get("/api/v1/workshops/{id}", id))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/workshops/{id} with a forged token is 401, not silently anonymous")
+    void detail_badToken() throws Exception {
+        mockMvc.perform(
+                        get("/api/v1/workshops/{id}", UUID.randomUUID())
+                                .header("Authorization", "Bearer not-a-jwt"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(getWorkshop);
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/workshops/{id} rejects a non-UUID id with 400 problem+json")
+    void detail_malformedId() throws Exception {
+        mockMvc.perform(get("/api/v1/workshops/{id}", "abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
     }
 }

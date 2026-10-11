@@ -4,8 +4,10 @@ import com.unihub.shared.security.Permissions;
 import com.unihub.shared.web.ApiProblems;
 import com.unihub.shared.web.CurrentActor;
 import com.unihub.shared.web.dto.ProblemSchema;
+import com.unihub.workshop.application.command.GetWorkshopQuery;
 import com.unihub.workshop.application.port.in.CancelWorkshopUseCase;
 import com.unihub.workshop.application.port.in.CreateWorkshopUseCase;
+import com.unihub.workshop.application.port.in.GetWorkshopUseCase;
 import com.unihub.workshop.application.port.in.SearchWorkshopsUseCase;
 import com.unihub.workshop.application.port.in.UpdateWorkshopUseCase;
 import com.unihub.workshop.web.dto.CreateWorkshopRequest;
@@ -27,6 +29,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import java.time.Instant;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -53,16 +56,19 @@ class WorkshopController {
     private static final String CORRELATION_ID_PATTERN = "^[0-9a-f]{32}$";
 
     private final SearchWorkshopsUseCase searchWorkshops;
+    private final GetWorkshopUseCase getWorkshop;
     private final CreateWorkshopUseCase createWorkshop;
     private final UpdateWorkshopUseCase updateWorkshop;
     private final CancelWorkshopUseCase cancelWorkshop;
 
     WorkshopController(
             SearchWorkshopsUseCase searchWorkshops,
+            GetWorkshopUseCase getWorkshop,
             CreateWorkshopUseCase createWorkshop,
             UpdateWorkshopUseCase updateWorkshop,
             CancelWorkshopUseCase cancelWorkshop) {
         this.searchWorkshops = searchWorkshops;
+        this.getWorkshop = getWorkshop;
         this.createWorkshop = createWorkshop;
         this.updateWorkshop = updateWorkshop;
         this.cancelWorkshop = cancelWorkshop;
@@ -130,6 +136,58 @@ class WorkshopController {
                 WorkshopWebMapper.toCriteria(q, speaker, location, dateFrom, dateTo, page, size);
         var result = searchWorkshops.search(criteria);
         return WorkshopWebMapper.toResponse(result);
+    }
+
+    // Public like the list (contract: security: []), but the bearer token is optional input: a
+    // caller holding WORKSHOP_CREATE/WORKSHOP_EDIT may see a DRAFT, anyone else gets 404 for it.
+    // 429 and X-Correlation-Id are documented only, as on the list endpoint.
+    @Operation(
+            operationId = "getWorkshop",
+            tags = {"Workshop"},
+            parameters = {
+                @Parameter(
+                        name = "id",
+                        in = ParameterIn.PATH,
+                        required = true,
+                        schema =
+                                @Schema(
+                                        types = {"string"},
+                                        format = "uuid")),
+                @Parameter(
+                        name = "X-Correlation-Id",
+                        in = ParameterIn.HEADER,
+                        required = false,
+                        schema =
+                                @Schema(
+                                        types = {"string"},
+                                        pattern = CORRELATION_ID_PATTERN))
+            })
+    @ApiResponse(
+            responseCode = "200",
+            headers =
+                    @Header(
+                            name = "X-Correlation-Id",
+                            schema =
+                                    @Schema(
+                                            types = {"string"},
+                                            pattern = CORRELATION_ID_PATTERN)),
+            content =
+                    @Content(
+                            mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = Workshop.class)))
+    @ApiProblems.NotFound
+    @ApiResponse(
+            responseCode = "429",
+            headers = @Header(name = "Retry-After", schema = @Schema(types = {"integer"})),
+            content =
+                    @Content(
+                            mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                            schema = @Schema(implementation = ProblemSchema.class)))
+    @SecurityRequirements
+    @GetMapping(path = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+    Workshop detail(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) {
+        Set<String> permissions = jwt == null ? Set.of() : CurrentActor.from(jwt).permissions();
+        return WorkshopWebMapper.toResponse(getWorkshop.get(new GetWorkshopQuery(id, permissions)));
     }
 
     @Operation(
