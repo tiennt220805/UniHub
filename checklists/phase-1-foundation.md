@@ -8,7 +8,7 @@
 |---|---|
 | Phase | 1 — Foundation |
 | Ngày bắt đầu | 2026-09-25 |
-| Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☑ Đang làm` / `☐ Chờ sign-off` / `☐ Hoàn tất` |
+| Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☐ Đang làm` / `☐ Chờ sign-off` / `☑ Hoàn tất` (sign-off 2026-10-13, `docs/testing/reports/release-sign-offs/phase-1.md`) |
 | Nhánh làm việc | `main` (dự án cá nhân, commit thẳng; nhánh `phase-1-foundation` đã bỏ từ Mục 0.1) |
 | Tham chiếu | `proposal.md` §15 (Phase 1 scope) · `test-matrix.md` M-01…M-17 · `coding-standards.md` (quy ước code test) · `mocking-guidelines.md`, `test-data-management.md` (hỗ trợ viết test) |
 
@@ -79,43 +79,43 @@ Với mỗi mục bên dưới: viết test trước (Red) → code tối thiể
 
 ## 3. Hàng cấu trúc / phi chức năng của Phase 1
 
-- [ ] **M-12** — Backend tách module rõ ràng, logic core decoupled khỏi hạ tầng (kiểm tra thủ công qua cấu trúc package)
-- [ ] **M-13** — Secrets/config không nằm trong source, inject lúc runtime (Gitleaks scan xanh)
-- [ ] **M-15** — Coverage ≥80% trên core business-logic service (JaCoCo gate xanh)
-- [ ] **M-16** — Integration test dùng Postgres/Redis/RabbitMQ thật qua Testcontainers, **không** dùng H2 hay in-memory DB
-- [ ] **M-17** — Mọi response API tuân theo shape thống nhất (success/conflict/failure) — kiểm bằng contract-diff
+- [x] **M-12** — Backend tách module rõ ràng, logic core decoupled khỏi hạ tầng (kiểm tra thủ công qua cấu trúc package)
+- [x] **M-13** — Secrets/config không nằm trong source, inject lúc runtime (Gitleaks scan xanh)
+- [x] **M-15** — Coverage ≥80% trên core business-logic service (JaCoCo gate xanh)
+- [x] **M-16** — Integration test dùng Postgres/Redis/RabbitMQ thật qua Testcontainers, **không** dùng H2 hay in-memory DB
+- [x] **M-17** — Mọi response API tuân theo shape thống nhất (success/conflict/failure) — kiểm bằng contract-diff
 
 ---
 
 ## 4. CI/CD — hoàn thiện toàn bộ pipeline
 
-- [ ] **M-14** — Job `lint` → `unit-test` → `integration-test` → `contract-diff` chạy tuần tự, có gate, trên mọi push/PR vào `main`
-- [ ] `unit-test` gated bởi `lint`
-- [ ] `integration-test` gated bởi `unit-test` thành công (Testcontainers job chạy sau cùng để không lãng phí thời gian)
-- [ ] `contract-diff` gated bởi `integration-test` thành công
-- [ ] Gitleaks secret scan chạy như 1 stage riêng (liên quan M-13)
-- [ ] Semgrep (SAST) chạy như job riêng, **non-blocking** (`continue-on-error: true`, không job nào `needs:`) — `deployment-and-cicd.md` §5 Security Scan Jobs ADR, `test-plan.md` §1 Phase 1
+- [x] **M-14** — Job `lint` → `unit-test` → `integration-test` → `contract-diff` chạy tuần tự, có gate, trên mọi push/PR vào `main`
+- [x] `unit-test` gated bởi `lint`
+- [x] `integration-test` gated bởi `unit-test` thành công (Testcontainers job chạy sau cùng để không lãng phí thời gian)
+- [x] `contract-diff` gated bởi `integration-test` thành công
+- [x] Gitleaks secret scan chạy như 1 stage riêng (liên quan M-13)
+- [x] Semgrep (SAST) chạy như job riêng, **non-blocking** (`continue-on-error: true`, không job nào `needs:`) — `deployment-and-cicd.md` §5 Security Scan Jobs ADR, `test-plan.md` §1 Phase 1
 - [ ] OWASP Dependency-Check chạy như job riêng, **non-blocking**, report upload thành artifact — cần tạo secret `NVD_API_KEY` trên GitHub (`IMPLEMENTATION-READINESS.md` D6)
-- [ ] Branch protection rule: merge vào `main` bị chặn nếu bất kỳ stage nào fail
+- [x] ~~Branch protection rule: merge vào `main` bị chặn nếu bất kỳ stage nào fail~~ → **Không áp dụng (quyết định 2026-10-13):** dự án cá nhân, push thẳng `main`, không PR. CI vẫn chạy và báo đỏ/xanh mọi push nhưng không chặn commit; ghi trong `test-matrix.md` §4.4. Bật lại khi có người thứ hai hoặc chuyển sang PR
 
 ---
 
 ## 5. Đồng bộ Test Matrix
 
-- [ ] Sau mỗi mục ở Mục 2–4 hoàn tất: cập nhật đúng dòng tương ứng trong `docs/testing/reports/test-matrix.md` §2.2 (Status, Test case(s) = `Class#method` thật)
-- [ ] Cập nhật `test-matrix.md` §4 (Coverage Gaps) và §5 (Reference Table) trước khi sign-off
+- [x] Sau mỗi mục ở Mục 2–4 hoàn tất: cập nhật đúng dòng tương ứng trong `docs/testing/reports/test-matrix.md` §2.2 (Status, Test case(s) = `Class#method` thật)
+- [x] Cập nhật `test-matrix.md` §4 (Coverage Gaps) và §5 (Reference Table) trước khi sign-off
 
 ---
 
 ## 6. Đóng Phase 1 (Exit / Sign-off)
 
-- [ ] Toàn bộ dòng M-01…M-17 trong `test-matrix.md` = `Passing` (trừ các dòng đã hoãn hợp lệ ở Mục 2.7, ghi rõ lý do — M-09/M-10 không bao giờ thuộc diện này)
-- [ ] Coverage ≥80% trên package `service`/`domain` (JaCoCo xanh)
-- [ ] CI xanh toàn bộ (`lint`, `unit-test`, `integration-test`, `contract-diff`, Gitleaks) trên **cùng một commit SHA**
-- [ ] Không còn `TODO`/`FIXME` trong test code của Phase 1
-- [ ] Không có `@Disabled` trên test gắn với INV-01
-- [ ] Copy `docs/testing/reports/release-sign-offs/phase-template.md` → `docs/testing/reports/release-sign-offs/phase-1.md`, điền đầy đủ §2–§6, tick từng ô với evidence thật
-- [ ] Ký xác nhận ở §6 của `phase-1.md`
+- [x] Toàn bộ dòng M-01…M-17 trong `test-matrix.md` = `Passing` (trừ các dòng đã hoãn hợp lệ ở Mục 2.7, ghi rõ lý do — M-09/M-10 không bao giờ thuộc diện này)
+- [x] Coverage ≥80% trên package `service`/`domain` (JaCoCo xanh)
+- [x] CI xanh toàn bộ (`lint`, `unit-test`, `integration-test`, `contract-diff`, Gitleaks) trên **cùng một commit SHA**
+- [x] Không còn `TODO`/`FIXME` trong test code của Phase 1
+- [x] Không có `@Disabled` trên test gắn với INV-01
+- [x] Copy `docs/testing/reports/release-sign-offs/phase-template.md` → `docs/testing/reports/release-sign-offs/phase-1.md`, điền đầy đủ §2–§6, tick từng ô với evidence thật
+- [x] Ký xác nhận ở §6 của `phase-1.md` — Nguyễn Thành Tiến, 2026-10-13 (tiêu chí exit 3 đã sửa trong `test-plan.md` §1 cùng ngày cho dự án push thẳng `main`)
 
 > Phase 1 chỉ được coi là hoàn tất khi `phase-1.md` tồn tại, mọi ô được tick với evidence thật, và §6 đã ký — **không phải khi code chạy được**.
 
