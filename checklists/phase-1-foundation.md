@@ -1,6 +1,6 @@
 # Phase 1 — Foundation: Checklist Triển Khai
 
-> **Mục đích file này:** đây là checklist *thực thi* (implementation roadmap) cho Phase 1, dùng để cả người và Claude Code biết chính xác đang ở bước nào. Nó không thay thế `docs/testing/strategy/test-plan.md` (nguồn thẩm quyền cho exit criteria), `docs/testing/test-matrix.md` (nguồn thẩm quyền cho trạng thái từng test), hay `docs/testing/release-sign-offs/phase-template.md` (nguồn thẩm quyền cho sign-off cuối phase) — file này chỉ **tổng hợp và sắp thứ tự công việc**, trỏ vào 3 file đó làm bằng chứng. Nơi có mâu thuẫn, 3 file kia luôn đúng.
+> **Mục đích file này:** đây là checklist *thực thi* (implementation roadmap) cho Phase 1, dùng để cả người và Claude Code biết chính xác đang ở bước nào. Nó không thay thế `docs/testing/strategy/test-plan.md` (nguồn thẩm quyền cho exit criteria), `docs/testing/reports/test-matrix.md` (nguồn thẩm quyền cho trạng thái từng test), hay `docs/testing/reports/release-sign-offs/phase-template.md` (nguồn thẩm quyền cho sign-off cuối phase) — file này chỉ **tổng hợp và sắp thứ tự công việc**, trỏ vào 3 file đó làm bằng chứng. Nơi có mâu thuẫn, 3 file kia luôn đúng.
 >
 > **Cách dùng:** tick `[x]` khi hoàn thành, không tick trước khi xong thật (kể cả khi "chắc là đúng"). Mỗi mục nên có commit/PR tương ứng. Cập nhật cột **Trạng thái tổng thể** bên dưới sau mỗi buổi làm việc.
 
@@ -9,7 +9,7 @@
 | Phase | 1 — Foundation |
 | Ngày bắt đầu | 2026-09-25 |
 | Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☑ Đang làm` / `☐ Chờ sign-off` / `☐ Hoàn tất` |
-| Nhánh làm việc | `phase-1-foundation` |
+| Nhánh làm việc | `main` (dự án cá nhân, commit thẳng; nhánh `phase-1-foundation` đã bỏ từ Mục 0.1) |
 | Tham chiếu | `proposal.md` §15 (Phase 1 scope) · `test-matrix.md` M-01…M-17 · `coding-standards.md` (quy ước code test) · `mocking-guidelines.md`, `test-data-management.md` (hỗ trợ viết test) |
 
 ---
@@ -21,12 +21,12 @@
 - [x] JaCoCo (`jacocoTestCoverageVerification`) cấu hình đúng scope `application.usecase`/`domain.*` package, ngưỡng 80% (`unit-testing.md` §3, `backend-coding-standards.md` §27 #2) — *Mục 0.3*
 - [x] Hai Gradle task tách biệt: `test` (Unit, `*Test.java`, không Testcontainers) và `integrationTest` (`*IT.java`, Testcontainers) (`coding-standards.md` §1) — *Mục 0.4*
 - [x] `docker-compose.yml` cho local dev (Postgres, Redis, RabbitMQ) — tách biệt với Testcontainers — *Mục 0.5*
-- [x] Flyway/Liquibase migration setup, chạy được trên Postgres local
+- [x] Flyway/Liquibase migration setup, chạy được trên Postgres local — *Mục 0.6*
 - [x] Wire `packages/api-contract` vào build: validate + bundle spec (DTO viết tay theo §10, verify bằng `contract-diff` ở Mục 1, không codegen) — *Mục 0.7*
 - [x] `generateOpenApiDocs` (springdoc) task hoạt động, sinh `build/openapi.json` từ controller annotation — *Mục 0.8*
 - [x] GitHub Actions workflow file khởi tạo: tối thiểu job `lint` + `unit-test`, xanh trên 1 commit trống/hello-world — *Mục 0.9*
-- [x] React + TypeScript (Vite) scaffold cho **Web Application**: TanStack Query, Zustand, Tailwind CSS, Shadcn UI, React Hook Form + Zod cài đặt
-- [x] Vitest + React Testing Library cấu hình cho FE component test (`e2e-testing.md` §1)
+- [x] React + TypeScript (Vite) scaffold cho **Web Application**: TanStack Query, Zustand, Tailwind CSS, Shadcn UI, React Hook Form + Zod cài đặt — *Mục 0.10*
+- [x] Vitest + React Testing Library cấu hình cho FE component test (`e2e-testing.md` §1) — *Mục 0.11*
 
 > ⚠ **Không** khởi tạo Mobile Application (React Native/Expo) ở Phase 1 — đó là Phase 5, chỉ dành cho Check-in Client.
 
@@ -63,7 +63,7 @@ Với mỗi mục bên dưới: viết test trước (Red) → code tối thiể
 - [x] **M-05** — Duyệt/tìm/lọc workshop theo lịch, chủ đề, speaker, địa điểm
 - [x] **M-06** — Trang detail hiển thị speaker/địa điểm/số ghế còn; workshop `DRAFT` trả `404` cho người không đủ quyền
 
-### 2.5 Web Application Scaffold
+### 2.5 Web Workshop Catalog (list + detail)
 - [x] **M-07** — Component list + detail render đúng dữ liệu từ 2 endpoint trên (Vitest + RTL)
 
 ### 2.6 Nightly Legacy Sync — INV-13 (KHÔNG được hoãn — `test-plan.md` §2, `phase-template.md` §5)
@@ -100,7 +100,7 @@ Với mỗi mục bên dưới: viết test trước (Red) → code tối thiể
 
 ## 5. Đồng bộ Test Matrix
 
-- [ ] Sau mỗi mục ở Mục 2–4 hoàn tất: cập nhật đúng dòng tương ứng trong `docs/testing/test-matrix.md` §2.2 (Status, Test case(s) = `Class#method` thật)
+- [ ] Sau mỗi mục ở Mục 2–4 hoàn tất: cập nhật đúng dòng tương ứng trong `docs/testing/reports/test-matrix.md` §2.2 (Status, Test case(s) = `Class#method` thật)
 - [ ] Cập nhật `test-matrix.md` §4 (Coverage Gaps) và §5 (Reference Table) trước khi sign-off
 
 ---
@@ -112,7 +112,7 @@ Với mỗi mục bên dưới: viết test trước (Red) → code tối thiể
 - [ ] CI xanh toàn bộ (`lint`, `unit-test`, `integration-test`, `contract-diff`, Gitleaks) trên **cùng một commit SHA**
 - [ ] Không còn `TODO`/`FIXME` trong test code của Phase 1
 - [ ] Không có `@Disabled` trên test gắn với INV-01
-- [ ] Copy `docs/testing/release-sign-offs/phase-template.md` → `docs/testing/release-sign-offs/phase-1.md`, điền đầy đủ §2–§6, tick từng ô với evidence thật
+- [ ] Copy `docs/testing/reports/release-sign-offs/phase-template.md` → `docs/testing/reports/release-sign-offs/phase-1.md`, điền đầy đủ §2–§6, tick từng ô với evidence thật
 - [ ] Ký xác nhận ở §6 của `phase-1.md`
 
 > Phase 1 chỉ được coi là hoàn tất khi `phase-1.md` tồn tại, mọi ô được tick với evidence thật, và §6 đã ký — **không phải khi code chạy được**.

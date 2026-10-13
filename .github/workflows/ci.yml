@@ -2,7 +2,7 @@ name: CI
 
 # Targets `main`: matches deployment-and-cicd.md §5's CI Job Structuring ADR model, and also matches
 # this repo's actual practice — this is a solo project, so every Phase 1 commit lands directly on `main`
-# (no pull requests) and not on the `phase-1-foundation` branch checklists/phase-1-foundation-checklist.md names
+# (no pull requests) and not on the `phase-1-foundation` branch checklists/phase-1-foundation.md names
 # as the working branch (that branch was only ever local, was abandoned at Mục 0.1 and has not moved
 # since). `main` is therefore where CI needs to run.
 on:
