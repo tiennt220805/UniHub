@@ -109,16 +109,39 @@ jobs:
 
   # Needs the NVD_API_KEY repository secret (Settings → Secrets and variables → Actions); without it the
   # NVD download is throttled and the job is slow or fails — harmless while it stays non-blocking.
+  #
+  # The NVD database (~400k CVE records) lives in the image's /usr/share/dependency-check/data and is
+  # cached between runs (the ADR's promotion condition 5): the first run downloads all of it, every later
+  # run restores the newest cache and fetches only what changed since. The cache key is per run so each
+  # run saves a fresh copy; `restore-keys` picks the latest one. Saved even when the scan step fails, so
+  # a long first download is never thrown away.
   dependency-check:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: dc-data
+          key: dependency-check-nvd-${{ github.run_id }}
+          restore-keys: dependency-check-nvd-
+      # The container runs as its own non-root user; let it write into the runner-owned cache dir.
+      - run: mkdir -p dc-data dc-report && chmod -R a+rwX dc-data dc-report
       - run: |
-          docker run --rm -v "$PWD:/src" -v "$PWD/dc-report:/report" owasp/dependency-check:latest \
-            --scan /src --format HTML --format JSON --out /report --nvdApiKey "$NVD_API_KEY"
+          if [ -z "$NVD_API_KEY" ]; then
+            echo "::warning::NVD_API_KEY secret is not set — the NVD download is heavily throttled"
+          fi
+          docker run --rm -v "$PWD:/src" -v "$PWD/dc-report:/report" \
+            -v "$PWD/dc-data:/usr/share/dependency-check/data" owasp/dependency-check:latest \
+            --scan /src --exclude "**/dc-data/**" --format HTML --format JSON --out /report \
+            --nvdApiKey "$NVD_API_KEY"
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: dc-data
+          key: dependency-check-nvd-${{ github.run_id }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:

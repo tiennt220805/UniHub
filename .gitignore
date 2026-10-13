@@ -38,3 +38,4 @@ Desktop.ini
 
 # Security scan reports (CI artifacts only, never committed — test-strategy.md §6)
 dc-report/
+dc-data/
