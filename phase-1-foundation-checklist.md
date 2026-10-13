@@ -64,7 +64,7 @@ Với mỗi mục bên dưới: viết test trước (Red) → code tối thiể
 - [x] **M-06** — Trang detail hiển thị speaker/địa điểm/số ghế còn; workshop `DRAFT` trả `404` cho người không đủ quyền
 
 ### 2.5 Web Application Scaffold
-- [ ] **M-07** — Component list + detail render đúng dữ liệu từ 2 endpoint trên (Vitest + RTL)
+- [x] **M-07** — Component list + detail render đúng dữ liệu từ 2 endpoint trên (Vitest + RTL)
 
 ### 2.6 Hoãn lại hợp lệ (không phải invariant, không nằm trên critical path — `test-plan.md` §2)
 - [ ] **M-08** — Cache Redis cho dữ liệu workshop ít đổi → *có thể hoãn, đánh dấu lý do trong `test-matrix.md` §4 nếu hoãn*

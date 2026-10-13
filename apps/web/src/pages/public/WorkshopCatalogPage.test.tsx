@@ -1,23 +1,28 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { createMemoryRouter, RouterProvider } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
-import { routes } from '@/routes'
 import { server } from '@/test/msw-server'
+import { renderRoute } from '@/test/render-route'
 import type { components } from '@/types/schema.gen'
 
+type Workshop = components['schemas']['Workshop']
 type WorkshopListResponse = components['schemas']['WorkshopListResponse']
 
-function renderAt(path: string) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createMemoryRouter(routes, { initialEntries: [path] })
-  render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  )
+const WORKSHOP_ID = '3f2b8c1e-6d4a-4a57-9b0e-1c2d3e4f5a6b'
+
+const oneWorkshop: WorkshopListResponse = {
+  items: [
+    {
+      id: WORKSHOP_ID,
+      title: 'Intro to Distributed Locks',
+      location: 'Hall A',
+      startTime: '2026-11-01T02:00:00Z',
+      status: 'PUBLISHED',
+    },
+  ],
+  page: { page: 0, size: 20, totalElements: 1, totalPages: 1 },
 }
 
 describe('WorkshopCatalogPage', () => {
@@ -28,36 +33,65 @@ describe('WorkshopCatalogPage', () => {
     }
     server.use(http.get('/api/v1/workshops', () => HttpResponse.json(empty)))
 
-    renderAt('/workshops')
+    renderRoute('/workshops')
 
     expect(await screen.findByText('Chưa có workshop nào.')).toBeInTheDocument()
   })
 
-  it('renders each workshop returned by the API', async () => {
-    const body: WorkshopListResponse = {
-      items: [
-        {
-          id: '3f2b8c1e-6d4a-4a57-9b0e-1c2d3e4f5a6b',
-          title: 'Intro to Distributed Locks',
-          location: 'Hall A',
-          startTime: '2026-11-01T02:00:00Z',
-          status: 'PUBLISHED',
-        },
-      ],
-      page: { page: 0, size: 20, totalElements: 1, totalPages: 1 },
-    }
-    server.use(http.get('/api/v1/workshops', () => HttpResponse.json(body)))
+  it('renders title, location and start time of each workshop returned by the API', async () => {
+    server.use(http.get('/api/v1/workshops', () => HttpResponse.json(oneWorkshop)))
 
-    renderAt('/workshops')
+    renderRoute('/workshops')
 
-    expect(await screen.findByText(/Intro to Distributed Locks/)).toBeInTheDocument()
+    const item = (await screen.findByText('Intro to Distributed Locks')).closest('li')!
+    expect(item).toHaveTextContent('Hall A')
+    // 02:00Z rendered in UniHub's operating zone, Asia/Ho_Chi_Minh (UTC+7).
+    expect(item).toHaveTextContent('09:00 1 thg 11, 2026')
     expect(screen.queryByText('Chưa có workshop nào.')).not.toBeInTheDocument()
+  })
+
+  it('links each workshop title to its detail page', async () => {
+    server.use(http.get('/api/v1/workshops', () => HttpResponse.json(oneWorkshop)))
+
+    renderRoute('/workshops')
+
+    expect(await screen.findByRole('link', { name: 'Intro to Distributed Locks' })).toHaveAttribute(
+      'href',
+      `/workshops/${WORKSHOP_ID}`,
+    )
+  })
+
+  it('navigates from the list to the detail page on click', async () => {
+    const detail: Workshop = {
+      id: WORKSHOP_ID,
+      title: 'Intro to Distributed Locks',
+      speakerName: 'Dr. Lan Nguyen',
+      location: 'Hall A',
+      startTime: '2026-11-01T02:00:00Z',
+      endTime: '2026-11-01T04:00:00Z',
+      capacity: 50,
+      seatsTaken: 15,
+      isPaid: false,
+      price: null,
+      hasBrochure: false,
+      status: 'PUBLISHED',
+      version: 3,
+    }
+    server.use(
+      http.get('/api/v1/workshops', () => HttpResponse.json(oneWorkshop)),
+      http.get(`/api/v1/workshops/${WORKSHOP_ID}`, () => HttpResponse.json(detail)),
+    )
+
+    renderRoute('/workshops')
+    await userEvent.click(await screen.findByRole('link', { name: 'Intro to Distributed Locks' }))
+
+    expect(await screen.findByText('Dr. Lan Nguyen')).toBeInTheDocument()
   })
 
   it('shows an error message instead of crashing when the API fails', async () => {
     server.use(http.get('/api/v1/workshops', () => new HttpResponse(null, { status: 500 })))
 
-    renderAt('/workshops')
+    renderRoute('/workshops')
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Không tải được danh sách workshop.')
   })
@@ -72,7 +106,7 @@ describe('WorkshopCatalogPage', () => {
       ),
     )
 
-    renderAt('/')
+    renderRoute('/')
 
     expect(await screen.findByText('Chưa có workshop nào.')).toBeInTheDocument()
   })
