@@ -29,3 +29,16 @@ spring:
 springdoc:
   api-docs:
     version: openapi_3_1
+
+# Nightly legacy student sync (docs/technical-design/modules/user.md §2, §7). Off by default in every
+# environment: Phase 1 runs a single instance and the job lock is still in-process (InProcessJobLock,
+# INV-09 is Phase 3), so turning the trigger on is a deliberate per-environment choice
+# (UNIHUB_JOBS_NIGHTLYSYNC_ENABLED=true). The rest are the documented values.
+unihub:
+  jobs:
+    nightly-sync:
+      enabled: false
+      cron: "0 0 2 * * *"
+      zone: Asia/Ho_Chi_Minh
+      inbound-dir: /var/unihub/legacy-sync/inbound
+      batch-size: 500

@@ -68,8 +68,8 @@ Với mỗi mục bên dưới: viết test trước (Red) → code tối thiể
 
 ### 2.6 Nightly Legacy Sync — INV-13 (KHÔNG được hoãn — `test-plan.md` §2, `phase-template.md` §5)
 > Phase 1 cho INV-13 là giả định (`†` trong `test-matrix.md`, kế thừa từ `test-strategy.md` §2). Muốn dời phase thì sửa giả định ở đó, không ghi thành "hoãn hợp lệ".
-- [ ] **M-09** — Nightly legacy sync (validate-then-write pipeline, `legacy_sync_runs.status` `RUNNING`→`COMPLETED`/`FAILED`)
-- [ ] **M-10** — Error store cho record lỗi/trùng trong batch sync; vài record xấu không làm dừng batch
+- [x] **M-09** — Nightly legacy sync (validate-then-write pipeline, `legacy_sync_runs.status` `RUNNING`→`COMPLETED`/`FAILED`)
+- [x] **M-10** — Error store cho record lỗi/trùng trong batch sync; vài record xấu không làm dừng batch
 
 ### 2.7 Hoãn lại hợp lệ (không phải invariant, không nằm trên critical path — `test-plan.md` §2)
 - [ ] **M-08** — Cache Redis cho dữ liệu workshop ít đổi → *có thể hoãn (đề xuất Phase 2), ghi lý do trong `test-matrix.md` §4 nếu hoãn*
