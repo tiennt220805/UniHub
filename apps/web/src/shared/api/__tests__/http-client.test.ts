@@ -2,8 +2,8 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { server } from '@/testing/msw-server'
-import { AppError } from './errors'
-import { configureHttpClient, request } from './http-client'
+import { AppError } from '../errors'
+import { configureHttpClient, request } from '../http-client'
 
 const noSession = { getAccessToken: () => null, onUnauthorized: () => {} }
 

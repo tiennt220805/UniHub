@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { toQueryString } from './query-string'
+import { toQueryString } from '../query-string'
 
 describe('toQueryString', () => {
   it('is empty when no value is set', () => {

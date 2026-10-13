@@ -70,4 +70,19 @@ export default [
       ],
     },
   },
+  // web-coding-standards.md §12: a test lives in a __tests__/ folder. Vitest discovers tests by
+  // name, so a misplaced one would still run — only this check keeps the convention from eroding.
+  {
+    files: ['src/**/*.test.{ts,tsx}'],
+    ignores: ['src/**/__tests__/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Program',
+          message: 'Move this test into a __tests__/ folder next to the file it tests (web-coding-standards.md §12).',
+        },
+      ],
+    },
+  },
 ]

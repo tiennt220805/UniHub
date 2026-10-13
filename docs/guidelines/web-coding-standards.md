@@ -251,6 +251,7 @@ src/
     <name>/
       api/                # requests.ts, queries.ts, mutations.ts, keys.ts (§7)
       components/
+        __tests__/        # tests of the files in components/ — every folder with tests has one (§12)
       hooks/              # UI logic specific to this feature (only when needed)
       model/              # Zod form schemas, view-model types, DTO ↔ form/view mappers
       store/              # Zustand slice — ONLY when there is genuine client state (§8)
@@ -286,6 +287,7 @@ src/
   exports `WorkshopCatalogPage`). Route components keep the `…Page` suffix.
 - Everything else: kebab-case (`http-client.ts`, `session-store.ts`, `workshop-form.schema.ts`).
   `shared/ui/` follows whatever the Shadcn generator emits (`button.tsx`).
+- Tests: `__tests__/Foo.test.tsx` in the folder that holds `Foo.tsx` (§12) — never next to it.
 - Named exports only; default exports only where a tool requires them (config files).
 - No TypeScript `enum`: `tsconfig.app.json` sets `erasableSyntaxOnly`. Use `as const` objects or
   the generated string-literal unions.
@@ -1029,7 +1031,11 @@ export function RequirePermission({ anyOf, children }: { anyOf: readonly Permiss
 **Decision.**
 
 - **Component/unit:** Vitest + React Testing Library (`docs/testing/test-levels/e2e-testing.md`
-  §1), jsdom environment. Tests are colocated: `Foo.test.tsx` next to `Foo.tsx`.
+  §1), jsdom environment. A test lives in a `__tests__/` folder inside the folder of the file it
+  tests: `routes/public/__tests__/WorkshopDetailPage.test.tsx` tests
+  `routes/public/WorkshopDetailPage.tsx`. The file keeps the `.test.ts(x)` suffix — Vitest's
+  default `include` matches by name, not by folder — and imports its subject with `../`.
+  A `*.test.ts(x)` file outside a `__tests__/` folder is a lint error (`apps/web/eslint.config.js`).
 - **Network:** MSW mocks the Backend API at the network layer — never by mocking the http client
   or a feature's request functions. The MSW server, handlers, render utilities (e.g. rendering a
   route through the real route table) and test-data factories live in `src/testing/`. An
@@ -1044,7 +1050,12 @@ export function RequirePermission({ anyOf, children }: { anyOf: readonly Permiss
 
 **Why.** Mocking at the network layer exercises the real request functions, headers, error
 normalization (§6) and cache behavior (§7) — the code most likely to break — instead of replacing
-it. Colocated tests move with the file they test, which matters in a layout organized by feature.
+it. A `__tests__/` folder next to the code keeps tests in the same feature subtree as the file they
+test — moved or deleted together, which matters in a layout organized by feature — while keeping
+source folders listing only source. The `.test` suffix stays so Vitest's default discovery,
+`boundaries/files`' test category (§2) and editors still recognize a test by its name. Without the
+lint check, a test left beside its subject would still run, and the convention would erode
+unnoticed.
 Typing fixtures from the generated contract is the frontend's cheap equivalent of contract-diff.
 A coverage number on UI code measures rendering, not the invariants the project's coverage gate
 exists for.
@@ -1052,7 +1063,7 @@ exists for.
 **Example.**
 
 ```ts
-// routes/public/WorkshopDetailPage.test.tsx (excerpt) — a page test renders the real route table
+// routes/public/__tests__/WorkshopDetailPage.test.tsx (excerpt) — a page test renders the real route table
 import { http, HttpResponse } from 'msw'
 import { server } from '@/testing/msw-server'
 import { renderRoute } from '@/testing/render-route'
