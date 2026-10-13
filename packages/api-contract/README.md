@@ -14,8 +14,10 @@ spec has a bug.
 
 **Lives outside `docs/`, deliberately.** Unlike the prose design corpus, this
 contract is a code-adjacent, tooling-consumed artifact — linted/bundled by
-Redocly CLI today, and eventually the shared dependency both `apps/web` and
-`apps/mobile` generate a typed client from (via `orval`) and the source
+Redocly CLI today, the source `apps/web` generates its TypeScript types from
+(`openapi-typescript`, types only — no generated client,
+`docs/guidelines/web-coding-standards.md` §5), the source `apps/mobile` is
+planned to generate a typed client from (via `orval`), and the source
 `apps/backend`'s own `springdoc`-generated spec is diff-checked against in CI.
 Standard practice in a polyglot monorepo: the Java backend can't `import` an
 npm package the way `apps/web`/`apps/mobile` will, so this only ever becomes a
@@ -110,7 +112,7 @@ the source of truth; `openapi.yaml` + its `$ref` tree is.
 
 ## Conventions for every path file
 
-- Every operation has a unique `operationId` (`camelCase`, e.g. `createRegistration`) — required for client codegen (e.g. `orval` generating TanStack Query hooks for the React frontend) to produce usable function names.
+- Every operation has a unique `operationId` (`camelCase`, e.g. `createRegistration`) — required for codegen to produce usable names (e.g. the `operations['createRegistration']` types `openapi-typescript` generates for the Web Application, or `orval`-generated functions for the mobile app).
 - Every operation lists `401` (invalid/expired token) and, if `x-required-permission` is set, `403` (valid token, missing permission) — per the two-distinct-response-codes discipline `auth-and-identity.md` §5 and `registration.md` §2 both already apply to their own failure paths. **One documented exception:** `paymentGatewayWebhook` (`paths/payment.yaml`) sets `security: []` and an `x-auth-model: gateway-webhook-signature` extension instead — it authenticates the Payment Gateway itself via signature verification (`payment.md` §7), not a UniHub user, so `bearerAuth`/`401`/`403` don't apply to it. This is the only operation in the whole spec that overrides the default `security: [{bearerAuth: []}]` for a reason other than "public, no auth needed" (contrast with `listWorkshops`/`getWorkshop`, which use `security: []` because they're genuinely public).
 - `x-required-permission` may be a single permission code or an array of codes; an array means **any one** of them satisfies the check (OR) — documented per-operation via `x-required-permission-note` where that isn't obvious from the codes alone.
 - Every 2xx response declares `common/headers.yaml#/CorrelationIdResponse` under `headers: X-Correlation-Id`, mirroring the `CorrelationIdRequest` parameter every operation already accepts — the correlation id is always echoed back, on success or error, never only one or the other.
