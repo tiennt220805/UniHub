@@ -66,11 +66,14 @@ Với mỗi mục bên dưới: viết test trước (Red) → code tối thiể
 ### 2.5 Web Application Scaffold
 - [x] **M-07** — Component list + detail render đúng dữ liệu từ 2 endpoint trên (Vitest + RTL)
 
-### 2.6 Hoãn lại hợp lệ (không phải invariant, không nằm trên critical path — `test-plan.md` §2)
-- [ ] **M-08** — Cache Redis cho dữ liệu workshop ít đổi → *có thể hoãn, đánh dấu lý do trong `test-matrix.md` §4 nếu hoãn*
-- [ ] **M-09** — Nightly legacy sync (validate-then-write pipeline) → *có thể hoãn*
-- [ ] **M-10** — Error store cho record lỗi/trùng trong batch sync → *có thể hoãn*
-- [ ] **M-11** — Nightly sync không gián đoạn user đang hoạt động → *có thể hoãn*
+### 2.6 Nightly Legacy Sync — INV-13 (KHÔNG được hoãn — `test-plan.md` §2, `phase-template.md` §5)
+> Phase 1 cho INV-13 là giả định (`†` trong `test-matrix.md`, kế thừa từ `test-strategy.md` §2). Muốn dời phase thì sửa giả định ở đó, không ghi thành "hoãn hợp lệ".
+- [ ] **M-09** — Nightly legacy sync (validate-then-write pipeline, `legacy_sync_runs.status` `RUNNING`→`COMPLETED`/`FAILED`)
+- [ ] **M-10** — Error store cho record lỗi/trùng trong batch sync; vài record xấu không làm dừng batch
+
+### 2.7 Hoãn lại hợp lệ (không phải invariant, không nằm trên critical path — `test-plan.md` §2)
+- [ ] **M-08** — Cache Redis cho dữ liệu workshop ít đổi → *có thể hoãn (đề xuất Phase 2), ghi lý do trong `test-matrix.md` §4 nếu hoãn*
+- [ ] **M-11** — Nightly sync không gián đoạn user đang hoạt động → *có thể hoãn (đề xuất Phase 3), phụ thuộc M-09*
 
 ---
 
@@ -104,7 +107,7 @@ Với mỗi mục bên dưới: viết test trước (Red) → code tối thiể
 
 ## 6. Đóng Phase 1 (Exit / Sign-off)
 
-- [ ] Toàn bộ dòng M-01…M-17 trong `test-matrix.md` = `Passing` (trừ các dòng đã hoãn hợp lệ ở Mục 2.6, ghi rõ lý do)
+- [ ] Toàn bộ dòng M-01…M-17 trong `test-matrix.md` = `Passing` (trừ các dòng đã hoãn hợp lệ ở Mục 2.7, ghi rõ lý do — M-09/M-10 không bao giờ thuộc diện này)
 - [ ] Coverage ≥80% trên package `service`/`domain` (JaCoCo xanh)
 - [ ] CI xanh toàn bộ (`lint`, `unit-test`, `integration-test`, `contract-diff`, Gitleaks) trên **cùng một commit SHA**
 - [ ] Không còn `TODO`/`FIXME` trong test code của Phase 1
@@ -120,4 +123,4 @@ Với mỗi mục bên dưới: viết test trước (Red) → code tối thiể
 
 - Khi được yêu cầu "tiếp tục Phase 1", đọc file này trước, tìm mục đầu tiên chưa tick theo đúng thứ tự Mục 0 → 1 → 2 → 3 → 4 → 5 → 6, và làm mục đó.
 - Không tự ý tick một mục — chỉ tick sau khi test thật sự pass và (với các mục ở Mục 2) `test-matrix.md` đã được cập nhật tương ứng.
-- Không nhảy cóc sang Mục 2.6 (các mục hoãn được) trước khi Mục 2.1–2.5 xong, trừ khi người dùng yêu cầu rõ ràng.
+- Không nhảy cóc sang Mục 2.7 (các mục hoãn được) trước khi Mục 2.1–2.6 xong, trừ khi người dùng yêu cầu rõ ràng.
