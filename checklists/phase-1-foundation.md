@@ -94,6 +94,8 @@ Với mỗi mục bên dưới: viết test trước (Red) → code tối thiể
 - [ ] `integration-test` gated bởi `unit-test` thành công (Testcontainers job chạy sau cùng để không lãng phí thời gian)
 - [ ] `contract-diff` gated bởi `integration-test` thành công
 - [ ] Gitleaks secret scan chạy như 1 stage riêng (liên quan M-13)
+- [ ] Semgrep (SAST) chạy như job riêng, **non-blocking** (`continue-on-error: true`, không job nào `needs:`) — `deployment-and-cicd.md` §5 Security Scan Jobs ADR, `test-plan.md` §1 Phase 1
+- [ ] OWASP Dependency-Check chạy như job riêng, **non-blocking**, report upload thành artifact — cần tạo secret `NVD_API_KEY` trên GitHub (`IMPLEMENTATION-READINESS.md` D6)
 - [ ] Branch protection rule: merge vào `main` bị chặn nếu bất kỳ stage nào fail
 
 ---

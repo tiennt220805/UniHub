@@ -35,3 +35,6 @@ Desktop.ini
 *.pem
 *.key
 *.p12
+
+# Security scan reports (CI artifacts only, never committed — test-strategy.md §6)
+dc-report/

@@ -91,3 +91,52 @@ jobs:
         with:
           node-version: '22'
       - run: bash apps/backend/scripts/contract-diff.sh
+
+  # ---- Security scans (deployment-and-cicd.md §5, Security Scan Jobs ADR) ----
+  # Semgrep and Dependency-Check: `needs:` nothing and `continue-on-error: true` — they report on every
+  # push/PR but gate nothing until promoted (the ADR's five conditions: triaged baseline, pinned image,
+  # chosen severity threshold, stable period, and for Dependency-Check the NVD key + cache). Rule sets are
+  # starting values. Reports are workflow artifacts, never committed (test-strategy.md §6).
+  sast-semgrep:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          docker run --rm -v "$PWD:/src" semgrep/semgrep:latest \
+            semgrep scan --metrics=off --config p/java --config p/typescript \
+            --config p/owasp-top-ten /src
+
+  # Needs the NVD_API_KEY repository secret (Settings → Secrets and variables → Actions); without it the
+  # NVD download is throttled and the job is slow or fails — harmless while it stays non-blocking.
+  dependency-check:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          docker run --rm -v "$PWD:/src" -v "$PWD/dc-report:/report" owasp/dependency-check:latest \
+            --scan /src --format HTML --format JSON --out /report --nvdApiKey "$NVD_API_KEY"
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-check-report
+          path: dc-report
+
+  # INV-18 / M-13 — deployment-and-cicd.md §5 (Security Scan Jobs ADR), copied from its model. Runs in
+  # parallel with the gate chain (`needs:` nothing) and is blocking: no `continue-on-error`, so a finding
+  # fails the run. Full history (`fetch-depth: 0`): a secret committed and later deleted is still leaked.
+  # A justified false positive goes in a committed, reviewed `.gitleaks.toml` allowlist — none exists
+  # because none is needed yet. `build-and-push` must `needs:` this job once it exists (Phase 7). The
+  # image is `latest`, the ADR's accepted risk; pin it the first time an upgrade fails a run.
+  secret-scan-gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest \
+            detect --source /repo --redact --exit-code 1
