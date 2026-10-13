@@ -151,53 +151,35 @@ one-way rule plus a single public entry point per feature is the frontend equiva
 replaces (`components/<domain>/`, `pages/…`, `hooks/<domain>/`) scattered one bounded context
 across five top-level folders and had no rule at all for cross-domain imports.
 
-**Enforcement.** The rules above are enforced by lint, with `eslint-plugin-boundaries` (or
-`eslint-plugin-import`'s `import/no-restricted-paths`) — never left to review alone. This is
-**not yet configured**: `apps/web` lints with `oxlint` only (`apps/web/package.json` `lint`
-script), and no boundary rule exists (§13, item 1).
+**Enforcement.** The rules above are enforced by lint — never left to review alone. ESLint runs
+alongside `oxlint` for the boundary rules only (`apps/web/eslint.config.js`, with
+`eslint-plugin-boundaries` 7.x); `oxlint` keeps every other rule, and the `lint` script runs both
+(`oxlint && eslint`). Rule 5 is expressed in the same `boundaries/dependencies` rule (a target in
+another feature must have `fileInternalPath: 'index.ts'`), because 7.x deprecates the separate
+`boundaries/entry-point` rule.
 
-**Example.** Target configuration, illustrative until §13 item 1 is done — verify option names
-against the installed plugin version:
+**Example.** Excerpt of `apps/web/eslint.config.js` — the file itself is authoritative:
 
 ```js
-// apps/web/eslint.config.js — boundary rules only; oxlint keeps the rest
-import boundaries from 'eslint-plugin-boundaries'
+const featureIndex = { element: { type: 'feature', fileInternalPath: 'index.ts' } }
 
-export default [
-  {
-    files: ['src/**/*.{ts,tsx}'],
-    plugins: { boundaries },
-    settings: {
-      // resolves the '@/…' alias (tsconfig.app.json "paths") so imports map to elements
-      'import/resolver': { typescript: { project: './tsconfig.app.json' } },
-      'boundaries/elements': [
-        { type: 'app', pattern: 'src/app' },
-        { type: 'routes', pattern: 'src/routes' },
-        { type: 'feature', pattern: 'src/features/*', capture: ['featureName'] },
-        { type: 'shared', pattern: 'src/shared' },
-      ],
-    },
-    rules: {
-      'boundaries/element-types': ['error', {
-        default: 'disallow',
-        rules: [
-          { from: 'app', allow: ['routes', 'feature', 'shared'] },
-          { from: 'routes', allow: ['feature', 'shared'] },
-          { from: 'feature', allow: ['shared', ['feature', { featureName: '${from.featureName}' }]] },
-          { from: 'shared', allow: ['shared'] },
-        ],
-      }],
-      // outside a feature, only its index.ts is importable
-      'boundaries/entry-point': ['error', {
-        default: 'disallow',
-        rules: [
-          { target: 'feature', allow: 'index.ts' },
-          { target: ['app', 'routes', 'shared'], allow: '**' },
-        ],
-      }],
-    },
-  },
-]
+// settings: 'boundaries/elements' = app, routes, feature (captures featureName), shared, testing;
+//           'boundaries/files'    = category 'test' for src/**/*.test.{ts,tsx}
+'boundaries/dependencies': ['error', {
+  default: 'disallow',
+  policies: [
+    { from: { element: { type: 'app' } }, allow: { to: [{ element: { types: { anyOf: ['routes', 'shared'] } } }, featureIndex] } },
+    { from: { element: { type: 'routes' } }, allow: { to: [{ element: { type: 'shared' } }, featureIndex] } },
+    { from: { element: { type: 'feature' } }, allow: { to: { element: { type: 'shared' } } } },
+    { from: { element: { type: 'feature' } },
+      allow: { to: { element: { type: 'feature', captured: { featureName: '{{from.element.captured.featureName}}' } } } } },
+    { from: { element: { type: 'shared' } }, allow: { to: { element: { type: 'shared' } } } },
+    { from: { element: { type: 'testing' } }, allow: { to: [{ element: { types: { anyOf: ['app', 'routes', 'shared', 'testing'] } } }, featureIndex] } },
+    { from: { file: { categories: 'test' } }, allow: { to: { element: { type: 'testing' } } } },
+    { from: { file: { path: '!src/features/*/api/**' } },
+      disallow: { to: { file: { path: 'src/shared/api/http-client.ts' } } } },
+  ],
+}]
 ```
 
 ---
@@ -211,7 +193,7 @@ is created when the first screen consuming those operations is built — never a
 
 | Feature | Backend module | Contract tag | Operations used by the Web Application | Status |
 |---|---|---|---|---|
-| `workshops` | Workshop | `Workshop` | `listWorkshops`, `getWorkshop`; Organizer: `createWorkshop`, `updateWorkshop`, `publishWorkshop`, `cancelWorkshop`, `requestBrochureUploadUrl`, `confirmBrochureUpload` | **active** — catalog + detail exist, still in the old layout (§13 item 2); Organizer CRUD planned |
+| `workshops` | Workshop | `Workshop` | `listWorkshops`, `getWorkshop`; Organizer: `createWorkshop`, `updateWorkshop`, `publishWorkshop`, `cancelWorkshop`, `requestBrochureUploadUrl`, `confirmBrochureUpload` | **active** — catalog + detail (`routes/public/`); Organizer CRUD planned |
 | `auth` | User | `User` | `login` | planned |
 | `registrations` | Registration | `Registration` | `createRegistration`, `listMyRegistrations`, `getRegistration` (renders/downloads the QR e-ticket), `cancelRegistration`; reporting: `listWorkshopRegistrations` | planned |
 | `payments` | Payment | `Payment` | `chargePayment`, `getPayment` | planned |
@@ -449,14 +431,17 @@ import type { components } from '@/shared/api/schema.gen'
 
 export type ProblemDetail = components['schemas']['error'] // common/error.yaml (RFC 7807)
 
+// Explicit fields, not constructor parameter properties: erasableSyntaxOnly (§4) rejects those.
 export class AppError extends Error {
-  constructor(
-    readonly status: number | null, // null: no HTTP response (network failure, abort)
-    readonly problem: ProblemDetail | null, // null: body was not application/problem+json
-    readonly retryAfterSeconds: number | null,
-    options?: ErrorOptions,
-  ) {
+  readonly status: number | null // null: no HTTP response (network failure, abort)
+  readonly problem: ProblemDetail | null // null: body was not application/problem+json
+  readonly retryAfterSeconds: number | null
+
+  constructor(status: number | null, problem: ProblemDetail | null, retryAfterSeconds: number | null, options?: ErrorOptions) {
     super(problem?.title ?? (status === null ? 'Network error' : `HTTP ${status}`), options)
+    this.status = status
+    this.problem = problem
+    this.retryAfterSeconds = retryAfterSeconds
   }
 }
 
@@ -1095,8 +1080,8 @@ fills gaps with its own guesses becomes a second, conflicting source of truth.
 
 | # | Item | Owner (document or code) | Needed by |
 |---|---|---|---|
-| 1 | **Boundary lint not configured.** Add `eslint-plugin-boundaries` (or `import/no-restricted-paths`) with the rules in §2. `apps/web` lints with `oxlint` only; decide whether ESLint runs alongside oxlint for boundary rules only, or whether an oxlint equivalent exists | `apps/web` (`package.json`, `eslint.config.js`, `.github/workflows/ci.yml` lint job) | Before item 2 is merged, so the migration is checked by it |
-| 2 | **Code migration from the Mục 0 scaffold (and the Phase 1 Mục 2.4–2.5 pages) to §4.** `src/components/ui/*` → `src/shared/ui/`; `src/lib/utils.ts` (+ test) → `src/shared/lib/`; `src/lib/format.ts` → `src/shared/lib/format.ts`; `src/pages/public/*Page.tsx` → `src/routes/public/`, with their data access extracted into `src/features/workshops/{api,components}` (key factory, `request()` instead of `fetch`, `AppError` instead of mapping `404`/`400` to `null`); `src/routes/index.tsx` (route table) → `src/app/router/routes.tsx`; `src/main.tsx` → `src/app/main.tsx` (+ `index.html` script path), `QueryClient` → `src/shared/lib/query-client.ts`; `src/test/*` → `src/testing/` (+ `vite.config.ts` `setupFiles`); `src/types/schema.gen.ts` → `src/shared/api/schema.gen.ts` (`predev`/`prebuild` output paths, `.gitignore` entry and its `§2` citation → `§5`); `src/index.css` → `src/styles/` if moved (`components.json` `tailwind.css`); `components.json` aliases → `components: @/shared/components`, `ui: @/shared/ui`, `utils: @/shared/lib/utils`, `lib: @/shared/lib`, `hooks: @/shared/hooks`; `src/App.css` appears unused — verify before removing. No `tsconfig`/`vite` alias change is needed (`@/*` → `src/*` already covers the new paths). Update `docs/testing/reports/test-matrix.md` M-07 if test file names change | `apps/web` | Before the second feature lands (Phase 2) |
+| 1 | ~~**Boundary lint not configured.**~~ **Done (2026-10-13).** ESLint runs alongside `oxlint` for boundary rules only (`eslint-plugin-boundaries` 7.x, `apps/web/eslint.config.js`; §2 Enforcement). The lint script runs both. Not yet run in CI: `.github/workflows/ci.yml` has no `apps/web` job (Phase 1 Mục 4) | `apps/web` | — |
+| 2 | ~~**Code migration from the Mục 0 scaffold (and the Phase 1 Mục 2.4–2.5 pages) to §4.**~~ **Done (2026-10-13).** `apps/web/src` follows §4: `app/` (main, App, providers, router), `routes/public/`, `features/workshops/{api,components}`, `shared/{api,config,lib,ui}`, `styles/`, `testing/`; `components.json` aliases moved; unused `App.css` removed. `src/assets/` (unused Vite scaffold images) was left as is | `apps/web` | — |
 | 3 | **Web token storage & refresh strategy.** Refresh is decided — there is none (`auth-and-identity.md` §4). Undecided: where the Web keeps the access token (memory only, `sessionStorage`, `localStorage`; an `httpOnly` cookie would change the contract's `bearerAuth` scheme) and therefore whether a session survives a reload; and, since no "current user" endpoint exists, whether `UserSummary` is persisted with it. The mobile decision (Expo SecureStore, `architecture.md` §5.3, §5.4) does not apply to a browser. Provisional until decided: memory only (§8) | `auth-and-identity.md` (a Web-client subsection), then §8/§11 here | Phase 1 sign-in UI |
 | 4 | **Permission source for UI gating.** The contract describes `LoginResponse.accessToken` as "opaque to the client", yet `LoginResponse` carries no permission list and there is no session endpoint; §11 therefore decodes the `permissions` claim. Either amend the contract wording to allow an unverified, UX-only read of the claim, or add the resolved permissions to `LoginResponse`/`UserSummary` (they are UI-convenience data in the sense of `auth-and-identity.md` §2) | `packages/api-contract/schemas/user.yaml`, `auth-and-identity.md` §2 | Phase 1 sign-in UI |
 | 5 | **Machine-readable conflict reasons.** `createRegistration`'s `409` covers both "sold out" and "already registered"; `common/error.yaml` has no code field and `type` is `about:blank` by convention, so the client cannot show the specific message `proposal.md` §11.1/§12 call for. Proposed: distinct problem `type` URIs per conflict reason (same for `chargePayment`'s two `409` causes) | `packages/api-contract/common/error.yaml`, `paths/registration.yaml`, `paths/payment.yaml`; `backend-coding-standards.md` §17 | Phase 2 |

@@ -1,6 +1,7 @@
 import { Navigate, type RouteObject } from 'react-router'
-import { WorkshopCatalogPage } from '@/pages/public/WorkshopCatalogPage'
-import { WorkshopDetailPage } from '@/pages/public/WorkshopDetailPage'
+
+import { WorkshopCatalogPage } from '@/routes/public/WorkshopCatalogPage'
+import { WorkshopDetailPage } from '@/routes/public/WorkshopDetailPage'
 
 export const routes: RouteObject[] = [
   { path: '/', element: <Navigate to="/workshops" replace /> },

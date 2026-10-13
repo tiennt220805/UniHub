@@ -2,40 +2,28 @@ import { screen } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 
-import { server } from '@/test/msw-server'
-import { renderRoute } from '@/test/render-route'
-import type { components } from '@/types/schema.gen'
+import type { components } from '@/shared/api/schema.gen'
+import { aWorkshop, WORKSHOP_ID } from '@/testing/factories/workshop'
+import { server } from '@/testing/msw-server'
+import { renderRoute } from '@/testing/render-route'
 
 type Workshop = components['schemas']['Workshop']
-
-const WORKSHOP_ID = '3f2b8c1e-6d4a-4a57-9b0e-1c2d3e4f5a6b'
-
-function aWorkshop(overrides: Partial<Workshop> = {}): Workshop {
-  return {
-    id: WORKSHOP_ID,
-    title: 'Intro to Distributed Locks',
-    description: 'Redis locks and why they are only advisory.',
-    aiSummary: null,
-    speakerName: 'Dr. Lan Nguyen',
-    speakerBio: 'Distributed systems lecturer.',
-    location: 'Hall A',
-    startTime: '2026-11-01T02:00:00Z',
-    endTime: '2026-11-01T04:00:00Z',
-    capacity: 50,
-    seatsTaken: 15,
-    isPaid: false,
-    price: null,
-    hasBrochure: false,
-    status: 'PUBLISHED',
-    version: 3,
-    ...overrides,
-  }
-}
 
 function serveDetail(body: Workshop) {
   server.use(
     http.get('/api/v1/workshops/:id', ({ params }) =>
       params.id === body.id ? HttpResponse.json(body) : new HttpResponse(null, { status: 404 }),
+    ),
+  )
+}
+
+function serveProblem(status: number) {
+  server.use(
+    http.get('/api/v1/workshops/:id', () =>
+      HttpResponse.json(
+        { type: 'about:blank', title: 'Problem', status },
+        { status, headers: { 'Content-Type': 'application/problem+json' } },
+      ),
     ),
   )
 }
@@ -115,7 +103,7 @@ describe('WorkshopDetailPage', () => {
   })
 
   it('shows "not found" when the API returns 404 (unknown id, or a DRAFT hidden from this caller)', async () => {
-    server.use(http.get('/api/v1/workshops/:id', () => new HttpResponse(null, { status: 404 })))
+    serveProblem(404)
 
     renderRoute(`/workshops/${WORKSHOP_ID}`)
 
@@ -124,7 +112,7 @@ describe('WorkshopDetailPage', () => {
   })
 
   it('shows "not found" for a malformed id the API rejects with 400', async () => {
-    server.use(http.get('/api/v1/workshops/:id', () => new HttpResponse(null, { status: 400 })))
+    serveProblem(400)
 
     renderRoute('/workshops/not-a-uuid')
 
@@ -132,7 +120,7 @@ describe('WorkshopDetailPage', () => {
   })
 
   it('shows an error message when the API fails', async () => {
-    server.use(http.get('/api/v1/workshops/:id', () => new HttpResponse(null, { status: 500 })))
+    serveProblem(500)
 
     renderRoute(`/workshops/${WORKSHOP_ID}`)
 

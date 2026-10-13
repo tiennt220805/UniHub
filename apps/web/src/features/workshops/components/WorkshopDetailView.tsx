@@ -1,42 +1,29 @@
-import { useQuery } from '@tanstack/react-query'
-import { Link, useParams } from 'react-router'
+import type { UseQueryResult } from '@tanstack/react-query'
 
-import { formatDateTime, formatNumber } from '@/lib/format'
-import type { components } from '@/types/schema.gen'
+import type { AppError } from '@/shared/api/errors'
+import { formatDateTime, formatNumber } from '@/shared/lib/format'
+import type { Workshop } from '../api/requests'
+import { LoadError } from './LoadError'
 
-type Workshop = components['schemas']['Workshop']
+type Props = {
+  query: UseQueryResult<Workshop, AppError>
+}
 
-// GET /api/v1/workshops/{id} is public (packages/api-contract/paths/workshop.yaml: security: []).
-// No token is sent yet, so a DRAFT workshop always comes back 404 here — by design the API makes
-// it indistinguishable from an unknown id. A 400 can only mean the path id is not a UUID, which to
-// the viewer is the same thing: there is no such workshop.
-export function WorkshopDetailPage() {
-  const { workshopId = '' } = useParams()
-  const { data, isPending, isError } = useQuery({
-    queryKey: ['workshops', 'detail', workshopId],
-    queryFn: async (): Promise<Workshop | null> => {
-      const response = await fetch(`/api/v1/workshops/${encodeURIComponent(workshopId)}`)
-      if (response.status === 404 || response.status === 400) {
-        return null
-      }
-      if (!response.ok) {
-        throw new Error(`GET /api/v1/workshops/${workshopId} failed: ${response.status}`)
-      }
-      return response.json()
-    },
-  })
+// A 404 is either an unknown id or a DRAFT hidden from this caller — deliberately
+// indistinguishable (paths/workshop.yaml#/workshopById). The only 400 getWorkshop returns is a path
+// id that is not a UUID, which to the viewer is the same thing: there is no such workshop.
+const isNotFound = (error: AppError) => error.status === 404 || error.status === 400
 
-  return (
-    <main className="mx-auto max-w-3xl p-6">
-      <Link to="/workshops" className="text-sm text-muted-foreground hover:underline">
-        ← Danh sách workshop
-      </Link>
-      {isPending && <p>Đang tải…</p>}
-      {isError && <p role="alert">Không tải được thông tin workshop.</p>}
-      {data === null && <p>Không tìm thấy workshop.</p>}
-      {data && <WorkshopDetail workshop={data} />}
-    </main>
-  )
+export function WorkshopDetailView({ query }: Props) {
+  if (query.isPending) return <p>Đang tải…</p>
+  if (query.isError) {
+    return isNotFound(query.error) ? (
+      <p>Không tìm thấy workshop.</p>
+    ) : (
+      <LoadError error={query.error} message="Không tải được thông tin workshop." />
+    )
+  }
+  return <WorkshopDetail workshop={query.data} />
 }
 
 const STATUS_NOTICE: Partial<Record<Workshop['status'], string>> = {
@@ -45,8 +32,8 @@ const STATUS_NOTICE: Partial<Record<Workshop['status'], string>> = {
 }
 
 function WorkshopDetail({ workshop }: { workshop: Workshop }) {
-  // seatsTaken can be up to 3s stale (contract: Workshop.seatsTaken); the floor at 0 only keeps a
-  // momentarily inconsistent read from rendering a negative count.
+  // seatsTaken is near-real-time and advisory (contract: Workshop.seatsTaken); the floor at 0 only
+  // keeps a momentarily inconsistent read from rendering a negative count.
   const seatsLeft = Math.max(workshop.capacity - workshop.seatsTaken, 0)
   const notice = STATUS_NOTICE[workshop.status]
 
