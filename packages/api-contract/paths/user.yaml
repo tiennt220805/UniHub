@@ -46,8 +46,11 @@ login:
       `../../../docs/technical-design/platform/database-schema.md` §7.1, has no
       `ACCOUNT_SETUP`-shaped value). Inventing that mechanism here would be
       designing a feature no requirement or architecture document has
-      actually specified — flagged for a human decision, not silently
-      built.
+      actually specified — **recorded as an open item** (Phase 2 checklist
+      D9). A user with no password yet fails exactly like a wrong password.
+      In Phase 2, dev/test environments only get Student accounts from a
+      dev-only seeder (`../../../docs/technical-design/modules/user.md` §10) — never from a
+      production migration.
 
       **A second, equally unresolved gap: no endpoint anywhere in this
       spec suspends or reactivates a user.** `../../../docs/technical-design/platform/auth-and-

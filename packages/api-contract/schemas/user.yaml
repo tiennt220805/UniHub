@@ -18,17 +18,29 @@ LoginResponse:
     token itself — "anything the client needs to render... belongs in the
     login endpoint's response body, issued once at login alongside the
     token." `user` below is exactly that body.
-  required: [accessToken, expiresIn, user]
+  required: [accessToken, expiresIn, user, permissions]
   properties:
     accessToken:
       type: string
-      description: The HS256 auth JWT (`../../../docs/technical-design/platform/auth-and-identity.md` §3) — opaque to the client, carries the resolved `permissions[]` claim.
+      description: The HS256 auth JWT (`../../../docs/technical-design/platform/auth-and-identity.md` §3) — opaque to the client, which never decodes it.
     expiresIn:
       type: integer
       description: Seconds until expiry — the fixed 30-minute access-token TTL (`../../../docs/technical-design/platform/auth-and-identity.md` §4).
       example: 1800
     user:
       $ref: '#/UserSummary'
+    permissions:
+      type: array
+      uniqueItems: true
+      items:
+        type: string
+        maxLength: 100
+      description: >-
+        The resolved permission codes the token carries
+        (`../../../docs/technical-design/platform/auth-and-identity.md` §2, §7), returned so the
+        client can gate its UI without decoding the token. UX only — the
+        Backend API enforces every permission on every request.
+      example: [REGISTRATION_CREATE]
 
 UserSummary:
   type: object

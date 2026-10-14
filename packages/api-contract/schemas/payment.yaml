@@ -3,11 +3,12 @@ Payment:
   description: >-
     Field-level source is `../../../docs/technical-design/platform/database-schema.md` §5.1. A row
     is created `PENDING` at charge-initiation and resolved later by
-    whichever of {webhook, reconciliation sweep} reaches it first
-    (`../../../docs/technical-design/modules/payment.md` §1) — **the charge-initiation response
-    itself never carries a final `SUCCEEDED`/`FAILED` outcome**, only
-    `PENDING`. No push/SSE mechanism is documented anywhere in this corpus,
-    so a client observes resolution by polling `getPayment`.
+    whichever of {the charge step itself, webhook, reconciliation sweep}
+    resolves it (`../../../docs/technical-design/modules/payment.md` §1, §8). The charge response
+    carries the status at the moment the charge step completed — a final
+    `SUCCEEDED`/`FAILED` when the gateway answered at once, otherwise
+    `PENDING`. No push/SSE mechanism exists, so a client observes later
+    resolution by polling `getPayment`.
   required: [id, registrationId, amount, currency, gateway, status, initiatedAt]
   properties:
     id:
@@ -106,8 +107,11 @@ CreatePaymentChargeRequest:
     "credentials never in source or committed config" discipline extended
     to the standard PCI-scope-avoidance pattern of never letting card
     details reach the Backend API at all, though no document states this
-    field explicitly. Revisit when a design note fixes the client-side
-    payment-collection flow.
+    field explicitly. **Phase 2 (checklist D11):** the Web Application
+    sends one of Stripe's fixed **test** tokens (a success and a decline
+    token), offered only when built with a test key; the field stays a
+    generic opaque token so Stripe.js can produce it later without any API
+    change.
   required: [registrationId, paymentMethodToken]
   properties:
     registrationId:

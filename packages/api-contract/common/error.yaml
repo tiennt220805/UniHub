@@ -14,9 +14,15 @@ properties:
     type: string
     format: uri-reference
     description: >-
-      A URI identifying the problem type. `about:blank` when the `status`
-      code alone already conveys enough meaning, which is the common case in
-      this API.
+      A URI identifying the problem type. Every error a client must branch
+      on has its own `type` — a stable contract: adding a value is a contract
+      change, renaming or removing one is breaking
+      (`../../../docs/guidelines/backend-coding-standards.md` §17):
+      `urn:unihub:problem:sold-out` (409), `…:already-registered` (409),
+      `…:registration-not-open` (409), `…:registration-not-reserved` (409),
+      `…:payment-in-progress` (409), `…:idempotency-key-in-use` (409, the
+      only retryable one), `…:idempotency-key-reused` (422). Every other
+      error uses `about:blank`, where the `status` code alone conveys enough.
     example: about:blank
   title:
     type: string

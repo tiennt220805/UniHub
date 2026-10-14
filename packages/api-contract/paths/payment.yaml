@@ -11,16 +11,16 @@ payments:
     operationId: chargePayment
     summary: Initiate a payment charge for a RESERVED registration
     description: >-
-      `../../../docs/technical-design/modules/payment.md` §3/§8. No `x-required-permission` — any
-      authenticated user may charge, but only for a registration they
-      themselves own (see `403` below); there is no capability-style
-      permission for "being a student," same as `createRegistration`.
+      `../../../docs/technical-design/modules/payment.md` §3/§8. Requires `REGISTRATION_CREATE` — the
+      same permission as `createRegistration` — and the caller must own the
+      registration (see `403` below).
 
-      **The response is always `PENDING`, never a final outcome.** Per
-      `payment.md` §1, a row is created `PENDING` at charge-initiation and
-      resolved later by whichever of {the gateway's webhook,
-      `paymentGatewayWebhook`, or the reconciliation sweep} reaches it
-      first — poll `getPayment` to observe resolution.
+      **The response carries the payment's real status when the charge
+      step completed** (`payment.md` §8): `SUCCEEDED` or `FAILED` when the
+      gateway answered at once, `PENDING` when the outcome is not yet known
+      (including a timeout after the request reached the gateway). The body
+      is a snapshot — `getPayment` is the source of truth; while `PENDING`,
+      poll it until the webhook or the reconciliation sweep resolves it.
 
       **Idempotency (§8):** a retried request carrying the same
       `Idempotency-Key` (scoped to this operation and the authenticated
@@ -36,18 +36,17 @@ payments:
       replays it; a new attempt (e.g. another card) uses a **new** key and
       is accepted.
 
-      **Circuit-breaker fallback (§3):** when the shared `paymentGateway`
-      breaker refuses the call, the response is `503`, nothing is recorded
-      under the key, and the registration's seat-hold is left completely
-      untouched — the student keeps the remainder of their original
-      15-minute window and retries with the **same** key once the gateway
-      recovers. If the gateway call times out or fails **after** the
-      request was sent, the payment stays `PENDING` (the gateway may have
-      charged) until reconciliation resolves it; a same-key retry meanwhile
-      gets `409`. **The response returned for that timed-out request itself
-      is an open item — flagged as an assumption** (Phase 2 checklist C30);
-      it is modelled under `503` below until decided.
+      **Gateway not reached vs. reached (§3, §8):** if the request never
+      left UniHub — the shared `paymentGateway` breaker refused it, or the
+      connection failed — the response is `503`, nothing is recorded under
+      the key, and the registration's seat-hold is left completely untouched:
+      the student keeps the remainder of their 15-minute window and retries
+      with the **same** key. If the request reached the gateway but the
+      outcome is unknown (timeout, error after sending), the response is
+      `201` with `PENDING`; a same-key retry replays it and the gateway is
+      never called twice.
     tags: [Payment]
+    x-required-permission: REGISTRATION_CREATE
     x-idempotent: true
     parameters:
       - $ref: '../common/headers.yaml#/IdempotencyKey'
@@ -60,7 +59,7 @@ payments:
             $ref: '../schemas/payment.yaml#/CreatePaymentChargeRequest'
     responses:
       '201':
-        description: Payment initiated, status PENDING. Poll `getPayment` for resolution.
+        description: Charge processed — the body carries the payment's status when the charge step completed (`SUCCEEDED`, `FAILED` or `PENDING`). While `PENDING`, poll `getPayment`.
         headers:
           X-Correlation-Id:
             $ref: '../common/headers.yaml#/CorrelationIdResponse'
@@ -81,7 +80,7 @@ payments:
             schema:
               $ref: '../common/error.yaml'
       '403':
-        description: Valid token, but the caller does not own the target registration.
+        description: Valid token, but missing the `REGISTRATION_CREATE` permission or not the owner of the target registration. Nothing recorded.
         content:
           application/problem+json:
             schema:
@@ -102,8 +101,9 @@ payments:
           request with this `Idempotency-Key` is still being processed (the
           only retryable cause — a same-key retry later replays its result).
           The first two are recorded under the key and replay identically.
-          A machine-readable reason per cause is an open item
-          (`../../../docs/guidelines/web-coding-standards.md` §13 item 5).
+          The cause is the problem `type`:
+          `urn:unihub:problem:registration-not-reserved`,
+          `…:payment-in-progress`, `…:idempotency-key-in-use`.
         content:
           application/problem+json:
             schema:
@@ -113,23 +113,23 @@ payments:
           This `Idempotency-Key` was already used by the same caller with a
           different request body
           (`../../../docs/guidelines/backend-coding-standards.md` §21). Nothing was executed.
-          A client bug, not a retry case.
+          A client bug, not a retry case. Problem `type`
+          `urn:unihub:problem:idempotency-key-reused`.
         content:
           application/problem+json:
             schema:
               $ref: '../common/error.yaml'
       '503':
         description: >-
-          `paymentGateway` circuit refused the call
-          (`../../../docs/technical-design/modules/payment.md` §3) — refused before anything was
-          written (no `payments` row), or refused right after the payment
-          row was written (that row is now `CANCELLED`). Either way nothing
-          is recorded under the `Idempotency-Key`, the seat-hold is
-          untouched, and a retry with the **same** key executes for real.
-          Also used, until Phase 2 checklist C30 is decided, for a gateway
-          call that timed out after the request was sent — in that case the
-          payment stays `PENDING` and a same-key retry gets `409` until
-          reconciliation resolves it. **`Retry-After`'s value is
+          The request never reached the gateway
+          (`../../../docs/technical-design/modules/payment.md` §3): the `paymentGateway` circuit
+          refused it, or the connection failed. Refused before anything was
+          written → no `payments` row; refused right after the payment row
+          was written → that row is now `CANCELLED`. Either way nothing is
+          recorded under the `Idempotency-Key`, the seat-hold is untouched,
+          and a retry with the **same** key executes for real. A timeout
+          **after** the request reached the gateway is a `201` `PENDING`, not
+          a `503`. **`Retry-After`'s value is
           inferred — flagged as an assumption.** Not specified in
           `payment.md`; set here to the breaker's own
           `wait-duration-in-open-state` (30s, `payment.md` §2) as the

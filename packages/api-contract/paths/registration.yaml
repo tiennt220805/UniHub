@@ -20,10 +20,9 @@ registrations:
     summary: Register for a workshop (reserve or confirm a seat)
     description: >-
       `../../../docs/technical-design/modules/registration.md` §2/§4 — this system's single
-      highest-risk correctness path. No `x-required-permission` — any
-      authenticated user may register for a workshop; there is no
-      capability-style permission for "being a student," only ownership of
-      the resulting registration.
+      highest-risk correctness path. Requires `REGISTRATION_CREATE`
+      (seeded for the Student role); the registration is always created for
+      the authenticated caller.
 
       **Idempotency (§4):** a retried request carrying the same
       `Idempotency-Key` (scoped to this operation and the authenticated
@@ -43,6 +42,7 @@ registrations:
       acquired and the workshop was definitively full — retrying the exact
       same request won't change that outcome.
     tags: [Registration]
+    x-required-permission: REGISTRATION_CREATE
     x-idempotent: true
     parameters:
       - $ref: '../common/headers.yaml#/IdempotencyKey'
@@ -78,6 +78,12 @@ registrations:
           application/problem+json:
             schema:
               $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, missing the `REGISTRATION_CREATE` permission. Nothing recorded.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
       '404':
         description: No workshop with this id.
         content:
@@ -90,9 +96,12 @@ registrations:
           (`../../../docs/technical-design/modules/registration.md` §2) — or the caller already has
           an active (`RESERVED`/`CONFIRMED`) registration for this workshop
           (`../../../docs/technical-design/platform/database-schema.md` §4.1's partial unique index)
-          — or a request with this `Idempotency-Key` is still being
-          processed (the only retryable cause; not recorded). The first two
-          are recorded under the key and replay identically.
+          — or the workshop is not open for registration, or a request with
+          this `Idempotency-Key` is still being processed (the only
+          retryable cause; not recorded). The others are recorded under the
+          key and replay identically. The cause is the problem `type`:
+          `urn:unihub:problem:sold-out`, `…:already-registered`,
+          `…:registration-not-open`, `…:idempotency-key-in-use`.
         content:
           application/problem+json:
             schema:
@@ -102,7 +111,8 @@ registrations:
           This `Idempotency-Key` was already used by the same caller with a
           different request body
           (`../../../docs/guidelines/backend-coding-standards.md` §21). Nothing was executed.
-          A client bug, not a retry case.
+          A client bug, not a retry case. Problem `type`
+          `urn:unihub:problem:idempotency-key-reused`.
         content:
           application/problem+json:
             schema:
