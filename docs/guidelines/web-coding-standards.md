@@ -411,7 +411,9 @@ type CreateRegistrationHeaders = operations['createRegistration']['parameters'][
 
 Branch on the problem `type`, never on `detail` or `title`. The `type` values are a stable contract
 (`packages/api-contract/common/error.yaml`); an error the client does not need to branch on keeps
-`about:blank`. User-facing copy is owned by the client, keyed by operation and status; `detail` is not shown as
+`about:blank`. **An unrecognised `type` must fall back to the status-code behavior** in the table
+above — never throw, never show a blank state — so the server can add a `type` without breaking
+deployed clients. User-facing copy is owned by the client, keyed by operation and status; `detail` is not shown as
 the primary message, because the contract fixes neither its wording nor its language.
 `correlationId` is shown on error states as the reference a user hands to support
 (`common/error.yaml`).
@@ -941,12 +943,15 @@ export function useRegisterForWorkshop(workshopId: string, options?: { onSuccess
   (e.g. an "Edit" link on the workshop detail) is decided in the **route**, which passes a boolean
   prop into the feature component — a feature never imports `features/auth` (§2 rule 4).
 - Permission constants are copied from the contract's `x-required-permission` values, only for
-  codes the Web Application uses: `REGISTRATION_CREATE`, `WORKSHOP_CREATE`, `WORKSHOP_EDIT`,
+  codes the Web Application uses: `REGISTRATION_CREATE` (registering and paying for one's own registration), `WORKSHOP_CREATE`, `WORKSHOP_EDIT`,
   `REPORT_VIEW`, `STUDENT_SYNC_VIEW`, `STUDENT_SYNC_RESOLVE`. `CHECKIN_SCAN` guards mobile-only operations and is
   not used here. No other code is added until the contract adds it.
 - On sign-in and on session end (sign-out, `401`), clear the query cache so no previous user's
   data — or an anonymous `404` for a `DRAFT` — survives into the next session.
-- The session (token, `user`, `permissions`, expiry) lives in `sessionStorage` (§8; `auth-and-identity.md` §7): it survives a reload, not the tab; the expiry is checked at start-up; a strict CSP and no raw-HTML rendering are preconditions (where the CSP is configured is open — Phase 2 checklist C34).
+- The session (token, `user`, `permissions`, expiry) lives in `sessionStorage` (§8; `auth-and-identity.md` §7): it survives a reload, not the tab; the expiry is checked at start-up. A strict CSP and no raw-HTML rendering are **preconditions**: if the CSP below is not in place, the token is kept in memory only.
+- **Content-Security-Policy (Phase 2 checklist D14, C34).** Phase 2 ships it as a `<meta http-equiv="Content-Security-Policy">` tag injected **only into the production build** (a Vite `transformIndexHtml` hook with `apply: 'build'`), so dev HMR keeps working:
+  `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' <API origin from build config>; object-src 'none'; base-uri 'self'; form-action 'self'`.
+  No Stripe.js is loaded (Phase 2 uses test tokens), so no third-party origin is allowed. A build test asserts the tag is present with these directives and that `index.html` has no inline `<script>`. A dependency that injects `<style>` at run time breaks `style-src 'self'`; that is resolved by a hash/nonce decision, never by adding `'unsafe-inline'` silently (Phase 2 checklist C38). Phase 7 moves the policy to an HTTP header at the serving layer, adding what a meta tag cannot carry — `frame-ancestors` "is not supported in the `<meta>` element" (MDN).
 
 **Why.** `requirement.md` §1.2/§2.11 and `architecture.md` §5.1 make permissions, not roles, the
 unit of access, so that roles can be reconfigured — or new ones added — without a code change. A

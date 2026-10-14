@@ -532,7 +532,7 @@ public final class Permissions {
     public static final String WORKSHOP_EDIT   = "WORKSHOP_EDIT";
     public static final String CHECKIN_SCAN    = "CHECKIN_SCAN";
     public static final String REPORT_VIEW     = "REPORT_VIEW";
-    public static final String REGISTRATION_CREATE = "REGISTRATION_CREATE";   // createRegistration + chargePayment (Phase 2, D7)
+    public static final String REGISTRATION_CREATE = "REGISTRATION_CREATE";   // create a registration and pay for one's own (D7)
     private Permissions() {}
 }
 
@@ -566,14 +566,14 @@ public record AuditEntry(Actor actor, String action, String targetType, UUID tar
                          Instant occurredAt, Map<String, Object> metadata) { ... }
 ```
 
-The adapter (`shared.infrastructure.out.messaging.RabbitAuditTrail`) must:
+The Phase 6 adapter (`shared.infrastructure.out.messaging.RabbitAuditTrail`) must:
 
 1. If a transaction synchronization is active, publish in `afterCommit` — never audit an operation that rolled back. Otherwise publish immediately. Calling `registerSynchronization` without an active synchronization throws, so this check is required.
 2. Publish directly to `unihub.system.audit.created` — **not** through the outbox (`messaging.md` §3).
 3. Catch every exception, log at `WARN`, and increment a failure counter so the gap surfaces as an alert (fail-open but not silent, `architecture.md` §5.5).
 4. Map the actor exactly as `audit_events` stores it (`database-schema.md` §8.3): `UserActor` → `actor_type = 'USER'`, `actor_user_id = userId`; `SystemActor` → `actor_type = 'SYSTEM'`, `actor_user_id = NULL`, and `process` written to `metadata.process`.
 
-**Phase 2 scope (checklist D6, Q10):** the port and this adapter are built in Phase 2 and every write use case calls them from then on — workshop create/update/cancel/reschedule/publish, registration create/confirm, payment charge and every payment transition, and the refund (Phase 3). The consumer that persists `audit_events` is **not** built before Phase 6 (M-54), so published events wait in `unihub.audit.queue`; how that queue is handled until then is open (Phase 2 checklist C32).
+**Phase 2 scope (checklist D6, Q10; C32):** the **port** is built in Phase 2 and every write use case calls it from then on — workshop create/update/cancel/reschedule/publish, registration create/confirm, payment charge and every payment transition, and the refund (Phase 3). The Phase 2 adapter is **`LoggingAuditTrail`**: the same after-commit, never-throw, failure-counter rules as below, but it writes one structured log line through a dedicated logger with a non-blocking asynchronous appender instead of publishing. It does **not** publish to the broker: a queue without a consumer grows without bound, and a RabbitMQ memory alarm blocks every publisher — the outbox relay and registration confirmation included. `RabbitAuditTrail` (below) and the consumer that persists `audit_events` are built together in Phase 6 (M-54); swapping the adapter changes no use case.
 
 Action names follow the `audit_events.action` examples (`WORKSHOP_CANCELLED`, `ROLE_PERMISSIONS_CHANGED`) and live as constants in `shared.application.port.out.AuditActions`. Operations no person performs — a hold expiring, the reconciliation sweep resolving a payment — are audited with `Actor.system("<job-name>")`. They are never attributed to a real user (for example the student whose hold expired): that would make the audit trail false.
 
@@ -877,6 +877,8 @@ class GlobalProblemHandler extends ResponseEntityExceptionHandler {   // also tu
   | `urn:unihub:problem:idempotency-key-in-use` | `409` | either — the same key is still being processed (retryable) |
   | `urn:unihub:problem:idempotency-key-reused` | `422` | either — the same key with a different body |
 
+  Slugs name a **business condition**, never an HTTP status, and a slug once used is **never reused** for another meaning. Clients must handle an unknown `type` by falling back to the HTTP status, which is what keeps adding a `type` non-breaking.
+
   The constants live in `shared.web` next to the advice; a Result variant maps to its `type` in the controller, a `DomainException` declares it alongside its `ProblemKind`. A replayed Result carries the same `type`.
 - Status semantics: `400` malformed request; `401` missing/invalid/expired token; `403` valid token without the permission; `404` not found, or hidden from this caller; `409` conflict with current state (including an `Idempotency-Key` still being processed); `422` an `Idempotency-Key` reused with a different request body (§21 rule 4); `503` + `Retry-After` for transient contention or an unavailable dependency. `UNPROCESSABLE` is added to the shared-kernel enum with the first Phase 2 code (Phase 2 checklist C26); `INVALID_REQUEST` already exists in code.
 
@@ -937,30 +939,40 @@ A `@Transactional` method called through `this.` bypasses the Spring proxy and r
 
 ### 19.4 Synchronous external calls — orchestrator
 
-When a request must call a third party synchronously (the Stripe charge, `payment.md`):
+When a request must call a third party synchronously (the Stripe charge, `payment.md` §8). The charge is split so that **only one call can move money** — the confirm (Phase 2 checklist D16):
 
 ```
 ChargePayment (no transaction)
-  ├─ breaker.tryAcquirePermission()  refused → 503, nothing written (G1a)
-  ├─ steps.begin(command)      @Transactional: idempotency find/begin(IN_PROGRESS, resourceId = payment id)
-  │                            + payments row PENDING, commit
-  ├─ paymentGateway.charge()   no transaction; breaker (with the permission above) + TimeLimiter (payment.md ADR)
-  ├─ steps.complete(outcome)   @Transactional: payment updated with version check + idempotency complete, commit
-  └─ steps.abandon(paymentId)  @Transactional, only when the breaker refused after begin committed (G1b):
-                               PENDING → CANCELLED + idempotency abandonOpenFor, commit; respond 503
+  ├─ breaker.tryAcquirePermission()   refused → 503, nothing written
+  ├─ steps.begin(command)             @Transactional: idempotency find/begin(IN_PROGRESS, resourceId = payment id)
+  │                                   + payments row PENDING, commit
+  ├─ gateway.create(confirm=false)    no transaction; moves no money; key pi-create:{paymentId}
+  ├─ steps.attach(paymentId, gatewayId)  @Transactional: store gateway_transaction_id, commit
+  ├─ gateway.confirm(gatewayId)       no transaction; THE money-moving call; key pi-confirm:{paymentId},
+  │                                   error_on_requires_action=true
+  ├─ steps.complete(outcome)          @Transactional: payment updated with version check + idempotency complete
+  └─ steps.abandon(paymentId)         @Transactional: PENDING → CANCELLED + idempotency abandonOpenFor; respond 503
 ```
 
-**Which step runs after the call (checklist D10 — C28, C30):**
+**Which step runs (checklist D10, D16 — one rule for this path and for reconciliation, `payment.md` §6):**
 
-| Outcome of the gateway call | Next step | Response |
+| What happened | Next step | Response |
 |---|---|---|
-| Never left UniHub — breaker refusal, connect timeout, connection refused, DNS failure | `abandon`: `PENDING → CANCELLED`, key deleted | `503`, nothing recorded; a same-key retry executes for real |
-| Sent, outcome unknown — read timeout, reset after sending, gateway `5xx` | `complete` with the Result "initiated": payment stays `PENDING`, key `COMPLETED` | `201` with `PENDING`; a same-key retry replays it, the gateway is never called twice; webhook/reconciliation decide the outcome |
-| Definitive answer — succeeded or declined | `complete` with the real status: `SUCCEEDED` (and, **in the same transaction**, the outbox row `unihub.payment.charge.succeeded`, `payment.md` §9) or `FAILED` | `201` with that status |
+| Any failure in `create` — including a read timeout — or in `attach` | `abandon`: no money can have moved (nothing was confirmed) | `503`, nothing recorded; a same-key retry executes for real |
+| `confirm` never left UniHub — breaker refusal, connect timeout, connection refused, DNS failure | `abandon` | `503`, same |
+| `confirm` sent, outcome unknown — read timeout, reset after sending, gateway `5xx` — on **any** attempt of the retry chain | `complete` with the Result "initiated": payment stays `PENDING`, key `COMPLETED` | `201` with `PENDING`; a same-key retry replays it, confirm is never sent again; webhook/reconciliation decide |
+| `confirm` answered — `succeeded`, or declined (`requires_payment_method`) | `complete` with `SUCCEEDED` (+ outbox `unihub.payment.charge.succeeded` **in the same transaction**, `payment.md` §9) or `FAILED` | `201` with that status |
+| `confirm` answered `processing` | `complete` with "initiated" (`PENDING`) | `201` with `PENDING` |
 
-The `201` body is a snapshot taken when `complete` committed; `getPayment` is the source of truth. Only a crash between `begin` and `complete` leaves the key `IN_PROGRESS` for reconciliation (`completeOpenFor`, §21 rule 7). The permission acquired before `begin` is either consumed by the call or released, so a `HALF_OPEN` probe slot is never leaked. How the gateway call itself is split so that reconciliation can always identify the transaction is open (Phase 2 checklist C31; proposal in `payment.md` §6).
+Rules for every gateway call:
 
-`begin` and `complete` live on a separate `ChargePaymentSteps` bean. `TransactionTemplate` is **not** used in `application` — it sits outside the Spring allow-list (§3), and the two-bean shape already solves the problem.
+- **Idempotency key per payment and per step** (`pi-create:`, `pi-confirm:`, `pi-cancel:` + payment id), reused by every retry of that step — SDK or Resilience4j. A step is never re-sent with a different key, and an unresolved one is re-sent only within Stripe's 24-hour key window; after that it is only retrieved.
+- **SDK retries are configured explicitly**, never left to the SDK's default (Stripe: "Retry defaults depend on the SDK, version, and how you construct the client"); on this synchronous path they are `0` so the `TimeLimiter` stays the only clock. "Reached the gateway" is judged over the whole retry chain: if any attempt may have been sent, the step counts as reached.
+- `metadata.payment_id` is set on create for operator investigation only — no code path resolves a payment from it.
+
+The `201` body is a snapshot taken when `complete` committed; `getPayment` is the source of truth. Only a crash between `begin` and `complete` leaves the key `IN_PROGRESS` for reconciliation (`completeOpenFor`, §21 rule 7). The breaker permission acquired before `begin` is either consumed by the calls or released, so a `HALF_OPEN` probe slot is never leaked. The time budget of two calls on this path is open (Phase 2 checklist C37).
+
+`begin`, `attach`, `complete` and `abandon` live on a separate `ChargePaymentSteps` bean. `TransactionTemplate` is **not** used in `application` — it sits outside the Spring allow-list (§3), and the two-bean shape already solves the problem.
 
 ### 19.5 Cross-module commands use `MANDATORY`
 
@@ -1097,7 +1109,7 @@ Rules:
 4. **Fingerprint.** The web layer computes the request fingerprint (lowercase hex SHA-256 of the body in canonical JSON) and passes it in the command. On replay, `Completed` or `InProgress` with a **different** fingerprint → `IdempotencyKeyReusedException` (`ProblemKind.UNPROCESSABLE`, `422`); nothing executes. Same fingerprint: `Completed` → return its Result; `InProgress` → `IdempotencyKeyInUseException` (`409`).
 5. Every outcome that must replay identically — including business rejections such as sold-out, already-registered, or "a payment for this registration is already in progress" — is a **variant of the sealed Result**, never a thrown exception. A thrown exception rolls back the transaction and the key row with it.
 6. The adapter writes with `JdbcTemplate`, so a unique-constraint violation surfaces immediately inside `begin`, not later at flush, and translates `DuplicateKeyException` into `IdempotencyKeyInUseException` (`CONFLICT`). The same "catch the duplicate, translate it" rule applies to any **partial** unique index that guards a business invariant (e.g. one live payment per registration, `database-schema.md` §5.1): a partial index cannot be an `ON CONFLICT ON CONSTRAINT` target, so the adapter catches the error and the use case returns the matching Result variant — never a `500`.
-7. Transient failures (lock contention, lost version race, dependency down, breaker refusal) are **not** recorded. They roll back, and the retry executes for real. For an orchestrated charge whose first transaction already committed, the rule is **whether the request reached the gateway** (§19.4, checklist D10): a failure known to happen before the request left UniHub is undone by a compensating transaction (payment `CANCELLED`, `abandonOpenFor`) and is not recorded; a request that was sent but whose outcome is unknown is a business outcome — "initiated", recorded as `PENDING` — so a retry replays it and never dials twice. Only a crash between the two transactions leaves the key `InProgress`; reconciliation then completes it with the resolution (`completeOpenFor`, G2).
+7. Transient failures (lock contention, lost version race, dependency down, breaker refusal) are **not** recorded. They roll back, and the retry executes for real. For the orchestrated charge the single rule — shared by the synchronous path and reconciliation (§19.4, `payment.md` §6, checklist D16) — is: **provably no money moved** (the gateway id was never stored, the confirm never left UniHub, or a cancel succeeded) → payment `CANCELLED` and the key **deleted** (`abandonOpenFor`), so a same-key retry executes for real; **outcome known** (`SUCCEEDED`, `FAILED`, or "initiated" = `PENDING` after a confirm that was sent) → the key is completed with that Result, so a retry replays it and the confirm is never sent twice. Only a crash between the transactions leaves the key `InProgress`; reconciliation then applies the same rule (`completeOpenFor` / `abandonOpenFor`, G2).
 8. The cleanup sweep deletes only `COMPLETED` rows older than the retry window (by `completed_at`); it never deletes an `IN_PROGRESS` row.
 
 ---
