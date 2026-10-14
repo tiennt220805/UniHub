@@ -95,7 +95,7 @@ Với mỗi mục bên dưới: viết test trước (Red) → code tối thiể
 - [x] `contract-diff` gated bởi `integration-test` thành công
 - [x] Gitleaks secret scan chạy như 1 stage riêng (liên quan M-13)
 - [x] Semgrep (SAST) chạy như job riêng, **non-blocking** (`continue-on-error: true`, không job nào `needs:`) — `deployment-and-cicd.md` §5 Security Scan Jobs ADR, `test-plan.md` §1 Phase 1
-- [ ] OWASP Dependency-Check chạy như job riêng, **non-blocking**, report upload thành artifact — cần tạo secret `NVD_API_KEY` trên GitHub (`IMPLEMENTATION-READINESS.md` D6)
+- [x] OWASP Dependency-Check chạy như job riêng, **non-blocking**, report upload thành artifact — secret `NVD_API_KEY` đã tạo; dữ liệu NVD được cache giữa các lần chạy (`actions/cache`)
 - [x] ~~Branch protection rule: merge vào `main` bị chặn nếu bất kỳ stage nào fail~~ → **Không áp dụng (quyết định 2026-10-13):** dự án cá nhân, push thẳng `main`, không PR. CI vẫn chạy và báo đỏ/xanh mọi push nhưng không chặn commit; ghi trong `test-matrix.md` §4.4. Bật lại khi có người thứ hai hoặc chuyển sang PR
 
 ---
