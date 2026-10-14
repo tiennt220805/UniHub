@@ -38,6 +38,7 @@ All SQL in this document targets PostgreSQL (the Master; DDL runs once, ahead of
   - [8.3 `audit_events`](#83-audit_events)
 - [9. Consolidated Entity-Relationship Diagram](#9-consolidated-entity-relationship-diagram)
 - [10. DDL Appendix](#10-ddl-appendix)
+  - [10.1 Pending migration `V3` — specification](#101-pending-migration-v3--specification-phase-2-not-yet-a-file)
 - [11. Traceability Matrix](#11-traceability-matrix)
 
 ---
@@ -227,21 +228,25 @@ Rationale for each column, and the resilience/reconciliation flow around this ta
 
 **Rationale for `version`:** not named explicitly in §6.1's anti-overbooking list, but the same optimistic-concurrency pattern is applied here for a distinct reason: the reconciliation sweep and a late-arriving gateway webhook (`../modules/payment.md`) can race to resolve the same `PENDING` row concurrently. This is a direct, consistent extension of an already-established pattern to a second, structurally identical race — not a new invariant.
 
+**Rationale for "at most one *live* payment per registration" (Phase 2 decision D5, 2026-10-14):** a registration may accumulate several `payments` rows over its 15-minute hold — a declined card (`FAILED`) or a charge cancelled before it reached the gateway (`CANCELLED`, `../modules/payment.md` §3) must not lock the student out of trying again. What must never happen is two charges in flight, or two successful charges, for the same registration — even when two browser tabs send two different `Idempotency-Key`s, which `idempotency_keys` (§8.1) cannot catch. A **partial** unique index over the live statuses enforces exactly that. `REFUND_REQUIRED`/`REFUNDED` stay in the index: they are money that was taken, and their registration is no longer `RESERVED`, so it can never be charged again anyway. A partial index cannot be the target of `ON CONFLICT ON CONSTRAINT`; the adapter catches the duplicate-key error on it and translates it into a business outcome ("a payment for this registration is already in progress", `409`), never a `500` (`../../guidelines/backend-coding-standards.md` §21).
+
+**Rationale for `REFUND_REQUIRED`/`REFUNDED` (Phase 2 decision D2/C10):** a payment can succeed after its registration stopped being `RESERVED` (the hold expired or the registration was cancelled while the charge was in flight). The seat is not re-granted; the money goes back (`../modules/payment.md` §8.1). `REFUND_REQUIRED` is entered by a conditional `UPDATE … WHERE status = 'SUCCEEDED'`, which is also what makes the transition idempotent under redelivery; `REFUNDED` once the gateway confirms the refund. In Phase 2 only the first transition is implemented; the gateway refund lands in Phase 3.
+
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
 | `id` | UUID | PK | |
-| `registration_id` | UUID | UNIQUE, NOT NULL, FK → `registrations.id` ON DELETE RESTRICT | 1:1 with the registration it pays for. |
+| `registration_id` | UUID | NOT NULL, FK → `registrations.id` ON DELETE RESTRICT — **no table-wide UNIQUE** (see Indexes) | A registration has at most one *live* payment (`PENDING`, `SUCCEEDED`, `REFUND_REQUIRED`, `REFUNDED`) and any number of `FAILED`/`CANCELLED` attempts. *Was `UNIQUE` in `V1`; replaced by `V3` (§10.1).* |
 | `amount` | NUMERIC(12,2) | NOT NULL, CHECK (`amount > 0`) | |
 | `currency` | VARCHAR(3) | NOT NULL, DEFAULT `'VND'` | |
 | `gateway` | VARCHAR(20) | NOT NULL, DEFAULT `'STRIPE'` | Sandbox mode only (`proposal.md` §5.2). |
 | `gateway_transaction_id` | VARCHAR(255) | UNIQUE, NULL | Set once the gateway responds; the UNIQUE constraint stops two `payments` rows from ever claiming the same external transaction. |
-| `status` | VARCHAR(20) | NOT NULL, DEFAULT `'PENDING'`, CHECK IN (`PENDING`, `SUCCEEDED`, `FAILED`, `CANCELLED`) | |
+| `status` | VARCHAR(20) | NOT NULL, DEFAULT `'PENDING'`, CHECK IN (`PENDING`, `SUCCEEDED`, `FAILED`, `CANCELLED`, `REFUND_REQUIRED`, `REFUNDED`) | `CANCELLED` also covers a charge the breaker refused after its row was written (`../modules/payment.md` §3). `REFUND_REQUIRED`/`REFUNDED`: see Rationale above. *The two refund values arrive with `V3` (§10.1).* |
 | `initiated_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | What the reconciliation sweep's ">15 minutes in Pending" check measures from. |
-| `resolved_at` | TIMESTAMPTZ | NULL | Set when `status` leaves `PENDING`, by whichever of {webhook, reconciliation sweep} gets there first (`../modules/payment.md`). |
+| `resolved_at` | TIMESTAMPTZ | NULL | Set when `status` leaves `PENDING`, by whichever of {webhook, reconciliation sweep, breaker compensation} gets there first (`../modules/payment.md`). Not changed by the refund transitions. |
 | `version` | INT | NOT NULL, DEFAULT 0 | See Rationale above. |
 | `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
 
-**Indexes:** `(initiated_at) WHERE status = 'PENDING'` — the reconciliation sweep's primary scan target.
+**Indexes:** `(initiated_at) WHERE status = 'PENDING'` — the reconciliation sweep's primary scan target; `UNIQUE (registration_id) WHERE status IN ('PENDING', 'SUCCEEDED', 'REFUND_REQUIRED', 'REFUNDED')` (`uq_payments_live_per_registration`, `V3`) — at most one live payment per registration.
 
 ---
 
@@ -321,20 +326,29 @@ Cross-cutting, not business data (§6.1) — no module "owns" these the way it o
 
 ### 8.1 `idempotency_keys`
 
-**Rationale:** backs the exactly-once guarantee (`architecture.md` §4.5, `proposal.md` §11.2). The UNIQUE constraint on `(scope, idempotency_key)` — not application-level "check then insert" logic — is what makes a second concurrent request with the same key, in the same operation scope, fail outright rather than racing the first. Composite, not key-only: a client-generated key is only required to be unique per client-side request flow, and scoping the constraint by operation type means an accidental key reuse across two unrelated operations (e.g. a UUID reused across a registration-create and a later payment-charge) can't produce a spurious collision. Written in the **same transaction** as the business effect it guards; this table has no FK into any business table precisely because the whole point is to check by key *before* the guarded row's id exists yet. Applied to registration-create in `../modules/registration.md` and to payment-charge in `../modules/payment.md`.
+**Rationale:** backs the exactly-once guarantee (`architecture.md` §4.5, `proposal.md` §11.2). The UNIQUE constraint on `(scope, actor_user_id, idempotency_key)` — not application-level "check then insert" logic — is what makes a second concurrent request with the same key, by the same user, in the same operation scope, fail outright rather than racing the first. Composite, not key-only, on two axes: **scope**, because a client-generated key is only required to be unique per client-side request flow, so an accidental key reuse across two unrelated operations (e.g. a UUID reused across a registration-create and a later payment-charge) must not produce a spurious collision; **actor**, because without it one user's key could block, or replay the stored result of, another user's request. Written in the **same transaction** as the business effect it guards; this table has no FK into any business table, because the key is checked *before* the guarded row exists (`resource_id` below is a plain, polymorphic reference, like `event_publications.aggregate_id`). Applied to registration-create in `../modules/registration.md` §4 and to payment-charge in `../modules/payment.md` §8. *Target shape after migration `V3` (§10.1, Phase 2 decisions D1/C2/G2, 2026-10-14) — the applied `V1` shape is still in the §10 DDL block.*
+
+**Invariant — the actor is never client-supplied.** `actor_user_id` is always the authenticated user (the verified JWT `sub`, `auth-and-identity.md` §2), never a value read from the request body or a header. Taking it from the request would let a caller probe other users' stored results by guessing their keys.
 
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
 | `id` | UUID | PK | |
-| `idempotency_key` | VARCHAR(255) | NOT NULL | Client-generated (`docs/requirement.md` §2.8). Unique only in combination with `scope` — see the composite constraint below. |
-| `scope` | VARCHAR(50) | NOT NULL | e.g. `REGISTRATION_CREATE`, `PAYMENT_CHARGE` — which operation this key guards, and the other half of the composite uniqueness constraint. |
-| `response_status` | INT | NOT NULL | HTTP status of the original result. |
-| `response_body` | JSONB | NOT NULL | The original result, replayed verbatim on a duplicate request — never re-executed. |
-| `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | What the cleanup sweep (`distributed-coordination.md` §2) ages records against. |
+| `idempotency_key` | VARCHAR(255) | NOT NULL | Client-generated (`docs/requirement.md` §2.8). Unique only in combination with `scope` and `actor_user_id`. |
+| `scope` | VARCHAR(50) | NOT NULL | `REGISTRATION_CREATE`, `PAYMENT_CHARGE` — which operation this key guards. |
+| `actor_user_id` | UUID | NOT NULL | The authenticated caller (see Invariant). No FK — this table carries no FK by design (Rationale). |
+| `request_fingerprint` | VARCHAR(64) | NOT NULL | Lowercase hex SHA-256 of the request body in canonical JSON form. Same key with a different fingerprint → `422`, nothing executed (`../../guidelines/backend-coding-standards.md` §21). |
+| `status` | VARCHAR(20) | NOT NULL, CHECK IN (`IN_PROGRESS`, `COMPLETED`) | `IN_PROGRESS` is visible to other transactions **only** for `PAYMENT_CHARGE`, and only committed together with its `PENDING` `payments` row; a `REGISTRATION_CREATE` row is inserted and completed inside one transaction and never commits as `IN_PROGRESS` (`../modules/registration.md` §4, `../modules/payment.md` §8). |
+| `result_type` | VARCHAR(100) | NULL; CHECK `(status = 'COMPLETED') = (result_type IS NOT NULL)` | Which variant of the use case's sealed Result was recorded (e.g. `Confirmed`, `SoldOut`). Business outcomes only — infrastructure failures are never recorded. |
+| `result_body` | JSONB | NULL; CHECK `(result_type IS NULL) = (result_body IS NULL)` | The serialized Result, replayed verbatim on a duplicate request — never re-executed. The web layer maps it to HTTP deterministically, so a replay produces the identical response. |
+| `resource_id` | UUID | NULL | The guarded row: `payments.id` for `PAYMENT_CHARGE` (written with the `IN_PROGRESS` row, so reconciliation can complete the key — `../modules/payment.md` §6); the registration id for `REGISTRATION_CREATE` when it created one. Polymorphic, no FK. |
+| `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | |
+| `completed_at` | TIMESTAMPTZ | NULL; CHECK `(status = 'COMPLETED') = (completed_at IS NOT NULL)` | What the cleanup sweep (`distributed-coordination.md` §2) ages records against — measured from completion, so a charge completed late by reconciliation still gets the full replay window. |
 
-**Indexes:** `UNIQUE (scope, idempotency_key)` (the backstop itself — composite, not key-only); `(created_at)` for the sweep.
+**Indexes:** `UNIQUE (scope, actor_user_id, idempotency_key)` (the backstop itself); `(completed_at) WHERE status = 'COMPLETED'` for the sweep; `(scope, resource_id) WHERE status = 'IN_PROGRESS'` for reconciliation and breaker compensation to find a charge's open key.
 
-**Retention:** minutes, not permanent (§6.3) — swept by the scheduled job in `distributed-coordination.md` §2, not native TTL (Postgres rows don't expire on their own).
+**Lifecycle of an `IN_PROGRESS` row (`PAYMENT_CHARGE` only):** it leaves `IN_PROGRESS` in exactly one of three ways — the charge's second transaction completes it with the Result; the breaker compensation (the charge was refused after its row was written) **deletes** it together with moving the payment to `CANCELLED`, so a same-key retry executes for real; or reconciliation completes it with the Result in the same transaction that resolves the stuck payment. The sweep never touches it.
+
+**Retention:** minutes, not permanent (§6.3) — the scheduled job in `distributed-coordination.md` §2 deletes `COMPLETED` rows older than the retry window (by `completed_at`), not native TTL (Postgres rows don't expire on their own). `IN_PROGRESS` rows are never swept.
 
 ### 8.2 `event_publications`
 
@@ -561,7 +575,7 @@ erDiagram
     %% --- Relationships: business core ---
     USERS ||--o{ REGISTRATIONS : registers
     WORKSHOPS ||--o{ REGISTRATIONS : "reserved via"
-    REGISTRATIONS ||--o| PAYMENTS : "paid via"
+    REGISTRATIONS ||--o{ PAYMENTS : "paid via (at most one live)"
 
     %% --- Relationships: check-in, notification, audit ---
     REGISTRATIONS ||--o{ CHECK_IN_SCANS : "scanned as"
@@ -576,7 +590,7 @@ erDiagram
 
 ## 10. DDL Appendix
 
-Reference-only — this is the schema described above expressed as literal PostgreSQL DDL. It is not a runnable migration file: the runnable files are `src/main/resources/db/migration/V1__initial_schema.sql` plus the corrections applied after it (`V1_1__workshop_paid_price_not_null.sql`, `V1_2__workshop_text_not_blank.sql`). This appendix shows the **cumulative** result of those files, so it intentionally differs from `V1__initial_schema.sql` alone (an applied migration is never edited, so the header comment of `V1__initial_schema.sql`, which still says "verbatim", is left as is to keep its Flyway checksum); a new correction is made here first and lands as the next `V1_n` file.
+Reference-only — this is the schema described above expressed as literal PostgreSQL DDL. It is not a runnable migration file: the runnable files are `src/main/resources/db/migration/V1__initial_schema.sql` plus the corrections applied after it (`V1_1__workshop_paid_price_not_null.sql`, `V1_2__workshop_text_not_blank.sql`). This appendix shows the **cumulative** result of those files, so it intentionally differs from `V1__initial_schema.sql` alone (an applied migration is never edited, so the header comment of `V1__initial_schema.sql`, which still says "verbatim", is left as is to keep its Flyway checksum); a new correction is made here first and lands as the next `V1_n` file. The Phase 2 schema changes are **not** in this block yet: they are specified in §10.1 as migration `V3` and are folded in here when that file is applied.
 
 ```sql
 -- ============================================================
@@ -857,6 +871,63 @@ CREATE INDEX idx_audit_events_target ON audit_events (target_type, target_id);
 CREATE INDEX idx_audit_events_occurred_at ON audit_events (occurred_at);
 ```
 
+### 10.1 Pending migration `V3` — specification (Phase 2, not yet a file)
+
+Specified here first, per the rule above; the runnable file is `src/main/resources/db/migration/V3__idempotency_result_and_live_payments.sql` (name indicative), created with the first Phase 2 code that needs it. Numbered `V3` rather than `V1_n` because it is a new Phase 2 schema change, not a correction to `V1`; `V2` is the role/permission seed. Decisions: Phase 2 checklist D1 (Result storage, fingerprint, `IN_PROGRESS`), C2 (actor in the key), C6/D5 (live-payment index), C10/D2 (refund statuses), G2/C27 (`resource_id`).
+
+```sql
+-- 8.1 idempotency_keys: store the use-case Result, scope by actor, add fingerprint + lifecycle.
+-- The table holds no rows in any deployed version (no Phase 1 code reads or writes it).
+ALTER TABLE idempotency_keys
+    DROP CONSTRAINT uq_idempotency_keys_scope_key,
+    DROP COLUMN response_status,
+    DROP COLUMN response_body,
+    ADD COLUMN actor_user_id       UUID         NOT NULL,
+    ADD COLUMN request_fingerprint VARCHAR(64)  NOT NULL,
+    ADD COLUMN status              VARCHAR(20)  NOT NULL
+        CHECK (status IN ('IN_PROGRESS', 'COMPLETED')),
+    ADD COLUMN result_type         VARCHAR(100),
+    ADD COLUMN result_body         JSONB,
+    ADD COLUMN resource_id         UUID,
+    ADD COLUMN completed_at        TIMESTAMPTZ,
+    ADD CONSTRAINT ck_idempotency_keys_completed_result
+        CHECK ((status = 'COMPLETED') = (result_type IS NOT NULL)),
+    ADD CONSTRAINT ck_idempotency_keys_result_pair
+        CHECK ((result_type IS NULL) = (result_body IS NULL)),
+    ADD CONSTRAINT ck_idempotency_keys_completed_at
+        CHECK ((status = 'COMPLETED') = (completed_at IS NOT NULL)),
+    ADD CONSTRAINT uq_idempotency_keys_scope_actor_key
+        UNIQUE (scope, actor_user_id, idempotency_key);
+
+DROP INDEX idx_idempotency_keys_created_at;
+CREATE INDEX idx_idempotency_keys_completed_at
+    ON idempotency_keys (completed_at) WHERE status = 'COMPLETED';
+CREATE INDEX idx_idempotency_keys_open_resource
+    ON idempotency_keys (scope, resource_id) WHERE status = 'IN_PROGRESS';
+
+-- 5.1 payments: at most one live payment per registration; refund statuses.
+-- Create the partial index before dropping the table-wide UNIQUE, so the invariant
+-- "no two live payments for one registration" is enforced at every instant.
+CREATE UNIQUE INDEX uq_payments_live_per_registration
+    ON payments (registration_id)
+    WHERE status IN ('PENDING', 'SUCCEEDED', 'REFUND_REQUIRED', 'REFUNDED');
+ALTER TABLE payments DROP CONSTRAINT payments_registration_id_key;  -- V1's implicit name; verify before applying
+ALTER TABLE payments DROP CONSTRAINT payments_status_check;         -- V1's implicit name; verify before applying
+ALTER TABLE payments ADD CONSTRAINT ck_payments_status
+    CHECK (status IN ('PENDING', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'REFUND_REQUIRED', 'REFUNDED'));
+```
+
+**Compatibility with old and new pods running side by side (`architecture.md` §6.2, INV-15):**
+
+| Change | Old pod (pre-Phase 2 build) | New pod | Verdict |
+|---|---|---|---|
+| `idempotency_keys` columns dropped/added, unique key replaced | Never reads or writes the table (no idempotency code exists before Phase 2) | Reads/writes only the new shape | Safe as a single step. **Rule for later changes to this table:** once a deployed version writes it, any change must be expand → migrate → contract across releases (add nullable, backfill, then tighten), never drop-and-add in one migration |
+| `payments`: table-wide `UNIQUE (registration_id)` → partial unique index | Never writes `payments` | Relies on the partial index | Safe. The index is created **before** the constraint is dropped, so there is no instant without a uniqueness backstop |
+| `payments.status` CHECK widened with `REFUND_REQUIRED`, `REFUNDED` | Never reads `payments` | Writes the new values | Safe. Widening a CHECK never invalidates existing rows. **Rule for later:** a widened enum must be deployed before any pod writes the new values, and every reader deployed alongside must tolerate unknown values |
+| Both tables are empty in every environment when `V3` runs | — | — | All `NOT NULL` additions without defaults are valid only because of this; the migration must fail (not silently default) if it ever meets rows — `ALTER TABLE … ADD COLUMN … NOT NULL` without a default does exactly that |
+
+The two implicit constraint names (`payments_registration_id_key`, `payments_status_check`) are PostgreSQL's defaults for `V1`'s inline `UNIQUE`/`CHECK`; confirm them against `information_schema.table_constraints` on a `V2` database before writing the file.
+
 ---
 
 ## 11. Traceability Matrix
@@ -868,7 +939,9 @@ Every guarantee-bearing constraint above, mapped back to what it enforces. For r
 | `capacity`/`seats_taken` CHECK + `version` | `workshops` | Anti-overbooking, storage-layer half (§6.1, `distributed-coordination.md` §2, `proposal.md` §11.1) |
 | Same-transaction requirement: `registrations` status write + `workshops.seats_taken`/`version` update | `workshops`, `registrations` | The transactional coupling that makes the check constraint/version pair actually effective, not just present — explicit invariant in §3.1/§4.1, walked through end-to-end in `../modules/registration.md` |
 | `version` | `registrations` | Same, at the registration side of the race |
-| `UNIQUE (scope, idempotency_key)` | `idempotency_keys` | Exactly-once guarantee (`architecture.md` §4.5, `proposal.md` §11.2), scoped per operation type so a key can't spuriously collide across unrelated operations |
+| `UNIQUE (scope, actor_user_id, idempotency_key)` (`V3`) | `idempotency_keys` | Exactly-once guarantee (`architecture.md` §4.5, `proposal.md` §11.2), scoped per operation type so a key can't spuriously collide across unrelated operations, and per authenticated user so one user's key can never block or replay another's |
+| `request_fingerprint` + `status`/`result_*`/`completed_at` CHECKs (`V3`) | `idempotency_keys` | A key replays only the request it was issued for (`422` otherwise); a completed key always carries a Result, an in-progress one never does |
+| `UNIQUE (registration_id) WHERE status IN ('PENDING','SUCCEEDED','REFUND_REQUIRED','REFUNDED')` (`V3`) | `payments` | Never two charges in flight or two successful charges for one registration, even across different idempotency keys; a failed attempt never blocks a retry (Phase 2 decision D5) |
 | Written in same transaction as business row (documented, not a DB feature) | `idempotency_keys` | Same — the atomicity is what §4.5 actually requires |
 | `status` PENDING/PUBLISHED + relay poll | `event_publications` | Transactional outbox (`architecture.md` §4.3, §6.1) |
 | `correlation_id` | `event_publications` | End-to-end correlation through the outbox (`docs/requirement.md` §3.1, `observability.md` §1) |
