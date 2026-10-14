@@ -812,9 +812,14 @@ export const campusLocalToIso = (local: string) => `${local.length === 16 ? `${l
   - the server returns a definitive failure: any `4xx` other than `429` (e.g. `409` sold out,
     `403`, `404`, `400`);
   - the user starts a different intent, including changing the request body (e.g. a different
-    `paymentMethodToken`). A key is never reused with a different body.
+    `paymentMethodToken`). A key is never reused with a different body — the server answers `422`
+    if it is (`backend-coding-standards.md` §21 rule 4); treat `422` as a client bug, not a retry case;
+  - a payment the key created ends `FAILED` or `CANCELLED` (observed via `getPayment`): trying
+    again — even with the same card — is a new attempt with a new key. Retrying the old key only
+    replays the old outcome (`technical-design/modules/payment.md` §8).
 - **The intent continues — same key — after a transient failure:** no response (network), `429`,
-  or `503`.
+  `503`, or `409` "this key is still being processed" (a previous attempt with the same key has not
+  finished; retry after a short delay and it replays that attempt's result).
 - Disable the submit control while `isPending`. That is UX only; the key is the guarantee.
 
 **Why.** `requirement.md` §1.5/§2.8 and `proposal.md` §11.2 require that a student is never
@@ -828,14 +833,14 @@ key that already got `409` gets the same `409` again, even if a seat has since f
 trying again *as a new attempt* needs a new key. After a network failure the client cannot know
 whether the server committed — reusing the key turns a committed request into a replay of its
 result instead of a second registration. A `503` is "transient, safe to retry"
-(`paths/registration.yaml`, `paths/payment.yaml`). One known gap: `technical-design/modules/payment.md`
-§8 records the circuit-open `503` under the key, which would make a same-key retry replay that
-`503`; this conflicts with `backend-coding-standards.md` §21 (transient failures are not recorded)
-and the contract's "safe to retry" (§13 item 6). If the component holding the key unmounts
+(`paths/registration.yaml`, `paths/payment.yaml`): the backend never records a `503` under the key
+(`backend-coding-standards.md` §21 rule 7), so a same-key retry executes for real. Keys are scoped
+to the signed-in user on the server, so two users can never collide on a key. If the component holding the key unmounts
 mid-intent, the next mount starts a new intent; the database backstops still hold — at most one
 active registration per user and workshop (the partial unique index behind
-`createRegistration`'s `409`, `database-schema.md` §4.1) and at most one payment per registration
-(`chargePayment`'s `409`, `database-schema.md` §5.1).
+`createRegistration`'s `409`, `database-schema.md` §4.1) and at most one *live* payment per registration (`chargePayment`'s `409`,
+`database-schema.md` §5.1 — a `FAILED`/`CANCELLED` payment does not count, so a new attempt with a
+new key is accepted).
 
 **Example.**
 
@@ -1095,8 +1100,8 @@ fills gaps with its own guesses becomes a second, conflicting source of truth.
 | 2 | ~~**Code migration from the Mục 0 scaffold (and the Phase 1 Mục 2.4–2.5 pages) to §4.**~~ **Done (2026-10-13).** `apps/web/src` follows §4: `app/` (main, App, providers, router), `routes/public/`, `features/workshops/{api,components}`, `shared/{api,config,lib,ui}`, `styles/`, `testing/`; `components.json` aliases moved; unused `App.css` removed. `src/assets/` (unused Vite scaffold images) was left as is | `apps/web` | — |
 | 3 | **Web token storage & refresh strategy.** Refresh is decided — there is none (`auth-and-identity.md` §4). Undecided: where the Web keeps the access token (memory only, `sessionStorage`, `localStorage`; an `httpOnly` cookie would change the contract's `bearerAuth` scheme) and therefore whether a session survives a reload; and, since no "current user" endpoint exists, whether `UserSummary` is persisted with it. The mobile decision (Expo SecureStore, `architecture.md` §5.3, §5.4) does not apply to a browser. Provisional until decided: memory only (§8) | `auth-and-identity.md` (a Web-client subsection), then §8/§11 here | Phase 1 sign-in UI |
 | 4 | **Permission source for UI gating.** The contract describes `LoginResponse.accessToken` as "opaque to the client", yet `LoginResponse` carries no permission list and there is no session endpoint; §11 therefore decodes the `permissions` claim. Either amend the contract wording to allow an unverified, UX-only read of the claim, or add the resolved permissions to `LoginResponse`/`UserSummary` (they are UI-convenience data in the sense of `auth-and-identity.md` §2) | `packages/api-contract/schemas/user.yaml`, `auth-and-identity.md` §2 | Phase 1 sign-in UI |
-| 5 | **Machine-readable conflict reasons.** `createRegistration`'s `409` covers both "sold out" and "already registered"; `common/error.yaml` has no code field and `type` is `about:blank` by convention, so the client cannot show the specific message `proposal.md` §11.1/§12 call for. Proposed: distinct problem `type` URIs per conflict reason (same for `chargePayment`'s two `409` causes) | `packages/api-contract/common/error.yaml`, `paths/registration.yaml`, `paths/payment.yaml`; `backend-coding-standards.md` §17 | Phase 2 |
-| 6 | **Payment `503` replay semantics conflict.** `technical-design/modules/payment.md` §8 records the circuit-open fallback response under the `Idempotency-Key`, so a same-key retry would replay the `503`; `backend-coding-standards.md` §21 rule 5 says transient failures ("dependency down") are not recorded, and `paths/payment.yaml` calls the `503` "safe to retry". §10 follows the contract (retry with the same key). Proposed: align `payment.md` §8 with `backend-coding-standards.md` §21 | `technical-design/modules/payment.md` §8 | Phase 2 (before the checkout UI) |
+| 5 | **Machine-readable conflict reasons.** `createRegistration`'s `409` covers both "sold out" and "already registered"; `common/error.yaml` has no code field and `type` is `about:blank` by convention, so the client cannot show the specific message `proposal.md` §11.1/§12 call for. Proposed: distinct problem `type` URIs per conflict reason (same for `chargePayment`'s `409` causes, now three: registration not `RESERVED`, another live payment for the registration, `Idempotency-Key` still being processed — Phase 2 checklist D5, D1; the key-in-progress case is retryable, the other two are not) | `packages/api-contract/common/error.yaml`, `paths/registration.yaml`, `paths/payment.yaml`; `backend-coding-standards.md` §17 | Phase 2 |
+| 6 | ~~**Payment `503` replay semantics conflict.**~~ **Done (2026-10-14).** `technical-design/modules/payment.md` §8 now follows `backend-coding-standards.md` §21: a `503` is never recorded under the key, so a same-key retry executes for real (Phase 2 checklist D1). §10 already followed this | `technical-design/modules/payment.md` §8 | — |
 | 7 | **Client timing values** — none is fixed by any source: (a) seat-availability `staleTime`/`refetchInterval` on the workshop detail (lower bound: the server-side `seats` cache lives 3s, `workshop.md` §2); (b) `getPayment` poll interval and stop condition (`chargePayment` always returns `PENDING`, and no push mechanism exists — `paths/payment.yaml`); (c) the automatic retry budget for `503` on idempotency-guarded mutations | this file (§7, §10), once decided | Phase 2 |
 | 8 | **Client-side payment collection flow.** `CreatePaymentChargeRequest.paymentMethodToken` is an inferred field, "an opaque token from the gateway's own client-side SDK"; no document fixes the flow and `apps/web` has no gateway SDK (`schemas/payment.yaml`; `e2e-testing.md` §2) | `technical-design/modules/payment.md` | Phase 2 |
 | 9 | **E2E tooling not installed.** Playwright is decided (`e2e-testing.md` §2) but not in `apps/web/package.json`, and `apps/web/e2e/` does not exist | `apps/web` | Phase 7 (`e2e-testing.md` §3) |

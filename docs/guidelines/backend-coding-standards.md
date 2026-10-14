@@ -51,7 +51,7 @@ Read this first, then only the sections for the layer you are touching. Every ru
 20. Endpoint authorization is `@PreAuthorize("hasAuthority(...)")` with `Permissions` constants on controllers; never a role name (§11).
 21. Audited operations call `AuditTrail.record(...)` explicitly; it never throws and publishes after commit (§12).
 22. Every error body is an RFC 7807 `ProblemDetail`; domain exceptions extend `DomainException` and declare a `ProblemKind` — never an HTTP status (§17).
-23. Idempotent operations record the use case Result in the same transaction; business rejections are sealed Result variants, never thrown exceptions (§21, §25).
+23. Idempotent operations record the use case Result in the same transaction, keyed by `(scope, authenticated actor, key)` with a request fingerprint; business rejections are sealed Result variants, never thrown exceptions (§21, §25).
 
 **Names & values**
 24. Web DTO names, paths, headers and enum values are copied from `packages/api-contract`; table/column/status/scope names from `database-schema.md`. Never invent an alternative (§10, §14.2).
@@ -411,6 +411,8 @@ The shared `Jackson2JsonMessageConverter` is configured to infer the target type
 | Consumer effect | Mechanism |
 |---|---|
 | State transition guarded by status/version (release an expired hold, resolve a pending payment) | Re-read current state at the Master inside the transaction; if it is already resolved, commit a no-op. No extra table. |
+| Compensation when the guarded transition no longer applies (payment succeeded but the registration is no longer `RESERVED`) | The conditional `UPDATE … WHERE status = 'RESERVED'` matches zero rows → re-read → publish a compensating event (e.g. `unihub.registration.confirmation.rejected`) instead of the transition. A redelivery publishes it again; the receiver deduplicates by its own conditional transition. No inbox table — `architecture.md` §6.1 has exactly three Technical Pattern Entities. |
+| External side effect keyed by an aggregate (refund a payment — Phase 3) | The conditional transition (`SUCCEEDED → REFUND_REQUIRED`) is the dedup point; the gateway call uses a key derived from the aggregate (`refund:{paymentId}`), never from the event id, because the compensating event is re-emitted on every redelivery. Re-processing a row still in `REFUND_REQUIRED` **calls the gateway again** (a crash may have happened after commit, before the call); only `REFUNDED` is a no-op. |
 | External side effect (send an email) | Transaction 1: insert the `notifications` row, deduplicated by a unique key tied to the source `eventId` (§27, item 5). Then call the provider **outside** any transaction. Transaction 2: mark it `SENT`/`FAILED`. On redelivery a `SENT` row means skip. A stale `PENDING` row means a possible duplicate send — an accepted at-least-once trade-off, not something assumed away. |
 
 ### 8.6 Consumer failure handling
@@ -582,7 +584,7 @@ Action names follow the `audit_events.action` examples (`WORKSHOP_CANCELLED`, `R
 | `shared.security` | `Permissions`, `Actor` |
 | `shared.event` | `OutboxMessage` |
 | `shared.messaging` | `NonRetryableMessageException` |
-| `shared.application.port.out` | `EventPublisher`, `MessageBroker`, `AuditTrail` (+ `AuditEntry`, `AuditActions`, `AuditTargets`), `IdempotencyStore` (+ `IdempotencyScope`, `IdempotencyKeyInUseException`) |
+| `shared.application.port.out` | `EventPublisher`, `MessageBroker`, `AuditTrail` (+ `AuditEntry`, `AuditActions`, `AuditTargets`), `IdempotencyStore` (+ `IdempotencyRecord`, `IdempotencyScope`, `IdempotencyKeyInUseException`, `IdempotencyKeyReusedException`) |
 | `shared.application.routing` | `@ReadFromPrimary` (§20) |
 | `shared.application.usecase` | `RelayPendingEvents` |
 | `shared.web` | `GlobalProblemHandler` (§17), `Problems` (builds a `ProblemDetail` response for a Result variant), `CurrentActor`, `CorrelationIds`, correlation-ID filter |
@@ -603,7 +605,7 @@ public abstract class DomainException extends RuntimeException {
     protected DomainException(String message, Throwable cause) { super(message, cause); }
     public abstract ProblemKind kind();
 }
-public enum ProblemKind { NOT_FOUND, CONFLICT, UNAVAILABLE }
+public enum ProblemKind { INVALID_REQUEST, NOT_FOUND, CONFLICT, UNPROCESSABLE, UNAVAILABLE }
 
 /** Implemented by an UNAVAILABLE DomainException that should carry a Retry-After header. */
 public interface RetryableUnavailable { Duration retryAfter(); }
@@ -703,16 +705,26 @@ public final class AuditTargets {
     private AuditTargets() {}
 }
 
-public interface IdempotencyStore {                                     // §21
-    <R> Optional<R> find(IdempotencyScope scope, String key, Class<R> resultType);
-    void record(IdempotencyScope scope, String key, Object result);
+public interface IdempotencyStore {                                     // §21 — signatures and rules there
+    Optional<IdempotencyRecord> find(IdempotencyScope scope, UserId actor, String key);
+    void begin(IdempotencyScope scope, UserId actor, String key, String requestFingerprint, UUID resourceId);
+    void complete(IdempotencyScope scope, UserId actor, String key, Object result, UUID resourceId);
+    void completeOpenFor(IdempotencyScope scope, UUID resourceId, Object result);
+    void abandonOpenFor(IdempotencyScope scope, UUID resourceId);
 }
+public sealed interface IdempotencyRecord { /* InProgress(fingerprint) | Completed(fingerprint, result) — §21 */ }
 public enum IdempotencyScope { REGISTRATION_CREATE, PAYMENT_CHARGE }    // database-schema.md §8.1
 public final class IdempotencyKeyInUseException extends DomainException {
     public IdempotencyKeyInUseException(IdempotencyScope scope) {
         super("A request with this Idempotency-Key is already being processed for " + scope);
     }
     @Override public ProblemKind kind() { return ProblemKind.CONFLICT; }
+}
+public final class IdempotencyKeyReusedException extends DomainException {   // same key, different body
+    public IdempotencyKeyReusedException(IdempotencyScope scope) {
+        super("This Idempotency-Key was already used with a different request body for " + scope);
+    }
+    @Override public ProblemKind kind() { return ProblemKind.UNPROCESSABLE; }
 }
 
 // ---------- shared.application.routing ----------
@@ -816,7 +828,7 @@ public abstract class DomainException extends RuntimeException {
 }
 
 // shared/domain/ProblemKind.java — the only mapping from business semantics to HTTP lives in shared.web
-public enum ProblemKind { NOT_FOUND, CONFLICT, UNAVAILABLE }
+public enum ProblemKind { INVALID_REQUEST, NOT_FOUND, CONFLICT, UNPROCESSABLE, UNAVAILABLE }
 ```
 
 ```java
@@ -827,9 +839,11 @@ class GlobalProblemHandler extends ResponseEntityExceptionHandler {   // also tu
     @ExceptionHandler(DomainException.class)
     ResponseEntity<ProblemDetail> handle(DomainException ex, HttpServletRequest request) {
         var status = switch (ex.kind()) {
-            case NOT_FOUND   -> HttpStatus.NOT_FOUND;
-            case CONFLICT    -> HttpStatus.CONFLICT;
-            case UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+            case INVALID_REQUEST -> HttpStatus.BAD_REQUEST;
+            case NOT_FOUND       -> HttpStatus.NOT_FOUND;
+            case CONFLICT        -> HttpStatus.CONFLICT;
+            case UNPROCESSABLE   -> HttpStatus.UNPROCESSABLE_ENTITY;
+            case UNAVAILABLE     -> HttpStatus.SERVICE_UNAVAILABLE;
         };
         var body = ProblemDetail.forStatusAndDetail(status, ex.getMessage());
         body.setInstance(URI.create(request.getRequestURI()));
@@ -846,7 +860,7 @@ class GlobalProblemHandler extends ResponseEntityExceptionHandler {   // also tu
 - The single advice lives in `shared.web` and maps by `ProblemKind`, so it never imports a module's exception class. `shared` stays independent of modules (§13), and `domain` stays unaware of HTTP.
 - `401` and `403` come from Spring Security, not the advice. Configure the `AuthenticationEntryPoint` and `AccessDeniedHandler` to write the same `ProblemDetail` body; otherwise those two statuses fail contract-diff.
 - A business outcome that is part of a sealed Result (sold out, §25) is **not** an exception. The controller maps that variant to a `ProblemDetail` itself.
-- Status semantics: `400` malformed request; `401` missing/invalid/expired token; `403` valid token without the permission; `404` not found, or hidden from this caller; `409` conflict with current state; `503` + `Retry-After` for transient contention or an unavailable dependency.
+- Status semantics: `400` malformed request; `401` missing/invalid/expired token; `403` valid token without the permission; `404` not found, or hidden from this caller; `409` conflict with current state (including an `Idempotency-Key` still being processed); `422` an `Idempotency-Key` reused with a different request body (§21 rule 4); `503` + `Retry-After` for transient contention or an unavailable dependency. `UNPROCESSABLE` is added to the shared-kernel enum with the first Phase 2 code (Phase 2 checklist C26); `INVALID_REQUEST` already exists in code.
 
 ---
 
@@ -907,10 +921,16 @@ When a request must call a third party synchronously (the Stripe charge, `paymen
 
 ```
 ChargePayment (no transaction)
-  ├─ steps.begin(command)      @Transactional: idempotency check/record + payments row PENDING, commit
-  ├─ paymentGateway.charge()   no transaction; Resilience4j breaker + TimeLimiter (payment.md ADR)
-  └─ steps.complete(outcome)   @Transactional: PENDING → SUCCEEDED/FAILED with version check, commit
+  ├─ breaker.tryAcquirePermission()  refused → 503, nothing written (G1a)
+  ├─ steps.begin(command)      @Transactional: idempotency find/begin(IN_PROGRESS, resourceId = payment id)
+  │                            + payments row PENDING, commit
+  ├─ paymentGateway.charge()   no transaction; breaker (with the permission above) + TimeLimiter (payment.md ADR)
+  ├─ steps.complete(outcome)   @Transactional: payment updated with version check + idempotency complete, commit
+  └─ steps.abandon(paymentId)  @Transactional, only when the breaker refused after begin committed (G1b):
+                               PENDING → CANCELLED + idempotency abandonOpenFor, commit; respond 503
 ```
+
+A timeout or error **after** the request reached the gateway calls neither `complete` nor `abandon`: the payment stays `PENDING` and its key `IN_PROGRESS`, and reconciliation resolves both in one transaction (§21 rule 7, `payment.md` §6). The permission acquired before `begin` is either consumed by the call or released, so a `HALF_OPEN` probe slot is never leaked.
 
 `begin` and `complete` live on a separate `ChargePaymentSteps` bean. `TransactionTemplate` is **not** used in `application` — it sits outside the Spring allow-list (§3), and the two-bean shape already solves the problem.
 
@@ -1011,26 +1031,46 @@ public SearchWorkshopsResult search(SearchWorkshopsCriteria criteria) {
 
 ## 21. Idempotency
 
-Implements `architecture.md` §4.5 and `database-schema.md` §8.1.
+Implements `architecture.md` §4.5 and `database-schema.md` §8.1 (target shape after migration `V3`, `database-schema.md` §10.1). Decisions: Phase 2 checklist D1, C2, G1, G2 (2026-10-13/14).
 
 ```java
-// shared/application/port/out/IdempotencyStore.java
+// shared/application/port/out/IdempotencyStore.java — every method needs an active transaction (MANDATORY)
 public interface IdempotencyStore {
-    /** Consistency-sensitive: always reads the Master. */
-    <R> Optional<R> find(IdempotencyScope scope, String key, Class<R> resultType);
-    /** Same transaction as the business effect. Throws IdempotencyKeyInUseException on a concurrent duplicate. */
-    void record(IdempotencyScope scope, String key, Object result);
+    /** Consistency-sensitive: always reads the Master. Empty when no row exists. */
+    Optional<IdempotencyRecord> find(IdempotencyScope scope, UserId actor, String key);
+
+    /** Inserts IN_PROGRESS. DuplicateKeyException → IdempotencyKeyInUseException (CONFLICT). */
+    void begin(IdempotencyScope scope, UserId actor, String key, String requestFingerprint, UUID resourceId);
+
+    /** IN_PROGRESS → COMPLETED with the serialized Result, same transaction as the business write. */
+    void complete(IdempotencyScope scope, UserId actor, String key, Object result, UUID resourceId);
+
+    /** Reconciliation (G2): completes the open key of a resolved charge, if one exists. */
+    void completeOpenFor(IdempotencyScope scope, UUID resourceId, Object result);
+
+    /** Breaker compensation (G1b): deletes the open key of a charge that never reached the gateway. */
+    void abandonOpenFor(IdempotencyScope scope, UUID resourceId);
+}
+
+public sealed interface IdempotencyRecord {
+    record InProgress(String requestFingerprint) implements IdempotencyRecord {}
+    record Completed(String requestFingerprint, Object result) implements IdempotencyRecord {}
 }
 // IdempotencyScope values: REGISTRATION_CREATE, PAYMENT_CHARGE (database-schema.md §8.1)
 ```
 
 Rules:
 
-1. The store records the **use case Result**, serialized, not an HTTP response. `application` does not know HTTP. Because the web layer's Result → HTTP mapping is deterministic, a replay still produces the identical HTTP response. This depends on the schema change in §27, item 1.
-2. `record` runs in the **same transaction** as the business write it guards.
-3. Every outcome that must replay identically — including business rejections such as sold-out — is a **variant of the sealed Result**, never a thrown exception. A thrown exception rolls back the transaction and the `record` call with it.
-4. The adapter inserts with `JdbcTemplate`, so a unique-constraint violation surfaces immediately inside `record`, not later at flush. It translates `DuplicateKeyException` into `IdempotencyKeyInUseException` (`CONFLICT`): another request with the same key committed first. The client's next retry replays that result.
-5. Transient failures (lock contention, lost version race, dependency down) are **not** recorded. They roll back, and the retry executes for real.
+1. The store records the **use case Result**, serialized (`result_type` + `result_body`), not an HTTP response. `application` does not know HTTP. Because the web layer's Result → HTTP mapping is deterministic and fixed by tests, a replay produces the identical HTTP response; changing that mapping is a breaking change.
+2. The key row is written in the **same transaction** as the business effect it guards — never alone:
+   - **Single-transaction operations** (`REGISTRATION_CREATE`): `begin` is the **first** statement of the business transaction and `complete` the last. The `IN_PROGRESS` row never commits on its own. A concurrent request with the same key blocks on the unique index; if the first commits it gets `IdempotencyKeyInUseException`, if the first rolls back it proceeds.
+   - **Orchestrated operations with an external call** (`PAYMENT_CHARGE`, §19.4): `begin` commits atomically with the `PENDING` `payments` row (the row is the effect of that transaction, so the key still never exists alone) and carries the payment id as `resourceId`; `complete` runs in the second transaction. A same-key request in between sees `InProgress` → `409`; the gateway is never dialled twice.
+3. **The actor is the authenticated user** (`Actor.UserActor` built from the verified JWT `sub`, §11, `auth-and-identity.md` §2), never a value from the request body or a header. The key is unique per `(scope, actor, key)` (`database-schema.md` §8.1).
+4. **Fingerprint.** The web layer computes the request fingerprint (lowercase hex SHA-256 of the body in canonical JSON) and passes it in the command. On replay, `Completed` or `InProgress` with a **different** fingerprint → `IdempotencyKeyReusedException` (`ProblemKind.UNPROCESSABLE`, `422`); nothing executes. Same fingerprint: `Completed` → return its Result; `InProgress` → `IdempotencyKeyInUseException` (`409`).
+5. Every outcome that must replay identically — including business rejections such as sold-out, already-registered, or "a payment for this registration is already in progress" — is a **variant of the sealed Result**, never a thrown exception. A thrown exception rolls back the transaction and the key row with it.
+6. The adapter writes with `JdbcTemplate`, so a unique-constraint violation surfaces immediately inside `begin`, not later at flush, and translates `DuplicateKeyException` into `IdempotencyKeyInUseException` (`CONFLICT`). The same "catch the duplicate, translate it" rule applies to any **partial** unique index that guards a business invariant (e.g. one live payment per registration, `database-schema.md` §5.1): a partial index cannot be an `ON CONFLICT ON CONSTRAINT` target, so the adapter catches the error and the use case returns the matching Result variant — never a `500`.
+7. Transient failures (lock contention, lost version race, dependency down, breaker refusal) are **not** recorded. They roll back, and the retry executes for real. For an orchestrated charge whose first transaction already committed, the breaker refusal is undone explicitly: a compensating transaction moves the payment to `CANCELLED` and calls `abandonOpenFor` (§19.4, G1). A timeout or error **after** the request reached the gateway is not transient in this sense — the gateway may have charged — so the payment stays `PENDING` and the key `InProgress` until reconciliation resolves both together (`completeOpenFor`, G2).
+8. The cleanup sweep deletes only `COMPLETED` rows older than the retry window (by `completed_at`); it never deletes an `IN_PROGRESS` row.
 
 ---
 
@@ -1085,7 +1125,9 @@ public sealed interface ReserveSeatResult {
 public interface ReserveSeatUseCase {
     ReserveSeatResult reserve(ReserveSeatCommand command);
 }
-// ReserveSeatCommand(Actor.UserActor actor, WorkshopId workshopId, String idempotencyKey)
+// ReserveSeatCommand(Actor.UserActor actor, WorkshopId workshopId, String idempotencyKey, String requestFingerprint)
+// IdempotentReplay (shared.application.usecase): Completed + same fingerprint → result; different fingerprint →
+// IdempotencyKeyReusedException; InProgress → IdempotencyKeyInUseException (§21 rule 4)
 ```
 
 ```java
@@ -1103,9 +1145,10 @@ class ReserveSeat implements ReserveSeatUseCase {
     @Override
     public ReserveSeatResult reserve(ReserveSeatCommand command) {
         // Fast replay path: a retried request never needs Redis (registration.md §4: "do not re-run … at all")
-        var replay = idempotency.find(IdempotencyScope.REGISTRATION_CREATE, command.idempotencyKey(),
-                                      ReserveSeatResult.class);
-        if (replay.isPresent()) {
+        var replay = IdempotentReplay.of(idempotency.find(IdempotencyScope.REGISTRATION_CREATE,
+                                         command.actor().userId(), command.idempotencyKey()),
+                                         command.requestFingerprint(), ReserveSeatResult.class);
+        if (replay.isPresent()) {                // Completed + same fingerprint; mismatch → 422, InProgress → 409 (§21)
             return replay.get();
         }
         try {
@@ -1152,11 +1195,15 @@ class ReserveSeatTransaction {
     @Transactional
     public ReserveSeatResult execute(ReserveSeatCommand command) {
         // Backstop re-check inside the transaction: a duplicate may have committed while we waited for the lock
-        var replay = idempotency.find(IdempotencyScope.REGISTRATION_CREATE, command.idempotencyKey(),
-                                      ReserveSeatResult.class);
+        var replay = IdempotentReplay.of(idempotency.find(IdempotencyScope.REGISTRATION_CREATE,
+                                         command.actor().userId(), command.idempotencyKey()),
+                                         command.requestFingerprint(), ReserveSeatResult.class);
         if (replay.isPresent()) {
             return replay.get();
         }
+        // First write of the transaction (§21 rule 2): a concurrent same-key request blocks here, then gets 409
+        idempotency.begin(IdempotencyScope.REGISTRATION_CREATE, command.actor().userId(),
+                          command.idempotencyKey(), command.requestFingerprint(), null);
 
         var now = clock.instant();
         ReserveSeatResult result = switch (seatInventory.claim(command.workshopId())) {
@@ -1182,7 +1229,8 @@ class ReserveSeatTransaction {
         };
 
         // Every decided outcome is recorded, including SoldOut (registration.md §4 "Why a 409 also gets recorded")
-        idempotency.record(IdempotencyScope.REGISTRATION_CREATE, command.idempotencyKey(), result);
+        idempotency.complete(IdempotencyScope.REGISTRATION_CREATE, command.actor().userId(),
+                             command.idempotencyKey(), result, ReserveSeatResults.registrationIdOrNull(result));
         return result;
     }
 }
@@ -1195,7 +1243,7 @@ class ReserveSeatTransaction {
 | Lock in `ReserveSeat`, transaction in `ReserveSeatTransaction` | Lock is advisory and wraps the whole commit (`architecture.md` §4.2) |
 | `seatInventory.claim` under `MANDATORY` | `registrations` insert and `workshops.seats_taken`/`version` update commit together (`registration.md` §1) |
 | DB check constraint + version (in Workshop's `SeatCounter` adapter) | The final accept/reject decision (`architecture.md` §4.2, §6.1) |
-| `SoldOut` as a Result variant, then `record` | A retry replays the same `409`, never re-evaluates (`registration.md` §4) |
+| `begin` first, `SoldOut` as a Result variant, then `complete` | A retry replays the same `409`, never re-evaluates (`registration.md` §4) |
 | `eventPublisher.publish` inside the transaction | Outbox row commits with the business write (`architecture.md` §6.1) |
 | `auditTrail.record` | Audited after commit, fail-open (`architecture.md` §5.5) |
 
@@ -1437,14 +1485,14 @@ These changes belong to the documents named, not to this one. Each is a precondi
 
 | # | Change | Document | Needed by |
 |---|---|---|---|
-| 1 | `idempotency_keys`: replace `response_status`/`response_body` with `result_type VARCHAR` + `result_body JSONB` (store the use-case Result, §21); update `registration.md` §4 and `payment.md` wording to match | `database-schema.md` §8.1 | **Phase 2 blocker** (M-20) |
+| 1 | ✅ **Done (2026-10-14)** — `idempotency_keys` stores the use-case Result (`result_type` + `result_body`), keyed by `(scope, actor_user_id, idempotency_key)`, with `request_fingerprint`, `IN_PROGRESS`/`COMPLETED` and `resource_id`; specified as migration `V3` (`database-schema.md` §10.1, not yet a file). `registration.md` §4, `payment.md` §8 and §21 here match | `database-schema.md` §8.1 | Phase 2 (M-20) |
 | 2 | ✅ **Done** — JaCoCo `includes` = `com.unihub.*.application.usecase`, `com.unihub.*.domain.*`; `excludes` = `com.unihub.*.domain.exception`. Confirm on the scaffold that the report actually lists the usecase packages | `unit-testing.md` §3, `deployment-and-cicd.md` Coverage ADR + reference table | Phase 1 (M-15) |
 | 3 | ✅ **Done** — `event_publications` gained `correlation_id VARCHAR(32) NULL` and `routing_key VARCHAR(100) NOT NULL` (the relay needs the key and must not derive it); the index text now matches the DDL. Log trail is continuous across the outbox; the Tempo trace is not (documented trade-off) | `database-schema.md` §8.2, `observability.md` §1 | Phase 1 (in the initial migration) |
 | 4 | ✅ **Done** — single-instance relay per 1s cycle behind `unihub:lock:job:outbox-relay` (lease 30s), batch 200, per-message confirm, `mandatory = true`, no transaction across a publish; failing rows skipped and surfaced by `unihub_outbox_oldest_pending_age_seconds`. Claim-with-lease is the documented upgrade path | `messaging.md` §5, `distributed-coordination.md` §2/§5, `architecture.md` §4.6 | Phase 2 (INV-10); end-to-end in Phase 4 |
 | 5 | `notifications`: add `source_event_id UUID NOT NULL` + `UNIQUE (source_event_id, channel)` (§8.5) | `database-schema.md` §7.1, `notification.md` | Before the first notification consumer |
 | 6 | ✅ **Done** — `audit_events.actor_type` (`USER`/`SYSTEM`) with `actor_user_id` NULL for `SYSTEM`, paired by a CHECK; the job name goes in `metadata.process`. `Actor` is now a sealed type (`UserActor`/`SystemActor`, §13.1). No seeded system user | `database-schema.md` §8.3, `auth-and-identity.md` | Phase 2 (first system-initiated audit: hold expiry) |
 | 7 | ✅ **Done** — `*WebTest.java` web slices (`@WebMvcTest`, port/in mocked, no containers) run in `./gradlew test`; they don't replace the Integration-level RBAC tests M-01…M-03 | `unit-testing.md` §4.1, test `coding-standards.md` §1, `test-strategy.md` §3 | Phase 1 (first controller) |
-| 8 | Routing keys for "payment succeeded → registration `CONFIRMED`" and "workshop cancelled → cancel its registrations and release seats" (§7 type 4) | `messaging.md` §2, `registration.md`, `payment.md` | **Phase 2 blocker** (M-19) |
+| 8 | **Half done (2026-10-14).** "Payment succeeded → registration `CONFIRMED`": `unihub.payment.charge.succeeded` → `unihub.payment-confirmation.queue`, with the compensation `unihub.registration.confirmation.rejected` → `unihub.payment-refund.queue` (`messaging.md` §2). **Still open:** "workshop cancelled → cancel its registrations and release seats" (§7 type 4) — no Phase 2 matrix row needs it | `messaging.md` §2, `registration.md`, `payment.md` | M-19 (done half); open half: not yet scheduled |
 | 9 | `workshops.version` is bumped by both seat claims and organizer edits, so edits will conflict constantly during a registration spike. Decide whether the seat counter keeps sharing that version or relies on the `seats_taken <= capacity` check with an atomic increment | `database-schema.md` §3.1, `registration.md` §2 | Phase 2 |
 | 10 | Name the permission code guarding `POST /api/v1/registrations` | `auth-and-identity.md`, `user.md` | Phase 2 |
 | 11 | ✅ **Done** — the correlation ID is a 32-hex-character trace ID (`observability.md` §1), not a UUID. The contract now declares it once as `headers.yaml#/CorrelationIdValue` (`pattern: '^[0-9a-f]{32}$'`), used by both `X-Correlation-Id` headers and `error.yaml`'s `correlationId`. Redocly lint passes | `packages/api-contract/common/headers.yaml`, `common/error.yaml` | Phase 1 (M-17) |
@@ -1472,5 +1520,5 @@ These changes belong to the documents named, not to this one. Each is a precondi
 | Errors | RFC 7807 `ProblemDetail` only; one shared advice mapping `ProblemKind` | §17 |
 | Transactions | No network/broker/lock wait inside; lock outside; two-bean pattern; orchestrator for sync third-party calls | §19 |
 | Reads | `<Noun>Queries` projections; `readOnly` → Replica; `@ReadFromPrimary` → Master | §20 |
-| Idempotency | Result recorded in the same transaction; rejections are Result variants; transients not recorded | §21 |
+| Idempotency | Result recorded in the same transaction, keyed by scope + authenticated actor + key, fingerprint mismatch → `422`; rejections are Result variants; transients not recorded | §21 |
 | Correlation | Trace ID = correlation ID; stored on the outbox row and republished | §23 |
