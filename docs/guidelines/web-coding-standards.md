@@ -403,15 +403,15 @@ type CreateRegistrationHeaders = operations['createRegistration']['parameters'][
 | `401` | missing, invalid or expired token | session ended → clear session and query cache → sign-in, keeping the return path. No refresh: there is no refresh token | `architecture.md` §5.2; `auth-and-identity.md` §4 |
 | `403` | valid token without the permission, or not the owner | no-permission state; never retried | `architecture.md` §5.1; `paths/registration.yaml#/registrationById` |
 | `404` | not found — or a `DRAFT` hidden from this caller | not-found state; the two are deliberately indistinguishable | `paths/workshop.yaml#/workshopById` |
-| `409` | conflict with current state (sold out, already registered, wrong status) | a clear, specific message for the operation; never retried with the same key (§10) | `proposal.md` §11.1, §12; `paths/registration.yaml#/registrations` |
+| `409` | conflict with current state — the reason is in the problem `type` (`backend-coding-standards.md` §17): `sold-out`, `already-registered`, `registration-not-open`, `registration-not-reserved`, `payment-in-progress`, or `idempotency-key-in-use` | a specific message per `type`; never retried with the same key — except `idempotency-key-in-use`, which is retried after a short delay with the same key (§10) | `proposal.md` §11.1, §12; `paths/registration.yaml#/registrations` |
 | `429` | rate limit (per-user on `createRegistration`, per-IP on `login`, `listWorkshops`, `getWorkshop`) | no automatic retry; tell the user, and use `Retry-After` (seconds) for the wait | `architecture.md` §4.2; `technical-design/platform/distributed-coordination.md` §3; `common/headers.yaml#/RetryAfter` |
-| `503` on `chargePayment` | payment gateway circuit open or timed out; seat hold untouched | an immediate message **inside the payment flow only** (the seat stays held for the rest of its 15 minutes); no app-wide outage UI — browsing keeps working | `proposal.md` §11.3; `requirement.md` §2.7; `technical-design/modules/payment.md` §3 |
+| `422` | `urn:unihub:problem:idempotency-key-reused` — the same key was sent with a different body | a client bug: log it, start a new intent; never retried | `backend-coding-standards.md` §21 |
+| `503` on `chargePayment` | the payment gateway was not reached (circuit open, connection failure); seat hold untouched — a timeout **after** reaching the gateway is a `201` `PENDING`, not a `503` | an immediate message **inside the payment flow only** (the seat stays held for the rest of its 15 minutes); no app-wide outage UI — browsing keeps working | `proposal.md` §11.3; `requirement.md` §2.7; `technical-design/modules/payment.md` §3 |
 | `503` on `createRegistration`/`cancelRegistration` | seat-lock contention or Redis down — transient, the seat may still be free | "try again shortly"; retry with the same key, honoring `Retry-After` (§10) | `technical-design/modules/registration.md` §2 |
 
-The contract does **not** distinguish the two `409` causes on `createRegistration` (sold out vs.
-already registered) by any machine-readable field: `type` is `about:blank` by convention and there
-is no error code. Until it does (§13 item 5), the message must be correct for both causes.
-User-facing copy is owned by the client, keyed by operation and status; `detail` is not shown as
+Branch on the problem `type`, never on `detail` or `title`. The `type` values are a stable contract
+(`packages/api-contract/common/error.yaml`); an error the client does not need to branch on keeps
+`about:blank`. User-facing copy is owned by the client, keyed by operation and status; `detail` is not shown as
 the primary message, because the contract fixes neither its wording nor its language.
 `correlationId` is shown on error states as the reference a user hands to support
 (`common/error.yaml`).
@@ -542,13 +542,18 @@ export const env = { apiBaseUrl: parsed.VITE_API_BASE_URL }
   then invalidate the affected lists.
 - **Seat availability is advisory.** `Workshop.seatsTaken` may be stale; a displayed count is never
   a promise, and a `409` after a non-zero count is a normal outcome, not an error state. The
-  detail query's `staleTime`/`refetchInterval` for seats is not fixed by any source yet (§13
-  item 7) — use TanStack defaults until it is.
+  detail query uses `staleTime` 3s and `refetchInterval` 5s for seats, **only** while the tab is
+  visible and the detail page is mounted (`refetchIntervalInBackground: false`) — checklist D15.
+  The load this adds at peak (~2,400 rps at 12,000 concurrent users) is a Phase 8 review point.
+- **Status polling.** `getPayment` and `getRegistration` poll every 2s while a payment or a paid
+  registration is not final — including the "payment `SUCCEEDED`, registration still `RESERVED`"
+  window (`technical-design/modules/registration.md` §5). Polling stops at a final state, or after
+  2 minutes, when the UI shows "still processing" with a manual refresh.
 - **Retry policy.** Queries never retry a `4xx`; other failures use TanStack's default retry.
   Mutations never retry automatically, except those guarded by `Idempotency-Key` (§10), which may
   be retried — manually by the user after any transient failure, or automatically only after a
-  network failure or a `503` (honoring `Retry-After`; a `429` is never retried automatically, §6)
-  — always reusing the **same** key. The automatic retry budget is §13 item 7.
+  network failure or a `503` (honoring `Retry-After`, plus jitter; a `429` is never retried
+  automatically, §6) — always reusing the **same** key. Automatic retries are capped at **3**.
 - **Session changes clear the cache.** On sign-in and sign-out, `queryClient.clear()` (§11).
 
 **Why.** A key factory from day one replaces the old rule (inline literal keys until a second
@@ -706,11 +711,18 @@ type SessionState = {
   end: () => void
 }
 
-// Memory only — provisional until §13 item 3 decides Web token storage. A reload signs the user out.
+// sessionStorage (auth-and-identity.md §7, checklist D14): survives a reload, not the tab. An expired
+// snapshot is discarded at start-up; end() runs on sign-out and on any 401.
+const KEY = 'unihub.session'
+const restore = (): Session | null => {
+  const raw = sessionStorage.getItem(KEY)
+  const session = raw ? (JSON.parse(raw) as StoredSession) : null
+  return session && session.expiresAt > Date.now() ? fromStored(session) : (sessionStorage.removeItem(KEY), null)
+}
 export const useSessionStore = create<SessionState>()((set) => ({
-  session: null,
-  start: (session) => set({ session }),
-  end: () => set({ session: null }),
+  session: restore(),
+  start: (session) => { sessionStorage.setItem(KEY, JSON.stringify(toStored(session))); set({ session }) },
+  end: () => { sessionStorage.removeItem(KEY); set({ session: null }) },
 }))
 ```
 
@@ -886,8 +898,8 @@ export function useRegisterForWorkshop(workshopId: string, options?: { onSuccess
       options?.onSuccess?.() // cross-feature effects are the route's job, §7
     },
     onError: (error) => {
-      if (!isTransient(error)) intentKey.current = null // definitive (e.g. 409): next submit is a new intent
-      // transient (network, 429, 503): keep the key — a retry must replay or re-run the SAME intent
+      if (!isTransient(error)) intentKey.current = null // definitive (e.g. 409 sold-out): next submit is a new intent
+      // transient (network, 429, 503, 409 idempotency-key-in-use): keep the key — a retry must replay or re-run the SAME intent
     },
   })
 
@@ -913,12 +925,9 @@ export function useRegisterForWorkshop(workshopId: string, options?: { onSuccess
   carries `accessToken`, `expiresIn` (seconds) and `user` (`UserSummary`: `id`, `fullName`,
   `email`, `roles`). There is no refresh token and no refresh endpoint; an expired token means a
   new sign-in (`auth-and-identity.md` §4).
-- **Permissions come from the token's `permissions` claim** — the resolved permission codes
-  (`auth-and-identity.md` §2) — read once at sign-in into the session snapshot. The client decodes
-  the claim without verifying the signature (it cannot: `HS256`, the secret is server-side only,
-  `auth-and-identity.md` §3) and uses it for UX only. There is no session/"current user" endpoint
-  in the contract, so the claim is the only source; reading it is isolated in one function in
-  `features/auth/model/` so a change of source is a one-file change (§13 item 4).
+- **Permissions come from `LoginResponse.permissions`** — the same resolved codes the token
+  carries (`auth-and-identity.md` §2, §7) — stored with the token in the session snapshot. The token
+  is opaque to the client and is never decoded. The list is for UX only.
 - Every UI check asks "does the session hold permission X" — `hasPermission(...)` /
   `RequirePermission` — **never** compares against a role name. `UserSummary.roles` is a display
   label only ("Signed in as: Organizer"), never an input to any condition.
@@ -932,12 +941,12 @@ export function useRegisterForWorkshop(workshopId: string, options?: { onSuccess
   (e.g. an "Edit" link on the workshop detail) is decided in the **route**, which passes a boolean
   prop into the feature component — a feature never imports `features/auth` (§2 rule 4).
 - Permission constants are copied from the contract's `x-required-permission` values, only for
-  codes the Web Application uses: `WORKSHOP_CREATE`, `WORKSHOP_EDIT`, `REPORT_VIEW`,
-  `STUDENT_SYNC_VIEW`, `STUDENT_SYNC_RESOLVE`. `CHECKIN_SCAN` guards mobile-only operations and is
+  codes the Web Application uses: `REGISTRATION_CREATE`, `WORKSHOP_CREATE`, `WORKSHOP_EDIT`,
+  `REPORT_VIEW`, `STUDENT_SYNC_VIEW`, `STUDENT_SYNC_RESOLVE`. `CHECKIN_SCAN` guards mobile-only operations and is
   not used here. No other code is added until the contract adds it.
 - On sign-in and on session end (sign-out, `401`), clear the query cache so no previous user's
   data — or an anonymous `404` for a `DRAFT` — survives into the next session.
-- Token storage beyond memory and persistence across reload are undecided (§13 item 3).
+- The session (token, `user`, `permissions`, expiry) lives in `sessionStorage` (§8; `auth-and-identity.md` §7): it survives a reload, not the tab; the expiry is checked at start-up; a strict CSP and no raw-HTML rendering are preconditions (where the CSP is configured is open — Phase 2 checklist C34).
 
 **Why.** `requirement.md` §1.2/§2.11 and `architecture.md` §5.1 make permissions, not roles, the
 unit of access, so that roles can be reconfigured — or new ones added — without a code change. A
@@ -957,6 +966,7 @@ with `WORKSHOP_CREATE`/`WORKSHOP_EDIT`, and every "my …" endpoint is scoped to
 // features/auth/model/permissions.ts — codes copied from x-required-permission in
 // packages/api-contract/paths/*.yaml (openapi-typescript does not emit that extension, §5)
 export const Permission = {
+  REGISTRATION_CREATE: 'REGISTRATION_CREATE',
   WORKSHOP_CREATE: 'WORKSHOP_CREATE',
   WORKSHOP_EDIT: 'WORKSHOP_EDIT',
   REPORT_VIEW: 'REPORT_VIEW',
@@ -985,16 +995,8 @@ export function toSession(response: LoginResponse, now: number): Session {
     accessToken: response.accessToken,
     expiresAt: now + response.expiresIn * 1000,
     user: response.user,
-    permissions: new Set(readPermissionsClaim(response.accessToken)),
+    permissions: new Set(response.permissions), // UX only — the token itself is never decoded (§11)
   }
-}
-
-/** UX only — unverified decode of the auth JWT's `permissions` claim (auth-and-identity.md §2). */
-function readPermissionsClaim(jwt: string): string[] {
-  const payload = jwt.split('.')[1] ?? ''
-  const claims: unknown = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
-  const permissions = (claims as { permissions?: unknown }).permissions
-  return Array.isArray(permissions) ? permissions.filter((p): p is string => typeof p === 'string') : []
 }
 
 export const hasAnyPermission = (session: Session, anyOf: readonly Permission[]) =>
@@ -1098,16 +1100,16 @@ fills gaps with its own guesses becomes a second, conflicting source of truth.
 |---|---|---|---|
 | 1 | ~~**Boundary lint not configured.**~~ **Done (2026-10-13).** ESLint runs alongside `oxlint` for boundary rules only (`eslint-plugin-boundaries` 7.x, `apps/web/eslint.config.js`; §2 Enforcement). The lint script runs both. Not yet run in CI: `.github/workflows/ci.yml` has no `apps/web` job (Phase 1 Mục 4) | `apps/web` | — |
 | 2 | ~~**Code migration from the Mục 0 scaffold (and the Phase 1 Mục 2.4–2.5 pages) to §4.**~~ **Done (2026-10-13).** `apps/web/src` follows §4: `app/` (main, App, providers, router), `routes/public/`, `features/workshops/{api,components}`, `shared/{api,config,lib,ui}`, `styles/`, `testing/`; `components.json` aliases moved; unused `App.css` removed. `src/assets/` (unused Vite scaffold images) was left as is | `apps/web` | — |
-| 3 | **Web token storage & refresh strategy.** Refresh is decided — there is none (`auth-and-identity.md` §4). Undecided: where the Web keeps the access token (memory only, `sessionStorage`, `localStorage`; an `httpOnly` cookie would change the contract's `bearerAuth` scheme) and therefore whether a session survives a reload; and, since no "current user" endpoint exists, whether `UserSummary` is persisted with it. The mobile decision (Expo SecureStore, `architecture.md` §5.3, §5.4) does not apply to a browser. Provisional until decided: memory only (§8) | `auth-and-identity.md` (a Web-client subsection), then §8/§11 here | Phase 1 sign-in UI |
-| 4 | **Permission source for UI gating.** The contract describes `LoginResponse.accessToken` as "opaque to the client", yet `LoginResponse` carries no permission list and there is no session endpoint; §11 therefore decodes the `permissions` claim. Either amend the contract wording to allow an unverified, UX-only read of the claim, or add the resolved permissions to `LoginResponse`/`UserSummary` (they are UI-convenience data in the sense of `auth-and-identity.md` §2) | `packages/api-contract/schemas/user.yaml`, `auth-and-identity.md` §2 | Phase 1 sign-in UI |
-| 5 | **Machine-readable conflict reasons.** `createRegistration`'s `409` covers both "sold out" and "already registered"; `common/error.yaml` has no code field and `type` is `about:blank` by convention, so the client cannot show the specific message `proposal.md` §11.1/§12 call for. Proposed: distinct problem `type` URIs per conflict reason (same for `chargePayment`'s `409` causes, now three: registration not `RESERVED`, another live payment for the registration, `Idempotency-Key` still being processed — Phase 2 checklist D5, D1; the key-in-progress case is retryable, the other two are not) | `packages/api-contract/common/error.yaml`, `paths/registration.yaml`, `paths/payment.yaml`; `backend-coding-standards.md` §17 | Phase 2 |
+| 3 | ~~**Web token storage & refresh strategy.**~~ **Done (2026-10-14).** `sessionStorage`, expiry checked at start-up, cleared on `401`/sign-out; no refresh token (`auth-and-identity.md` §7; §8, §11 here). CSP location open (Phase 2 checklist C34) | `auth-and-identity.md` §7 | — |
+| 4 | ~~**Permission source for UI gating.**~~ **Done (2026-10-14).** `LoginResponse.permissions`; the token stays opaque (`schemas/user.yaml`, `auth-and-identity.md` §7; §11 here) | `packages/api-contract/schemas/user.yaml` | — |
+| 5 | ~~**Machine-readable conflict reasons.**~~ **Done (2026-10-14).** One problem `type` URI per client-branching reason, a stable contract (`backend-coding-standards.md` §17, `common/error.yaml`; §6 here) | `packages/api-contract/common/error.yaml` | — |
 | 6 | ~~**Payment `503` replay semantics conflict.**~~ **Done (2026-10-14).** `technical-design/modules/payment.md` §8 now follows `backend-coding-standards.md` §21: a `503` is never recorded under the key, so a same-key retry executes for real (Phase 2 checklist D1). §10 already followed this | `technical-design/modules/payment.md` §8 | — |
-| 7 | **Client timing values** — none is fixed by any source: (a) seat-availability `staleTime`/`refetchInterval` on the workshop detail (lower bound: the server-side `seats` cache lives 3s, `workshop.md` §2); (b) `getPayment` poll interval and stop condition (`chargePayment` always returns `PENDING`, and no push mechanism exists — `paths/payment.yaml`); (c) the automatic retry budget for `503` on idempotency-guarded mutations | this file (§7, §10), once decided | Phase 2 |
-| 8 | **Client-side payment collection flow.** `CreatePaymentChargeRequest.paymentMethodToken` is an inferred field, "an opaque token from the gateway's own client-side SDK"; no document fixes the flow and `apps/web` has no gateway SDK (`schemas/payment.yaml`; `e2e-testing.md` §2) | `technical-design/modules/payment.md` | Phase 2 |
+| 7 | ~~**Client timing values.**~~ **Done (2026-10-14).** Seats `staleTime` 3s / `refetchInterval` 5s while visible; status polling every 2s, stop at a final state or after 2 minutes; `503` auto-retry ≤ 3 with `Retry-After` + jitter, same key (§7, §10; Phase 2 checklist D15) | this file | — |
+| 8 | ~~**Client-side payment collection flow.**~~ **Done (2026-10-14).** Phase 2 uses a dropdown of Stripe test tokens (success and decline), shown only with a test key; `paymentMethodToken` stays a generic opaque token so Stripe.js can be added later without an API change (Phase 2 checklist D11) | `technical-design/modules/payment.md` | — |
 | 9 | **E2E tooling not installed.** Playwright is decided (`e2e-testing.md` §2) but not in `apps/web/package.json`, and `apps/web/e2e/` does not exist | `apps/web` | Phase 7 (`e2e-testing.md` §3) |
 | 10 | **No list of `DRAFT` (or `CANCELLED`/`COMPLETED`) workshops.** `listWorkshops` returns only `PUBLISHED` workshops regardless of caller, and no other endpoint lists workshops, so the `administration/` catalog cannot list drafts to edit or publish, nor past workshops to report on | `technical-design/modules/workshop.md`, `paths/workshop.yaml` | Phase 2 Organizer catalog UI |
 | 11 | **QR rendering library.** Rendering `Registration.qrPayload` as a QR image is a "frontend concern" (`technical-design/modules/checkin.md` §4); no library is chosen or installed | this file (§3, `registrations`) | Phase 5 |
-| 12 | **Permission on `createRegistration`.** The contract declares none (any authenticated user, ownership only); `backend-coding-standards.md` §27 item 10 still asks to name one. The `me/` area follows the contract (`RequireSession`); if a code is added, its guard changes | `auth-and-identity.md`, `technical-design/modules/user.md` (tracked as backend §27 item 10) | Phase 2 |
+| 12 | ~~**Permission on `createRegistration`.**~~ **Done (2026-10-14).** `REGISTRATION_CREATE` guards `createRegistration` and `chargePayment` (`backend-coding-standards.md` §11, §27 item 10); the `me/` checkout pages guard with `RequirePermission anyOf={[REGISTRATION_CREATE]}` | `auth-and-identity.md`, `user.md` | — |
 
 ---
 

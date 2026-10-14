@@ -473,6 +473,8 @@ class JpaWorkshopRepository implements WorkshopRepository {
 
 **Why the explicit check is mandatory.** For an entity already managed in the persistence context, Hibernate **ignores** a value you assign to its `@Version` field and uses the version from its own load-time snapshot. Copying `workshop.version()` into the entity therefore does nothing. The adapter must compare explicitly and throw. `OptimisticConflictException` (`shared.domain`) is the one exception every repository port uses for a lost race (Liskov, §4).
 
+**Status-guarded transitions** (`registration.md` §3/§5, `payment.md` §9): the adapter may add the expected status to the same statement — `UPDATE … WHERE id = ? AND version = ? AND status = 'RESERVED'` — and treat affected rows ≠ 1 as `OptimisticConflictException`; the use case then re-reads and branches (no-op, or compensation). It is the same optimistic check, made explicit about the state it guards.
+
 The use case, not the adapter, decides what an empty `Optional` means (usually a `…NotFoundException` with `ProblemKind.NOT_FOUND`).
 
 ### 9.3 Other driven adapters
@@ -530,6 +532,7 @@ public final class Permissions {
     public static final String WORKSHOP_EDIT   = "WORKSHOP_EDIT";
     public static final String CHECKIN_SCAN    = "CHECKIN_SCAN";
     public static final String REPORT_VIEW     = "REPORT_VIEW";
+    public static final String REGISTRATION_CREATE = "REGISTRATION_CREATE";   // createRegistration + chargePayment (Phase 2, D7)
     private Permissions() {}
 }
 
@@ -569,6 +572,8 @@ The adapter (`shared.infrastructure.out.messaging.RabbitAuditTrail`) must:
 2. Publish directly to `unihub.system.audit.created` — **not** through the outbox (`messaging.md` §3).
 3. Catch every exception, log at `WARN`, and increment a failure counter so the gap surfaces as an alert (fail-open but not silent, `architecture.md` §5.5).
 4. Map the actor exactly as `audit_events` stores it (`database-schema.md` §8.3): `UserActor` → `actor_type = 'USER'`, `actor_user_id = userId`; `SystemActor` → `actor_type = 'SYSTEM'`, `actor_user_id = NULL`, and `process` written to `metadata.process`.
+
+**Phase 2 scope (checklist D6, Q10):** the port and this adapter are built in Phase 2 and every write use case calls them from then on — workshop create/update/cancel/reschedule/publish, registration create/confirm, payment charge and every payment transition, and the refund (Phase 3). The consumer that persists `audit_events` is **not** built before Phase 6 (M-54), so published events wait in `unihub.audit.queue`; how that queue is handled until then is open (Phase 2 checklist C32).
 
 Action names follow the `audit_events.action` examples (`WORKSHOP_CANCELLED`, `ROLE_PERMISSIONS_CHANGED`) and live as constants in `shared.application.port.out.AuditActions`. Operations no person performs — a hold expiring, the reconciliation sweep resolving a payment — are audited with `Actor.system("<job-name>")`. They are never attributed to a real user (for example the student whose hold expired): that would make the audit trail false.
 
@@ -860,6 +865,19 @@ class GlobalProblemHandler extends ResponseEntityExceptionHandler {   // also tu
 - The single advice lives in `shared.web` and maps by `ProblemKind`, so it never imports a module's exception class. `shared` stays independent of modules (§13), and `domain` stays unaware of HTTP.
 - `401` and `403` come from Spring Security, not the advice. Configure the `AuthenticationEntryPoint` and `AccessDeniedHandler` to write the same `ProblemDetail` body; otherwise those two statuses fail contract-diff.
 - A business outcome that is part of a sealed Result (sold out, §25) is **not** an exception. The controller maps that variant to a `ProblemDetail` itself.
+- **Problem `type` per client-branching reason (checklist D8, Q6).** Every error a client must branch on carries its own `type` URI; the set is a stable contract (adding a value is a contract change, renaming or removing one is breaking). Everything else keeps `about:blank`.
+
+  | `type` | Status | Raised by |
+  |---|---|---|
+  | `urn:unihub:problem:sold-out` | `409` | `createRegistration` — no seat left |
+  | `urn:unihub:problem:already-registered` | `409` | `createRegistration` — the caller already holds an active registration |
+  | `urn:unihub:problem:registration-not-open` | `409` | `createRegistration` — workshop not `PUBLISHED` |
+  | `urn:unihub:problem:registration-not-reserved` | `409` | `chargePayment` — the registration is no longer `RESERVED` |
+  | `urn:unihub:problem:payment-in-progress` | `409` | `chargePayment` — the registration already has a live payment |
+  | `urn:unihub:problem:idempotency-key-in-use` | `409` | either — the same key is still being processed (retryable) |
+  | `urn:unihub:problem:idempotency-key-reused` | `422` | either — the same key with a different body |
+
+  The constants live in `shared.web` next to the advice; a Result variant maps to its `type` in the controller, a `DomainException` declares it alongside its `ProblemKind`. A replayed Result carries the same `type`.
 - Status semantics: `400` malformed request; `401` missing/invalid/expired token; `403` valid token without the permission; `404` not found, or hidden from this caller; `409` conflict with current state (including an `Idempotency-Key` still being processed); `422` an `Idempotency-Key` reused with a different request body (§21 rule 4); `503` + `Retry-After` for transient contention or an unavailable dependency. `UNPROCESSABLE` is added to the shared-kernel enum with the first Phase 2 code (Phase 2 checklist C26); `INVALID_REQUEST` already exists in code.
 
 ---
@@ -893,23 +911,25 @@ A distributed lock is acquired **before** the transaction opens and released **a
 The pattern is two beans: an entry use case (no `@Transactional`) owns the lock and calls a separate `*Transaction` bean that owns the transaction. Calling through an injected bean also avoids self-invocation (§19.3). The full code is in §25.
 
 ```java
-// registration/application/port/out/SeatLock.java
+// registration/application/port/out/SeatLock.java (checklist D4, Q11)
 public interface SeatLock {
     /**
-     * Runs work while holding the per-workshop seat lock (key, lease and wait time: registration.md §2).
-     * The lock is acquired before work starts and released after work returns — i.e. after the
-     * transaction inside work has committed.
-     * @throws SeatTemporarilyUnavailableException on contention timeout or when Redis is unreachable
+     * Acquires the per-workshop seat lock (key, lease and wait time: registration.md §2), waiting at most
+     * waitTimeout. The caller acquires it BEFORE the transaction opens and closes the handle AFTER the
+     * transaction has committed or rolled back (try-with-resources around the *Transaction call, §25.1).
+     * @throws SeatLockUnavailableException (UNAVAILABLE, RetryableUnavailable) on timeout or, from Phase 3,
+     *         when Redis is unreachable — never proceed without the lock
      */
-    <T> T withLock(WorkshopId workshopId, Supplier<T> work);
+    SeatLockHandle tryAcquire(WorkshopId workshopId, Duration waitTimeout, Duration leaseTime);
 }
+public interface SeatLockHandle extends AutoCloseable { @Override void close(); }
 ```
 
-`SeatLock` adapter obligations (`RedissonSeatLock`, parameters from `registration.md` §2):
+Adapters:
 
-- Contention timeout or Redis unreachable → throw `SeatTemporarilyUnavailableException` (a Registration domain exception, `UNAVAILABLE`, implements `RetryableUnavailable`). Never proceed without the lock.
-- Exceptions thrown by the supplied work are rethrown unchanged — never wrapped — so the entry use case can react to them (§25.1).
-- `unlock()` failing because the lease already expired (`IllegalMonitorStateException`) is caught and logged at `WARN`. By then the transaction has committed and the database's version check already protected it; failing the request here would return an error for a successful operation.
+- **Phase 2 — `InProcessSeatLock`**: one `ReentrantLock` per `workshopId` (no global lock), `tryLock(waitTimeout)`, and entries removed when no thread holds or waits for them, so the map does not grow without bound. `leaseTime` is ignored — a JVM lock has no lease. Acquire and release happen on the same request thread. It does **not** protect across instances; the database check (version + `seats_taken <= capacity`) is the deciding layer, recorded in `test-matrix.md` §4.5 with the adapter.
+- **Phase 3 — `RedissonSeatLock`** (parameters from `registration.md` §2): contention timeout **or** Redis unreachable → `SeatLockUnavailableException`; never proceed without the lock (INV-08, M-34). `unlock()` failing because the lease already expired (`IllegalMonitorStateException`) is caught and logged at `WARN`: by then the transaction has committed and the database's version check already protected it.
+- Exhausted seat-claim retries after lost version races are a different `503`: `SeatTemporarilyUnavailableException` (§25.1). Both map to `UNAVAILABLE` + `Retry-After` and are never recorded under the idempotency key (§21 rule 7).
 
 ### 19.3 Self-invocation
 
@@ -930,7 +950,15 @@ ChargePayment (no transaction)
                                PENDING → CANCELLED + idempotency abandonOpenFor, commit; respond 503
 ```
 
-A timeout or error **after** the request reached the gateway calls neither `complete` nor `abandon`: the payment stays `PENDING` and its key `IN_PROGRESS`, and reconciliation resolves both in one transaction (§21 rule 7, `payment.md` §6). The permission acquired before `begin` is either consumed by the call or released, so a `HALF_OPEN` probe slot is never leaked.
+**Which step runs after the call (checklist D10 — C28, C30):**
+
+| Outcome of the gateway call | Next step | Response |
+|---|---|---|
+| Never left UniHub — breaker refusal, connect timeout, connection refused, DNS failure | `abandon`: `PENDING → CANCELLED`, key deleted | `503`, nothing recorded; a same-key retry executes for real |
+| Sent, outcome unknown — read timeout, reset after sending, gateway `5xx` | `complete` with the Result "initiated": payment stays `PENDING`, key `COMPLETED` | `201` with `PENDING`; a same-key retry replays it, the gateway is never called twice; webhook/reconciliation decide the outcome |
+| Definitive answer — succeeded or declined | `complete` with the real status: `SUCCEEDED` (and, **in the same transaction**, the outbox row `unihub.payment.charge.succeeded`, `payment.md` §9) or `FAILED` | `201` with that status |
+
+The `201` body is a snapshot taken when `complete` committed; `getPayment` is the source of truth. Only a crash between `begin` and `complete` leaves the key `IN_PROGRESS` for reconciliation (`completeOpenFor`, §21 rule 7). The permission acquired before `begin` is either consumed by the call or released, so a `HALF_OPEN` probe slot is never leaked. How the gateway call itself is split so that reconciliation can always identify the transaction is open (Phase 2 checklist C31; proposal in `payment.md` §6).
 
 `begin` and `complete` live on a separate `ChargePaymentSteps` bean. `TransactionTemplate` is **not** used in `application` — it sits outside the Spring allow-list (§3), and the two-bean shape already solves the problem.
 
@@ -1069,7 +1097,7 @@ Rules:
 4. **Fingerprint.** The web layer computes the request fingerprint (lowercase hex SHA-256 of the body in canonical JSON) and passes it in the command. On replay, `Completed` or `InProgress` with a **different** fingerprint → `IdempotencyKeyReusedException` (`ProblemKind.UNPROCESSABLE`, `422`); nothing executes. Same fingerprint: `Completed` → return its Result; `InProgress` → `IdempotencyKeyInUseException` (`409`).
 5. Every outcome that must replay identically — including business rejections such as sold-out, already-registered, or "a payment for this registration is already in progress" — is a **variant of the sealed Result**, never a thrown exception. A thrown exception rolls back the transaction and the key row with it.
 6. The adapter writes with `JdbcTemplate`, so a unique-constraint violation surfaces immediately inside `begin`, not later at flush, and translates `DuplicateKeyException` into `IdempotencyKeyInUseException` (`CONFLICT`). The same "catch the duplicate, translate it" rule applies to any **partial** unique index that guards a business invariant (e.g. one live payment per registration, `database-schema.md` §5.1): a partial index cannot be an `ON CONFLICT ON CONSTRAINT` target, so the adapter catches the error and the use case returns the matching Result variant — never a `500`.
-7. Transient failures (lock contention, lost version race, dependency down, breaker refusal) are **not** recorded. They roll back, and the retry executes for real. For an orchestrated charge whose first transaction already committed, the breaker refusal is undone explicitly: a compensating transaction moves the payment to `CANCELLED` and calls `abandonOpenFor` (§19.4, G1). A timeout or error **after** the request reached the gateway is not transient in this sense — the gateway may have charged — so the payment stays `PENDING` and the key `InProgress` until reconciliation resolves both together (`completeOpenFor`, G2).
+7. Transient failures (lock contention, lost version race, dependency down, breaker refusal) are **not** recorded. They roll back, and the retry executes for real. For an orchestrated charge whose first transaction already committed, the rule is **whether the request reached the gateway** (§19.4, checklist D10): a failure known to happen before the request left UniHub is undone by a compensating transaction (payment `CANCELLED`, `abandonOpenFor`) and is not recorded; a request that was sent but whose outcome is unknown is a business outcome — "initiated", recorded as `PENDING` — so a retry replays it and never dials twice. Only a crash between the two transactions leaves the key `InProgress`; reconciliation then completes it with the resolution (`completeOpenFor`, G2).
 8. The cleanup sweep deletes only `COMPLETED` rows older than the retry window (by `completed_at`); it never deletes an `IN_PROGRESS` row.
 
 ---
@@ -1137,9 +1165,11 @@ class ReserveSeat implements ReserveSeatUseCase {
     private final IdempotencyStore idempotency;
     private final SeatLock seatLock;
     private final ReserveSeatTransaction transaction;
+    private final RegistrationPolicy policy;
 
-    ReserveSeat(IdempotencyStore idempotency, SeatLock seatLock, ReserveSeatTransaction transaction) {
-        this.idempotency = idempotency; this.seatLock = seatLock; this.transaction = transaction;
+    ReserveSeat(IdempotencyStore idempotency, SeatLock seatLock, ReserveSeatTransaction transaction,
+                RegistrationPolicy policy) {
+        this.idempotency = idempotency; this.seatLock = seatLock; this.transaction = transaction; this.policy = policy;
     }
 
     @Override
@@ -1151,11 +1181,18 @@ class ReserveSeat implements ReserveSeatUseCase {
         if (replay.isPresent()) {                // Completed + same fingerprint; mismatch → 422, InProgress → 409 (§21)
             return replay.get();
         }
-        try {
-            // lock → transaction opens → commit → lock released (§19.2)
-            return seatLock.withLock(command.workshopId(), () -> transaction.execute(command));
-        } catch (OptimisticConflictException lostRace) {       // lease expired mid-transaction (§19.5)
-            throw new SeatTemporarilyUnavailableException(command.workshopId(), lostRace);
+        // lock → transaction opens → commit → lock released (§19.2). tryAcquire throws
+        // SeatLockUnavailableException (UNAVAILABLE → 503 + Retry-After) when the wait times out.
+        try (var held = seatLock.tryAcquire(command.workshopId(), policy.lockWait(), policy.lockLease())) {
+            for (int attempt = 1; ; attempt++) {
+                try {
+                    return transaction.execute(command);           // a new transaction per attempt
+                } catch (OptimisticConflictException lostRace) {   // e.g. an organizer edit bumped the version
+                    if (attempt == policy.seatClaimAttempts()) {   // 3 (database-schema.md §3.1) — then 503,
+                        throw new SeatTemporarilyUnavailableException(command.workshopId(), lostRace); // never 409
+                    }
+                }
+            }
         }
     }
 }
@@ -1174,7 +1211,16 @@ public interface TicketSigner {
 public record IssuedTicket(String ticketCode, String qrPayload) {}   // registrations.ticket_code / qr_payload
 
 // registration/application/usecase/RegistrationPolicy.java — plain value, built in infrastructure/config
-public record RegistrationPolicy(Duration seatHoldDuration) {}      // from RegistrationProperties (§22)
+public record RegistrationPolicy(Duration seatHoldDuration, Duration lockWait, Duration lockLease,
+                                 int seatClaimAttempts) {}           // from RegistrationProperties (§22): 15m, 2s, 5s, 3
+
+// registration/application/port/out/SeatLock.java — Phase 2: InProcessSeatLock; Phase 3: RedissonSeatLock (fail-closed)
+public interface SeatLock {
+    /** Blocks up to waitTimeout. Throws SeatLockUnavailableException (UNAVAILABLE) on timeout or, from Phase 3,
+     *  when Redis is unreachable. The in-process adapter ignores leaseTime (a JVM lock has no lease). */
+    SeatLockHandle tryAcquire(WorkshopId workshopId, Duration waitTimeout, Duration leaseTime);
+}
+public interface SeatLockHandle extends AutoCloseable { @Override void close(); }   // release — after commit
 ```
 
 ```java
@@ -1493,8 +1539,8 @@ These changes belong to the documents named, not to this one. Each is a precondi
 | 6 | ✅ **Done** — `audit_events.actor_type` (`USER`/`SYSTEM`) with `actor_user_id` NULL for `SYSTEM`, paired by a CHECK; the job name goes in `metadata.process`. `Actor` is now a sealed type (`UserActor`/`SystemActor`, §13.1). No seeded system user | `database-schema.md` §8.3, `auth-and-identity.md` | Phase 2 (first system-initiated audit: hold expiry) |
 | 7 | ✅ **Done** — `*WebTest.java` web slices (`@WebMvcTest`, port/in mocked, no containers) run in `./gradlew test`; they don't replace the Integration-level RBAC tests M-01…M-03 | `unit-testing.md` §4.1, test `coding-standards.md` §1, `test-strategy.md` §3 | Phase 1 (first controller) |
 | 8 | **Half done (2026-10-14).** "Payment succeeded → registration `CONFIRMED`": `unihub.payment.charge.succeeded` → `unihub.payment-confirmation.queue`, with the compensation `unihub.registration.confirmation.rejected` → `unihub.payment-refund.queue` (`messaging.md` §2). **Still open:** "workshop cancelled → cancel its registrations and release seats" (§7 type 4) — no Phase 2 matrix row needs it | `messaging.md` §2, `registration.md`, `payment.md` | M-19 (done half); open half: not yet scheduled |
-| 9 | `workshops.version` is bumped by both seat claims and organizer edits, so edits will conflict constantly during a registration spike. Decide whether the seat counter keeps sharing that version or relies on the `seats_taken <= capacity` check with an atomic increment | `database-schema.md` §3.1, `registration.md` §2 | Phase 2 |
-| 10 | Name the permission code guarding `POST /api/v1/registrations` | `auth-and-identity.md`, `user.md` | Phase 2 |
+| 9 | ✅ **Done (2026-10-14)** — `workshops.version` stays shared by seat claims and organizer edits; seat claim adds `seats_taken < capacity` to its `WHERE`, retries a lost version race internally (3 attempts) before `503`; organizer edits never write `seats_taken`; revisit thresholds for Phase 8 (`database-schema.md` §3.1, `registration.md` §2, `observability.md` §4) | `database-schema.md` §3.1, `registration.md` §2 | Phase 2 |
+| 10 | ✅ **Done (2026-10-14)** — `REGISTRATION_CREATE`, seeded for `Student` by `V4`, guards `createRegistration` and `chargePayment` (§11, `database-schema.md` §10.1) | `auth-and-identity.md`, `user.md` | Phase 2 |
 | 11 | ✅ **Done** — the correlation ID is a 32-hex-character trace ID (`observability.md` §1), not a UUID. The contract now declares it once as `headers.yaml#/CorrelationIdValue` (`pattern: '^[0-9a-f]{32}$'`), used by both `X-Correlation-Id` headers and `error.yaml`'s `correlationId`. Redocly lint passes | `packages/api-contract/common/headers.yaml`, `common/error.yaml` | Phase 1 (M-17) |
 | 12 | ✅ **Done** — `ArchitectureTest`'s §19.1 rule as printed doesn't compile: `containAnyMethodsThat` exists only on `ClassesThat` (predicate side), never on `ClassesShould`/`.orShould()` (verified via `javac`, see commit/PR). Split into `transactional_only_in_application` (class-level `beAnnotatedWith`) + `transactional_methods_only_in_application` (`noMethods().that().areDeclaredInClassesThat()...should().beAnnotatedWith(...)`), same target packages, preserving full §19.1 intent at both class and method level. Rule count in §26.2 is now 18, not 17 — update the printed snippet to match. | `backend-coding-standards.md` §26.2 | Phase 1 (M-12) |
 
