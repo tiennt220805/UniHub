@@ -19,7 +19,7 @@ payments:
       **The response carries the payment's real status when the charge
       step completed** (`payment.md` §8): `SUCCEEDED` or `FAILED` when the
       gateway answered at once, `PENDING` when the outcome is not yet known
-      (including a timeout after the request reached the gateway). The body
+      (including a timeout after the confirm was sent). The body
       is a snapshot — `getPayment` is the source of truth; while `PENDING`,
       poll it until the webhook or the reconciliation sweep resolves it.
 
@@ -131,7 +131,7 @@ payments:
           row; otherwise the payment row is now `CANCELLED`. Either way nothing is
           recorded under the `Idempotency-Key`, the seat-hold is untouched,
           and a retry with the **same** key executes for real. A timeout
-          **after** the request reached the gateway is a `201` `PENDING`, not
+          **after** the confirm was sent is a `201` `PENDING`, not
           a `503`. The time budget of the two gateway calls is open
           (`../../../docs/technical-design/modules/payment.md` §3, Phase 2 checklist C37). **`Retry-After`'s value is
           inferred — flagged as an assumption.** Not specified in

@@ -1088,7 +1088,7 @@ public interface IdempotencyStore {
     /** Reconciliation (G2): completes the open key of a resolved charge, if one exists. */
     void completeOpenFor(IdempotencyScope scope, UUID resourceId, Object result);
 
-    /** Breaker compensation (G1b): deletes the open key of a charge that never reached the gateway. */
+    /** Compensation (G1b, D16): deletes the open key of a charge that provably moved no money. */
     void abandonOpenFor(IdempotencyScope scope, UUID resourceId);
 }
 

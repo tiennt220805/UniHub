@@ -126,7 +126,7 @@ Chốt bởi Nguyễn Thành Tiến: D1–D4 ngày 2026-10-13; C2, C6, C10, C11 
   7. **G1 — charge khi breaker đang mở** *(C24; mở rộng bởi D10: áp dụng cho mọi lỗi "chưa chạm gateway")*:
      - (a) Xin quyền gọi của breaker **trước** tx1. Không được phép → `503` ngay, không ghi gì (không `payments`, không key).
      - (b) Backstop: nếu cuộc gọi vẫn bị breaker từ chối **sau** khi tx1 đã commit (breaker vừa chuyển sang `OPEN` giữa hai bước), một transaction bù chuyển payment `PENDING → CANCELLED` (không bị partial index của D5 chặn) và **xóa** key `IN_PROGRESS`. Trả `503`; retry cùng key chạy thật.
-     - Khác với timeout/lỗi **sau khi request đã gửi tới gateway**: theo D10 (C30), đó là kết quả nghiệp vụ "đã khởi tạo" — `201` với payment `PENDING`, key `COMPLETED`; payment để webhook/reconciliation giải quyết, vì gateway có thể đã trừ tiền.
+     - Khác với timeout/lỗi **sau khi confirm đã được gửi** (D16 — mọi lỗi ở bước create đều là "chưa trừ tiền"): theo D10 (C30), đó là kết quả nghiệp vụ "đã khởi tạo" — `201` với payment `PENDING`, key `COMPLETED`; payment để webhook/reconciliation giải quyết, vì gateway có thể đã trừ tiền.
   8. **G2 — crash giữa tx1 và tx2 của charge** *(C25; từ D10 chỉ còn cho trường hợp crash)*: reconciliation, khi giải quyết một payment `PENDING`, cập nhật key `IN_PROGRESS` tương ứng sang `COMPLETED` + Result **trong cùng transaction** với việc resolve payment. Nhờ vậy client retry cùng key sẽ nhận replay, không bị `409` mãi mãi.
 - **Acceptance criteria:**
   - **AC1.1** Cùng actor + scope + key + payload → trả về đúng Result gốc (status + body giống hệt), không có hiệu ứng thứ hai (không thêm `registrations`/`payments`, gateway không bị gọi lại).
