@@ -276,7 +276,7 @@ flowchart TD
 
 ## 8. Idempotent Payment-Charge
 
-**Rationale:** `docs/requirement.md` §2.8/§1.5 require that a client-generated key makes a payment-charge request safe to retry — a student must never be charged twice, nor have two `payments` rows created, even from a repeated click caused by network lag. The generic mechanism is `../platform/database-schema.md` §8.1's design; this section is Payment's application of it, and it is the concrete backstop `../platform/database-schema.md` §5.1's `registration_id UNIQUE` constraint already implies at the schema level.
+**Rationale:** `docs/requirement.md` §2.8/§1.5 require that a client-generated key makes a payment-charge request safe to retry — a student must never be charged twice, nor have two `payments` rows created, even from a repeated click caused by network lag. The generic mechanism is `../platform/database-schema.md` §8.1's design; this section is Payment's application of it, and it works alongside `../platform/database-schema.md` §5.1's partial unique index on `registration_id` (at most one live payment per registration), which catches what a per-key check cannot — two different keys for the same registration — at the schema level.
 
 **Model:** every `POST /api/v1/payments/charge` request carries a client-generated `Idempotency-Key` header, scoped to the operation **and the authenticated caller** — `(scope, actor_user_id, idempotency_key)`, actor from the verified JWT, never from the request (`../platform/database-schema.md` §8.1). The request body's fingerprint is stored with the key. Because the gateway call cannot sit inside a transaction (`../../guidelines/backend-coding-standards.md` §19.1), the charge is orchestrated in two transactions (§19.4):
 
