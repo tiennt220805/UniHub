@@ -43,6 +43,7 @@
 | M-76 *(derived, P3)* | — | — (Phase 3) | D2 |
 | M-77 *(derived)* | — | 3.5 (`chargePayment`) | D5 · D1 |
 | M-78 *(mới)* | — | 4 | 0.Q6, Q12–Q15 |
+| M-79 *(S-17)* | — | 3.5 (test chữ ký webhook) | D13 |
 
 **Trạng thái gỡ chặn** (cập nhật 2026-10-14, sau khi chốt mọi câu Q và D6–D15 — chi tiết ở Mục 0A):
 
