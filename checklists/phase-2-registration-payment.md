@@ -45,17 +45,17 @@
 | M-78 *(mới)* | — | 4 | 0.Q6, Q12–Q15 |
 | M-79 *(S-17)* | — | 3.5 (test chữ ký webhook) | D13 |
 
-**Trạng thái gỡ chặn** (cập nhật 2026-10-14, sau khi chốt mọi câu Q và D6–D15 — chi tiết ở Mục 0A):
+**Trạng thái gỡ chặn** (cập nhật 2026-10-14, sau khi chốt mọi câu Q, D6–D16 và C31–C36 — chi tiết ở Mục 0A):
 
 | Dòng | Trạng thái | Đã gỡ bởi | Còn chờ |
 |---|---|---|---|
-| M-20 | **Unblocked** | D1, D10 (Q1, Q5, C2, C28, C30, G1, G2); tài liệu sở hữu đã cập nhật 2026-10-14 | C31 (cơ chế tra giao dịch) chỉ chặn phần reconciliation khi chưa có `gateway_transaction_id`; C26 là một thay đổi nhỏ ở shared kernel khi code |
+| M-20 | **Unblocked** | D1, D10, D16 (Q1, Q5, C2, C28, C30, C31, G1, G2) | C37 (ngân sách thời gian hai lời gọi gateway); C26 là thay đổi nhỏ ở shared kernel khi code |
 | M-21 | **Unblocked** | D1; đặc tả `V3` ở `database-schema.md` §10.1 | — |
-| M-19 | **Unblocked** | D2, D5, D7, D8, D10, D11 (+ seat claim D3, D4) | C31 (cơ chế gọi gateway để reconciliation luôn xác định được giao dịch); C33 (thành công muộn vs partial index) |
+| M-19 | **Unblocked** | D2, D5, D7, D8, D10, D11, D16 (+ seat claim D3, D4) | C37 |
 | M-75 | **Unblocked** (derived DR-PAY-1, Phase 2) | D2; dòng đã có trong `test-matrix.md` | — |
-| M-77 | **Unblocked** (derived DR-PAY-3, Phase 2) | D5, D8 (`payment-in-progress`); dòng đã có trong `test-matrix.md` | C33 có thể thu hẹp partial index |
+| M-77 | **Unblocked** (derived DR-PAY-3, Phase 2) | D5 (index `PENDING`/`SUCCEEDED`, C33), D8 | — |
 | M-18 | **Unblocked** | D3, D4, D7, D8, D9 | — |
-| M-23 | **Unblocked** về G2 (chỉ còn crash) | D1, D10 | C31 |
+| M-23 | **Unblocked** | D1, D10, D16 (reconciliation ánh xạ đủ trạng thái PaymentIntent) | C37 (thời gian của retrieve + cancel trên đường async) |
 | M-24 | **Unblocked** | D10, D12 | — |
 | M-79 | **Unblocked** (S-17, Phase 2) | D13; dòng đã có trong `test-matrix.md` | — |
 
@@ -87,26 +87,26 @@ Nguồn: `backend-coding-standards.md` §27, `web-coding-standards.md` §13, `IM
 
 - [x] `[→ M-20, M-21]` **Q1 — ✅ Đã chốt (D1); tài liệu sở hữu đã cập nhật 2026-10-14.** Schema `idempotency_keys` lưu Result, không lưu HTTP response (§27 #1, **blocker M-20**): thay `response_status`/`response_body` bằng `result_type VARCHAR` + `result_body JSONB`; sửa chữ ở `registration.md` §4, `payment.md` §8. → `database-schema.md` §8.1, rồi migration `V3__…` (Mục 1.2)
 - [x] `[→ M-19]` **Q2 — ✅ Đã chốt (D2); tài liệu sở hữu đã cập nhật 2026-10-14.** Routing key "payment succeeded → registration `CONFIRMED`" (§27 #8, **blocker M-19**): đặt tên theo quy ước `unihub.<domain>.<entity>.<action>`, queue đích, retry chain riêng (§4). Nửa còn lại của #8 ("workshop cancelled → hủy registrations, trả ghế") không có dòng matrix nào ở Phase 2 — có thể để mở, ghi rõ. → `messaging.md` §2, `registration.md`, `payment.md`
-- [ ] `[→ M-18, M-19]` `[M-28 · P3]` **Q3 — ✅ Đã chốt (D3); tài liệu sở hữu đã cập nhật 2026-10-14 (`database-schema.md` §3.1, `registration.md` §2, `backend-coding-standards.md` §25/§27 #9, `observability.md` §4) — đủ điều kiện tick, chờ bạn.** `workshops.version` dùng chung cho seat claim và organizer edit (§27 #9): giữ chung version, hay seat counter chỉ dựa vào atomic increment + CHECK. Ảnh hưởng trực tiếp tới seat-claim SQL của Mục 3.1 → `database-schema.md` §3.1, `registration.md` §2
-- [ ] `[→ M-18, M-19]` **Q4 — ✅ Đã chốt 2026-10-14 (D7).** Permission cho `POST /api/v1/registrations` (§27 #10, web §13 #12): contract hiện không khai báo (mọi user đã xác thực + ownership). Chốt "không cần" hoặc đặt tên code mới + migration seed cho Student → `auth-and-identity.md`, `user.md`
+- [x] `[→ M-18, M-19]` `[M-28 · P3]` **Q3 — ✅ Đã chốt (D3); tài liệu sở hữu đã cập nhật 2026-10-14.** `workshops.version` dùng chung cho seat claim và organizer edit (§27 #9): giữ chung version, hay seat counter chỉ dựa vào atomic increment + CHECK. Ảnh hưởng trực tiếp tới seat-claim SQL của Mục 3.1 → `database-schema.md` §3.1, `registration.md` §2
+- [x] `[→ M-18, M-19]` **Q4 — ✅ Đã chốt 2026-10-14 (D7).** Permission cho `POST /api/v1/registrations` (§27 #10, web §13 #12): contract hiện không khai báo (mọi user đã xác thực + ownership). Chốt "không cần" hoặc đặt tên code mới + migration seed cho Student → `auth-and-identity.md`, `user.md`
 - [x] `[→ M-20, M-24]` **Q5 — ✅ Giải quyết theo D1 (lỗi hạ tầng không được ghi); `payment.md` §8 đã sửa 2026-10-14.** `503` của `chargePayment` có được ghi idempotency không (web §13 #6): `payment.md` §8 ghi lại response circuit-open; §21 rule 5 nói lỗi tạm thời không ghi; contract nói "safe to retry". Đề xuất: sửa `payment.md` §8 theo §21 → `payment.md` §8
-- [ ] `[→ M-18, M-19, M-78]` **Q6 — ✅ Đã chốt 2026-10-14 (D8).** Lý do `409` máy đọc được (web §13 #5): "sold out" vs "already registered" (và 2 nguyên nhân `409` của `chargePayment`). Đề xuất: `type` URI riêng cho từng lý do → `common/error.yaml`, `paths/registration.yaml`, `paths/payment.yaml`, `backend-coding-standards.md` §17
-- [ ] `[→ M-18, M-19]` **Q7 — ✅ Đã chốt 2026-10-14 (D9).** Mật khẩu cho tài khoản Student đồng bộ từ legacy (`paths/user.yaml` login description: first-login setup **chưa có thiết kế**). Phase 2 cần ít nhất một Student đăng nhập được để đăng ký. Lựa chọn: (a) chỉ seed tài khoản test có `password_hash` cho dev/test, thiết kế first-login để sau; (b) thiết kế first-login ngay. → `user.md`, `paths/user.yaml`
-- [ ] `[→ M-24]` **Q8 — ✅ Đã chốt 2026-10-14 (D12).** `minimumNumberOfCalls` của breaker (`IMPLEMENTATION-READINESS.md` E2) → `payment.md` §2
-- [ ] `[— không dòng]` **Q9 — ✅ Đã chốt 2026-10-14 (D13).** Phase sở hữu test chữ ký webhook S-17 (E6) — S-17 chưa gắn dòng matrix nào. Đề xuất Phase 2, vì webhook được xây ở đây; nếu đồng ý thì thêm dòng mới (M-79) → `security-testing.md` §2.2, `test-matrix.md` §2.2
+- [x] `[→ M-18, M-19, M-78]` **Q6 — ✅ Đã chốt 2026-10-14 (D8).** Lý do `409` máy đọc được (web §13 #5): "sold out" vs "already registered" (và 2 nguyên nhân `409` của `chargePayment`). Đề xuất: `type` URI riêng cho từng lý do → `common/error.yaml`, `paths/registration.yaml`, `paths/payment.yaml`, `backend-coding-standards.md` §17
+- [x] `[→ M-18, M-19]` **Q7 — ✅ Đã chốt 2026-10-14 (D9).** Mật khẩu cho tài khoản Student đồng bộ từ legacy (`paths/user.yaml` login description: first-login setup **chưa có thiết kế**). Phase 2 cần ít nhất một Student đăng nhập được để đăng ký. Lựa chọn: (a) chỉ seed tài khoản test có `password_hash` cho dev/test, thiết kế first-login để sau; (b) thiết kế first-login ngay. → `user.md`, `paths/user.yaml`
+- [x] `[→ M-24]` **Q8 — ✅ Đã chốt 2026-10-14 (D12).** `minimumNumberOfCalls` của breaker (`IMPLEMENTATION-READINESS.md` E2) → `payment.md` §2
+- [x] `[— không dòng]` **Q9 — ✅ Đã chốt 2026-10-14 (D13).** Phase sở hữu test chữ ký webhook S-17 (E6) — S-17 chưa gắn dòng matrix nào. Đề xuất Phase 2, vì webhook được xây ở đây; nếu đồng ý thì thêm dòng mới (M-79) → `security-testing.md` §2.2, `test-matrix.md` §2.2
 - [ ] `[M-54 · P6†]` `[§4.5 — M-04]` **Q10 — ✅ Đã chốt 2026-10-14 (D6).** AuditTrail: xây port `AuditTrail` ngay ở Phase 2 (registration/payment là thao tác bị audit, `backend-coding-standards.md` §12) hay tiếp tục hoãn như M-04. Nếu hoãn: thêm dòng vào `test-matrix.md` §4.5 cho registration/payment
-- [ ] `[→ M-18, M-19]` `[M-34 · P3]` **Q11 — ✅ Đã chốt (D4); tài liệu sở hữu đã cập nhật 2026-10-14 (`registration.md` §2, `backend-coding-standards.md` §19.2/§25) — đủ điều kiện tick, chờ bạn.** Dòng `test-matrix.md` §4.5 được thêm cùng commit với adapter (D4 ràng buộc 4). `SeatLock` ở Phase 2: (a) port + adapter in-process (tiền lệ `InProcessJobLock`), Redisson ở Phase 3; hay (b) Redisson adapter ngay vì Mục 1.5 đã thêm Redisson cho M-08. Cả hai đều giữ DB check làm lớp quyết định. → ghi trong `test-matrix.md` §4.5 như dòng M-09
+- [x] `[→ M-18, M-19]` `[M-34 · P3]` **Q11 — ✅ Đã chốt (D4); tài liệu sở hữu đã cập nhật 2026-10-14 (`registration.md` §2, `backend-coding-standards.md` §19.2/§25) .** Dòng `test-matrix.md` §4.5 được thêm cùng commit với adapter (D4 ràng buộc 4). `SeatLock` ở Phase 2: (a) port + adapter in-process (tiền lệ `InProcessJobLock`), Redisson ở Phase 3; hay (b) Redisson adapter ngay vì Mục 1.5 đã thêm Redisson cho M-08. Cả hai đều giữ DB check làm lớp quyết định. → ghi trong `test-matrix.md` §4.5 như dòng M-09
 
 ### 0.2 Web Application
 
 - [ ] `[→ M-78]` **Q12 — ✅ Đã chốt 2026-10-14 (D14).** Lưu access token ở đâu (web §13 #3; tạm thời: memory only) → `auth-and-identity.md` (mục Web-client), rồi `web-coding-standards.md` §8/§11
-- [ ] `[→ M-78]` **Q13 — ✅ Đã chốt 2026-10-14 (D14).** Nguồn permission để gate UI (web §13 #4): cho phép đọc claim `permissions` chỉ cho UX, hay thêm permissions vào `LoginResponse` → `schemas/user.yaml`, `auth-and-identity.md` §2
-- [ ] `[→ M-19, M-78]` **Q14 — ✅ Đã chốt 2026-10-14 (D11).** Luồng thu phương thức thanh toán phía client (web §13 #8): `paymentMethodToken` là field suy luận. Đề xuất cho sandbox: Stripe test PaymentMethod (`pm_card_visa`…) qua Stripe.js, không giữ dữ liệu thẻ ở UniHub → `payment.md`, `schemas/payment.yaml`
-- [ ] `[→ M-78]` **Q15 — ✅ Đã chốt 2026-10-14 (D15).** Giá trị thời gian phía client (web §13 #7): `staleTime`/`refetchInterval` số ghế (cận dưới 3s), chu kỳ + điều kiện dừng poll `getPayment`, ngân sách tự retry `503` → `web-coding-standards.md` §7/§10
+- [x] `[→ M-78]` **Q13 — ✅ Đã chốt 2026-10-14 (D14).** Nguồn permission để gate UI (web §13 #4): cho phép đọc claim `permissions` chỉ cho UX, hay thêm permissions vào `LoginResponse` → `schemas/user.yaml`, `auth-and-identity.md` §2
+- [x] `[→ M-19, M-78]` **Q14 — ✅ Đã chốt 2026-10-14 (D11).** Luồng thu phương thức thanh toán phía client (web §13 #8): `paymentMethodToken` là field suy luận. Đề xuất cho sandbox: Stripe test PaymentMethod (`pm_card_visa`…) qua Stripe.js, không giữ dữ liệu thẻ ở UniHub → `payment.md`, `schemas/payment.yaml`
+- [x] `[→ M-78]` **Q15 — ✅ Đã chốt 2026-10-14 (D15).** Giá trị thời gian phía client (web §13 #7): `staleTime`/`refetchInterval` số ghế (cận dưới 3s), chu kỳ + điều kiện dừng poll `getPayment`, ngân sách tự retry `503` → `web-coding-standards.md` §7/§10
 
 ---
 
-## 0A. Decisions (ADR) — Q1–Q15 + C2, C6, C10, C11, C27, C28, C30, G1, G2
+## 0A. Decisions (ADR) — Q1–Q15 + C2, C6, C10, C11, C27, C28, C30–C34, C36, G1, G2
 
 Chốt bởi Nguyễn Thành Tiến: D1–D4 ngày 2026-10-13; C2, C6, C10, C11 và hai bản vá G1, G2 ngày 2026-10-14 (đã gộp vào D1, D2 và D5 bên dưới); Q4, Q6–Q10, Q12–Q15, C27, C28, C30 cũng ngày 2026-10-14 (D6–D15). Mỗi quyết định gồm: quyết định · lý do · ràng buộc · acceptance criteria (AC, dùng làm điều kiện tick các task liên quan) · test cần có (tên đề xuất, chốt khi viết) · tài liệu phải sửa. Mâu thuẫn tìm thấy khi đối soát nằm ở Mục 0B (mã `Cnn`). **Chưa có dòng code nào cho các quyết định này.**
 
@@ -213,11 +213,12 @@ Chốt bởi Nguyễn Thành Tiến: D1–D4 ngày 2026-10-13; C2, C6, C10, C11 
 
 ### D5 — C6: Mỗi registration tối đa một payment "đang sống", được thử lại sau thất bại `[→ M-19, M-20]` `[M-77]`
 
-- **Quyết định:** thay `payments.registration_id UNIQUE` tuyệt đối bằng **partial unique index** chỉ trên các trạng thái còn hiệu lực: `PENDING`, `SUCCEEDED`, `REFUND_REQUIRED`, `REFUNDED`. Payment `FAILED` hoặc `CANCELLED` không chặn lần thử mới.
-- **Lý do:** thẻ bị decline là chuyện bình thường; khóa student trong suốt thời gian giữ chỗ không bảo vệ thêm được gì. Partial index vẫn giữ bất biến quan trọng nhất: không bao giờ có hai lần trừ tiền song song cho cùng một registration, kể cả khi hai tab gửi hai idempotency key khác nhau. `REFUND_REQUIRED`/`REFUNDED` vẫn nằm trong index: đó là tiền đã trừ, và registration của nó không còn `RESERVED` nên cũng không thể charge lại.
+- **Quyết định:** thay `payments.registration_id UNIQUE` tuyệt đối bằng **partial unique index** chỉ trên các trạng thái **đang sống: `PENDING`, `SUCCEEDED`** (thu hẹp theo C33, 2026-10-14). Payment `FAILED`, `CANCELLED`, `REFUND_REQUIRED`, `REFUNDED` không chặn lần thử mới.
+- **Lý do:** thẻ bị decline là chuyện bình thường; khóa student trong suốt thời gian giữ chỗ không bảo vệ thêm được gì. Partial index vẫn giữ bất biến quan trọng nhất: không bao giờ có hai lần trừ tiền song song cho cùng một registration, kể cả khi hai tab gửi hai idempotency key khác nhau. `REFUND_REQUIRED`/`REFUNDED` **không** nằm trong index (C33): đó là tiền đang được trả lại, không phải payment đang sống; giữ chúng trong index sẽ chặn nhánh "thành công muộn" khi registration đã có payment sống khác.
 - **Ràng buộc:**
   1. Charge thất bại là domain failure, được ghi Result dưới key cũ. Muốn thử lại thì client phải dùng idempotency key **mới**. Decline đồng bộ trả `201` với `FAILED` (D10, C28).
-  2. Vi phạm partial index → domain failure `409` "đã có thanh toán đang xử lý", với loại lỗi máy đọc được riêng — gắn với Q6 khi Q6 được chốt (chưa chốt).
+  2. Vi phạm partial index → domain failure `409`, problem `type` `urn:unihub:problem:payment-in-progress` (D8).
+  5. **Thành công muộn** (phòng thủ bổ sung — với D16 gần như không thể xảy ra): gateway báo thành công cho payment đã `CANCELLED`/`FAILED` → chuyển **thẳng** sang `REFUND_REQUIRED`, **không** đi qua `SUCCEEDED`, và **không** phát `charge.succeeded`, để không kích hoạt xác nhận registration.
   3. Partial index không dùng được làm target kiểu `ON CONFLICT ON CONSTRAINT`. Adapter bắt `DuplicateKeyException` trên index này và dịch thành domain failure (Result variant), không phải lỗi hạ tầng.
   4. Giao thoa với G1b: payment bị hủy bởi transaction bù (`CANCELLED`) không chặn retry cùng key.
 - **Acceptance criteria:**
@@ -225,24 +226,26 @@ Chốt bởi Nguyễn Thành Tiến: D1–D4 ngày 2026-10-13; C2, C6, C10, C11 
   - **AC5.2** Hai charge song song cho cùng registration với **hai key khác nhau** → đúng một payment sống; bên còn lại `409` (domain failure, được ghi dưới key của nó), gateway chỉ bị gọi một lần.
   - **AC5.3** Retry cùng key sau một charge `FAILED` → replay kết quả cũ, không gọi gateway.
   - **AC5.4** Vi phạm partial index không bao giờ lộ ra thành `500`.
+  - **AC5.5** Thành công muộn cho payment `CANCELLED`/`FAILED` → `REFUND_REQUIRED` trực tiếp, không có outbox `charge.succeeded`, kể cả khi registration đã có một payment `SUCCEEDED` khác (không vi phạm index).
 - **Test cần có:** Mục 0C, nhóm T-PAY.
 - **Tài liệu phải sửa:** `database-schema.md` §5.1, §10 (đặc tả `V3`), §11; `payment.md` §1, §8, §10; `paths/payment.yaml` (`409`, mô tả thử lại); `web-coding-standards.md` §10 (key mới sau `FAILED`); `test-matrix.md` (derived requirement M-77).
 
 ### D6 — Q10: `AuditTrail` xây port + adapter tối giản ngay ở Phase 2 `[§4.5 — M-04]` `[M-54 · P6†]`
 
-- **Quyết định:** xây port `AuditTrail` và adapter publish tối giản ngay trong Phase 2: publish sau commit, không bao giờ throw, có metric khi lỗi (`backend-coding-standards.md` §12). **Không** xây pipeline/consumer ghi `audit_events` (vẫn là Phase 6, M-54).
-- **Lý do:** charge (Phase 2) và refund (Phase 3) là thao tác dịch chuyển tiền; gắn audit sau sẽ phải sửa lại mọi use case.
+- **Quyết định:** xây port `AuditTrail` ngay trong Phase 2, với adapter **ghi log có cấu trúc** (sau commit, không bao giờ throw, có metric khi lỗi) — **chưa publish lên broker** (C32, 2026-10-14). Adapter publish lên RabbitMQ và consumer ghi `audit_events` làm **cùng lúc ở Phase 6** (M-54), ghi vào `test-matrix.md` §4.5.
+- **Lý do:** charge (Phase 2) và refund (Phase 3) là thao tác dịch chuyển tiền; gắn audit sau sẽ phải sửa lại mọi use case. Mục tiêu là **port**, nên đổi adapter ở Phase 6 không phải sửa use case. Không publish trước khi có consumer (C32): queue không consumer sẽ phình mãi; khi RabbitMQ chạm memory alarm nó chặn **mọi** publisher, làm outbox relay và việc xác nhận đăng ký đứng theo; tham số queue lại không sửa được sau khi khai báo.
 - **Ràng buộc:**
   1. Mọi use case ghi đã có hoặc sắp có đều gọi `AuditTrail.record(...)`: tạo/sửa/hủy/dời/publish workshop (gỡ dòng hoãn audit của M-04 ở `test-matrix.md` §4.5), tạo registration, xác nhận registration, khởi tạo charge, mọi transition của payment, và refund (Phase 3).
   2. Thao tác không do người thực hiện (reconciliation, consumer) ghi bằng `Actor.system("<job>")`, không bao giờ gán cho user thật.
-  3. Lỗi publish chỉ được log `WARN` + tăng counter, không làm hỏng thao tác nghiệp vụ (INV-14 fail-open).
-  4. Không có consumer ở Phase 2, nên message dồn trong `unihub.audit.queue` *(C32 — cần bạn quyết cách xử lý)*.
+  3. Adapter Phase 2 (`LoggingAuditTrail`) ghi một dòng log có cấu trúc qua logger riêng (appender bất đồng bộ, không bao giờ chặn), sau commit; mọi lỗi được nuốt, log `WARN` và tăng `unihub_audit_publish_failures_total`; không bao giờ làm hỏng thao tác nghiệp vụ (INV-14 fail-open).
+  4. Phase 2 **không** khai báo hay publish vào `unihub.audit.queue`.
 - **Acceptance criteria:**
-  - **AC6.1** Thao tác commit → đúng một audit message được publish sau commit; thao tác rollback → không có message.
-  - **AC6.2** Broker lỗi → thao tác nghiệp vụ vẫn thành công, counter lỗi tăng, có log `WARN`.
+  - **AC6.1** Thao tác commit → đúng một bản ghi audit có cấu trúc sau commit; thao tác rollback → không có bản ghi.
+  - **AC6.2** Adapter gặp lỗi → thao tác nghiệp vụ vẫn thành công, counter lỗi tăng, có log `WARN`.
+  - **AC6.4** Không có message nào được publish lên broker ở Phase 2.
   - **AC6.3** Actor được map đúng: `UserActor` → `USER` + user id; `SystemActor` → `SYSTEM`, process nằm trong `metadata.process`.
 - **Test cần có:** Mục 0C, nhóm T-AUDIT.
-- **Tài liệu phải sửa:** `backend-coding-standards.md` §12; `messaging.md` §3 (ghi chú Phase 2 chưa có consumer); `test-matrix.md` §4.5 (gỡ dòng hoãn audit của M-04).
+- **Tài liệu phải sửa:** `backend-coding-standards.md` §12; `messaging.md` §3; `observability.md` §4; `test-matrix.md` §4.5 (gỡ dòng hoãn audit của M-04, thêm dòng hoãn adapter publish + consumer sang Phase 6).
 
 ### D7 — Q4: Permission `REGISTRATION_CREATE` cho tạo registration và charge `[→ M-18, M-19]` `[M-01, M-03]`
 
@@ -253,6 +256,8 @@ Chốt bởi Nguyễn Thành Tiến: D1–D4 ngày 2026-10-13; C2, C6, C10, C11 
   2. Seed bằng migration dữ liệu riêng `V4__seed_registration_permission.sql` (cùng kiểu `V2`, idempotent với `ON CONFLICT DO NOTHING`).
   3. Hai lớp kiểm tra vẫn tách nhau: `@PreAuthorize("hasAuthority('REGISTRATION_CREATE')")` ở controller, quyền sở hữu ở use case.
   4. `getRegistration`, `listMyRegistrations`, `getPayment` vẫn chỉ kiểm quyền sở hữu (không đổi).
+  5. **Phạm vi:** `REGISTRATION_CREATE` bao gồm cả việc **thanh toán cho registration của chính mình** (tên đã duyệt 2026-10-14).
+  6. `V4` là migration **forward-only**: không có down migration; thu hồi permission là một migration mới.
 - **Acceptance criteria:**
   - **AC7.1** Token không có `REGISTRATION_CREATE` → `403` ở cả `createRegistration` lẫn `chargePayment`, không có hiệu ứng, không có row idempotency.
   - **AC7.2** Token Student mới đăng nhập mang `REGISTRATION_CREATE`; role Organizer/Admin/Check-in Staff không có.
@@ -265,13 +270,14 @@ Chốt bởi Nguyễn Thành Tiến: D1–D4 ngày 2026-10-13; C2, C6, C10, C11 
 - **Quyết định:** với mọi lỗi mà client phải rẽ nhánh (các `409`, `422` fingerprint mismatch, …), `ProblemDetail.type` mang một URI riêng cho lý do đó. Tập `type` là contract ổn định.
 - **Lý do:** đây là cách RFC 7807 dành cho việc này; không phải thêm field vào `error.yaml`.
 - **Ràng buộc:**
-  1. Dạng URI: `urn:unihub:problem:<slug>` *(đề xuất của tôi — nên review: không cần một domain thật để resolve)*.
+  1. Dạng URI: `urn:unihub:problem:<slug>` (**đã duyệt** 2026-10-14). Slug mô tả **điều kiện nghiệp vụ**, không mô tả mã HTTP; một slug đã dùng **không bao giờ** được tái sử dụng cho nghĩa khác.
   2. Danh mục ban đầu: `sold-out`, `already-registered`, `registration-not-open`, `registration-not-reserved`, `payment-in-progress`, `idempotency-key-in-use`, `idempotency-key-reused`.
   3. Lỗi không cần rẽ nhánh (`400` validation, `401`, `403`, `404`, `500`, `503`) giữ `about:blank`.
-  4. Thêm, đổi tên hay xóa một `type` là thay đổi contract (đổi tên/xóa là breaking).
+  4. Đổi tên hay xóa một `type` là breaking. Thêm `type` mới **không** breaking vì web **bắt buộc** có nhánh dự phòng cho `type` không nhận ra (xử lý theo HTTP status).
 - **Acceptance criteria:**
   - **AC8.1** Mỗi lý do trong danh mục trả đúng `type` của nó, kể cả khi replay từ idempotency.
   - **AC8.2** `contract-diff` xanh; danh mục trong contract và hằng trong code khớp nhau.
+  - **AC8.3** Web nhận một `type` lạ → xử lý theo HTTP status, không lỗi.
 - **Test cần có:** Mục 0C, nhóm T-PROB.
 - **Tài liệu phải sửa:** `common/error.yaml`, các response trong `paths/registration.yaml`, `paths/payment.yaml`; `backend-coding-standards.md` §17; `web-coding-standards.md` §6, §13 #5.
 
@@ -303,14 +309,14 @@ Chốt bởi Nguyễn Thành Tiến: D1–D4 ngày 2026-10-13; C2, C6, C10, C11 
   4. Body là **snapshot tại thời điểm hoàn tất**; nguồn sự thật là `getPayment`. Replay trả lại đúng snapshot đó, không đọc trạng thái hiện tại.
   5. G2 vẫn giữ, nhưng giờ chỉ dành cho trường hợp **crash giữa hai transaction**.
 - **Acceptance criteria (thay AC1.11; AC1.12 thu hẹp còn crash):**
-  - **AC10.1 (thay AC1.11)** Timeout sau khi đã gửi → `201` với `PENDING`; key `COMPLETED` (Result "đã khởi tạo"); retry cùng key → replay `201 PENDING`, gateway không bị gọi lại; payment được webhook/reconciliation giải quyết sau đó.
-  - **AC10.2** Lỗi trước khi gửi (connect failure) sau tx1 → payment `CANCELLED`, key bị xóa, `503`; retry cùng key gọi gateway thật đúng 1 lần.
+  - ~~**AC10.1**~~ **Thu hẹp bởi D16 → AC16.3** (chỉ sau khi **confirm** đã gửi). Timeout sau khi đã gửi → `201` với `PENDING`; key `COMPLETED` (Result "đã khởi tạo"); retry cùng key → replay `201 PENDING`, gateway không bị gọi lại; payment được webhook/reconciliation giải quyết sau đó.
+  - **AC10.2** (theo D16: áp dụng cho lỗi ở create, ở bước lưu id, và confirm chưa rời UniHub) Lỗi trước khi gửi (connect failure) sau tx1 → payment `CANCELLED`, key bị xóa, `503`; retry cùng key gọi gateway thật đúng 1 lần.
   - **AC10.3** Gateway decline đồng bộ → `201` với `FAILED`; replay trả `FAILED`; thử lại cần key mới (D5).
   - **AC10.4** Gateway thành công đồng bộ → `201` với `SUCCEEDED` + outbox `charge.succeeded` trong cùng tx2 (rollback tx2 thì mất cả hai).
   - **AC1.12 (thu hẹp)** Chỉ áp dụng cho crash giữa tx1 và tx2.
 - **Test cần có:** Mục 0C, nhóm T-IDEM (đã sửa) và T-CHARGE.
 - **Tài liệu phải sửa:** `payment.md` §1, §3, §8, §9, §10, §11; `backend-coding-standards.md` §19.4, §21 rule 7; `paths/payment.yaml`, `schemas/payment.yaml`; `test-design-techniques.md` §3.3.
-- **Phụ thuộc mở:** cơ chế tra giao dịch khi reconciliation chưa có `gateway_transaction_id` — **C31, chờ bạn duyệt**.
+- **Phạm vi được D16 làm rõ:** quy tắc "chưa chạm / đã chạm" ở tầng mạng chỉ áp dụng cho **confirm**; mọi lỗi ở create là "chưa trừ tiền".
 
 ### D11 — Q14: Dropdown test token của Stripe, không tích hợp SDK ở Phase 2 `[→ M-19, M-78]`
 
@@ -344,12 +350,15 @@ Chốt bởi Nguyễn Thành Tiến: D1–D4 ngày 2026-10-13; C2, C6, C10, C11 
 - **Quyết định:** access token lưu ở `sessionStorage` (Q12). `LoginResponse` có thêm danh sách `permissions` (Q13); token giữ nguyên tính opaque với client.
 - **Lý do:** một khi đã bị XSS, token trong memory vẫn bị dùng được trong phiên, nên lợi ích bảo mật của memory so với `sessionStorage` nhỏ, còn lợi ích UX (reload không mất phiên) thì rõ ràng. Lấy permission từ response thì client không phải giải mã token.
 - **Ràng buộc:**
-  1. CSP chặt và không render HTML thô *(C34: repo chưa có CSP ở đâu cả)*.
+  1. CSP chặt và không render HTML thô (C34, 2026-10-14):
+     - **Phase 2:** CSP dạng thẻ `<meta>`, **chỉ chèn ở bản build production** (không phá HMR ở dev). Directive tối thiểu, phù hợp với việc không dùng Stripe.js: `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' <API origin>; object-src 'none'; base-uri 'self'; form-action 'self'`. Có test xác nhận bản build chứa CSP và không có script inline.
+     - **Phase 7:** CSP dạng HTTP header ở tầng serve thật, gồm các directive thẻ meta không hỗ trợ (MDN: `frame-ancestors` *"is not supported in the `<meta>` element"*); ghi vào `test-matrix.md` §4.5.
+     - **Nếu CSP không có thì quay lại lưu token trong memory.**
   2. Kiểm `exp` khi khởi động; token hết hạn thì xóa và coi như chưa đăng nhập.
   3. Xóa token (và query cache) khi nhận `401` hoặc khi logout.
   4. Permission lưu cùng token, **chỉ dùng cho UX**; server vẫn là bên enforce.
   5. Hướng nâng cấp ngoài scope: httpOnly cookie / BFF.
-- **Acceptance criteria:** **AC14.1** reload trong phiên giữ đăng nhập; **AC14.2** token hết hạn lúc khởi động → bị xóa; **AC14.3** `401` → token và cache bị xóa, quay về sign-in; **AC14.4** UI gate theo `LoginResponse.permissions`, không giải mã JWT.
+- **Acceptance criteria:** **AC14.0** bản build production có thẻ CSP meta, không có `<script>` inline, bản dev không có; **AC14.1** reload trong phiên giữ đăng nhập; **AC14.2** token hết hạn lúc khởi động → bị xóa; **AC14.3** `401` → token và cache bị xóa, quay về sign-in; **AC14.4** UI gate theo `LoginResponse.permissions`, không giải mã JWT.
 - **Test cần có:** Mục 0C, nhóm T-WEB.
 - **Tài liệu phải sửa:** `auth-and-identity.md` (mục Web client mới, §2), `schemas/user.yaml` (`LoginResponse.permissions`), `web-coding-standards.md` §8, §11, §13 #3/#4.
 
@@ -365,11 +374,53 @@ Chốt bởi Nguyễn Thành Tiến: D1–D4 ngày 2026-10-13; C2, C6, C10, C11 
 - **Tài liệu phải sửa:** `web-coding-standards.md` §7, §10, §13 #7; `IMPLEMENTATION-READINESS.md` mục C.
 
 
+### D16 — C31: Charge tách create (`confirm=false`) → lưu id → confirm; reconciliation ánh xạ đủ trạng thái PaymentIntent `[→ M-19, M-20, M-23, M-24]`
+
+- **Quyết định:** chọn phương án **A**, loại bỏ hoàn toàn phương án B (tra bằng Search). Charge tạo PaymentIntent **chưa confirm**, lưu id trong một transaction, rồi mới confirm. `metadata.payment_id` vẫn được gắn, nhưng **chỉ để điều tra vận hành**; không bao giờ là căn cứ để resolve payment.
+- **Lý do:** ranh giới tiền dồn về **một** lời gọi duy nhất là confirm. Create không trừ tiền (Stripe: `confirm` *"defaults to `false`"*) nên gọi lại luôn an toàn. "`PENDING` mà id `NULL`" trở thành **bằng chứng** chưa trừ tiền. B dựa vào Search, mà Stripe khuyến cáo *"Don't use search for read-after-write flows"*; ngưỡng 1 giờ của B còn dài hơn cả thời gian giữ chỗ.
+- **Ràng buộc:**
+  1. **Reconciliation ánh xạ đủ trạng thái PaymentIntent** (tên trạng thái kiểm chứng ở docs.stripe.com/api/payment_intents/object):
+     | PaymentIntent | Kết luận |
+     |---|---|
+     | id `NULL` (chưa lưu được id) | Chưa từng confirm → `CANCELLED` + xóa key, không gọi gateway |
+     | `succeeded` | `SUCCEEDED` (+ outbox `charge.succeeded`), hoàn tất key |
+     | `requires_payment_method` **và `latest_charge` khác null** | Đã thử và bị từ chối → `FAILED`, hoàn tất key (`latest_charge` *"is `null` until PaymentIntent confirmation is attempted"*; không dùng `last_payment_error` vì nó *"will be cleared if the PaymentIntent is later updated"*) |
+     | `requires_payment_method` với `latest_charge` null, hoặc `requires_confirmation` | Chưa từng confirm → **cancel** rồi `CANCELLED` + xóa key |
+     | `processing` | Giữ `PENDING`, **không** cancel (Stripe chỉ cho cancel `processing` *"in rare cases"*), xét lại ở chu kỳ sau |
+     | `requires_action` (3DS) | Không xảy ra trên luồng của UniHub: confirm luôn gửi `error_on_requires_action=true` (*"fail the payment attempt if the PaymentIntent transitions into `requires_action`"*), nên lần thử thất bại thay vì treo. Nếu vẫn gặp (phòng thủ) → cancel (cho phép ở `requires_action`) rồi `CANCELLED` + xóa key |
+     | `requires_capture` | Không xảy ra (capture tự động). Nếu gặp → cancel (Stripe: *"the remaining `amount_capturable` is automatically refunded"*) rồi `CANCELLED` + xóa key |
+     | `canceled` | `CANCELLED` + xóa key |
+     | Cancel bị từ chối vì đã `succeeded` | Retrieve lại, kết luận theo trạng thái thật (`SUCCEEDED`) |
+  2. **Một quy tắc idempotency key cho cả luồng đồng bộ lẫn reconciliation:**
+     - **Chứng minh được chưa trừ tiền** → payment `CANCELLED` + **xóa key**, để retry cùng key chạy thật. Có ba loại bằng chứng: id `NULL`; confirm **chưa rời** UniHub (breaker từ chối, lỗi mức kết nối); cancel thành công.
+     - **Đã biết kết cục** (`SUCCEEDED`, `FAILED`, `PENDING` "đã khởi tạo") → hoàn tất key bằng Result.
+  3. **Phân loại theo A:**
+     - **Mọi lỗi ở bước create** (kể cả read timeout) là "chưa trừ tiền" → bù trừ ngay (`CANCELLED` + xóa key, `503`), không chờ reconciliation. Một PaymentIntent mồ côi chưa confirm thì vô hại.
+     - Lỗi ở bước lưu id → id không được lưu → cũng là "chưa trừ tiền".
+     - Phân loại ở tầng mạng (connect timeout, refused, DNS = chưa chạm; đã gửi = đã chạm) **chỉ áp dụng cho confirm**.
+     - C30 (`201 PENDING` + hoàn tất key) **chỉ** áp dụng cho timeout/lỗi **sau khi confirm đã được gửi**.
+  4. **Retry:**
+     - Mọi lời gọi gateway mang idempotency key phía Stripe **tất định theo payment và theo bước**: `pi-create:{paymentId}`, `pi-confirm:{paymentId}`, `pi-cancel:{paymentId}`. Mọi lần retry (SDK hay Resilience4j) dùng **cùng** key đó.
+     - Retry của SDK được cấu hình **tường minh** khi thêm SDK. Repo chưa có SDK; Stripe: *"Retry defaults depend on the SDK, version, and how you construct the client"*. Trên đường đồng bộ đặt `0`, vì `TimeLimiter` mới là bên giới hạn thời gian.
+     - Phân loại "đã chạm" xét trên **cả chuỗi lần thử**: chỉ cần một lần có thể đã được gửi thì tính là đã chạm.
+     - Retry một thao tác chưa rõ kết cục chỉ trong 24h đầu (Stripe: *"Limit retries of an unresolved operation to the first 24 hours"*); quá hạn thì chỉ retrieve, không gửi lại.
+  5. **Ngân sách thời gian:** đường charge đồng bộ giờ có hai lời gọi gateway và thêm một transaction. Cấu hình hiện tại (`TimeLimiter` 3s "cho đường đồng bộ", breaker đếm theo lời gọi) không còn diễn đạt đúng → **C37, cần bạn duyệt**.
+  6. Bỏ ghi chú tạm "reconciliation không được resolve `PENDING` có id `NULL`"; quy tắc ở ràng buộc 1 thay thế nó.
+- **Acceptance criteria:**
+  - **AC16.1** Lỗi bất kỳ ở create (kể cả read timeout) hoặc ở bước lưu id → `CANCELLED`, key bị xóa, `503`; retry cùng key tạo lần thử mới.
+  - **AC16.2** Confirm chưa rời UniHub (breaker, connect) → `CANCELLED`, key bị xóa, `503`.
+  - **AC16.3 (thay AC10.1)** Timeout/lỗi **sau khi confirm đã gửi** → `201 PENDING`, key hoàn tất "đã khởi tạo", retry cùng key replay, không confirm lại.
+  - **AC16.4** Reconciliation cho đúng kết luận ở **từng dòng** của bảng ràng buộc 1, kể cả "cancel bị từ chối vì đã thành công".
+  - **AC16.5** Mọi lần retry của cùng một bước dùng cùng idempotency key phía Stripe; không có confirm thứ hai với key khác.
+  - **AC16.6** `metadata.payment_id` có trên mọi PaymentIntent nhưng không đường code nào đọc nó để resolve payment.
+- **Test cần có:** Mục 0C, nhóm T-STRIPE.
+- **Tài liệu phải sửa:** `payment.md` §2, §3, §6, §7, §8, §10, §11; `backend-coding-standards.md` §19.4, §21; `paths/payment.yaml`.
+
 ---
 
 ## 0B. Đối soát chéo — mâu thuẫn tìm thấy
 
-Đối chiếu D1–D15 với `architecture.md` (§4.2, §4.3, §4.5, §6.1, interaction types), `backend-coding-standards.md` (§7, §8.5, §9.2, §21, §25, §27 #1/#8/#9), DDL `V1`/`V2`, `test-matrix.md`, cùng `registration.md`, `payment.md`, `messaging.md`, `observability.md`, `test-design-techniques.md` và contract. **Tài liệu sở hữu được cập nhật theo từng đợt quyết định (2026-10-14); `architecture.md` không bao giờ bị đụng tới.** Mức độ: **Chặn** = phải giải quyết trước code của dòng liên quan · **Doc** = chỉ cần cập nhật tài liệu · **Code** = code hiện có lệch · **OK** = không mâu thuẫn.
+Đối chiếu D1–D16 với `architecture.md` (§4.2, §4.3, §4.5, §6.1, interaction types), `backend-coding-standards.md` (§7, §8.5, §9.2, §21, §25, §27 #1/#8/#9), DDL `V1`/`V2`, `test-matrix.md`, cùng `registration.md`, `payment.md`, `messaging.md`, `observability.md`, `test-design-techniques.md` và contract. **Tài liệu sở hữu được cập nhật theo từng đợt quyết định (2026-10-14); `architecture.md` không bao giờ bị đụng tới.** Mức độ: **Chặn** = phải giải quyết trước code của dòng liên quan · **Doc** = chỉ cần cập nhật tài liệu · **Code** = code hiện có lệch · **OK** = không mâu thuẫn.
 
 | # | QĐ | File · mục | Nội dung lệch | Mức | Đề xuất |
 |---|---|---|---|---|---|
@@ -403,12 +454,14 @@ Chốt bởi Nguyễn Thành Tiến: D1–D4 ngày 2026-10-13; C2, C6, C10, C11 
 | C28 | D5 | `paths/payment.yaml` `chargePayment` ("The response is always `PENDING`, never a final outcome"); `payment.md` §1 | D5 ràng buộc 1 nói charge thất bại là domain failure được ghi dưới key cũ. Nếu gateway decline **ngay trong lời gọi đồng bộ**, contract không có response nào cho kết cục đó (chỉ có `201` `PENDING`) | ✅ **Đã chốt 2026-10-14 → D10**: `201` với trạng thái thật sau khi hoàn tất (không `402`) | (Bản đề xuất cũ) Lựa chọn: (a) giữ "luôn `PENDING`" — decline đồng bộ vẫn trả `201` với payment `PENDING`, payment chuyển `FAILED` ngay sau đó và client thấy qua `getPayment`; (b) thêm response cho decline đồng bộ (vd. `201` với `status: FAILED`, hoặc `402`). Tài liệu Bước 2 chỉ ghi phần không phụ thuộc lựa chọn: `FAILED` là kết cục cuối của key đó, thử lại cần key mới |
 | C29 | D2 | `architecture.md` §4.3 ("Backend API instances publish four kinds of messages"; ② Lifecycle Event lists only registration confirmed / workshop cancelled/rescheduled) | Hai routing key mới (`payment.charge.succeeded`, `registration.confirmation.rejected`) không được liệt kê trong ví dụ của kind ② | Thấp — **không sửa** `architecture.md` | `messaging.md` §2 xếp chúng vào kind ② (lifecycle event), nên số "message kind" không đổi. Nếu muốn `architecture.md` nêu rõ ví dụ, đó là việc của bạn |
 | C30 | D1 (G1) | `paths/payment.yaml` `503` ("… or the gateway call timed out — … safe to retry"); `payment.md` §3, §8 | Response trả cho **chính** request bị timeout *sau khi* đã gửi tới gateway chưa được quy định. Nếu là `503` "safe to retry", retry cùng key sẽ nhận `409` cho tới khi reconciliation chạy (≥ 15 phút, có thể quá hạn giữ chỗ) | ✅ **Đã chốt 2026-10-14 → D10**: chọn (b) | (a) `503` + ghi rõ "retry cùng key → `409` tới khi reconciliation"; (b) `201` với payment `PENDING` và hoàn tất key bằng Result "đã khởi tạo" ngay ở bước đó — client poll `getPayment` (khớp "luôn `PENDING`" của contract), reconciliation/webhook vẫn quyết kết cục. Contract hiện để (a) kèm cờ "open item" |
-| C31 | D10, G2 | `payment.md` §6 (cơ chế "tra giao dịch bằng `charge:{paymentId}`" của bản trước) | **Kiểm chứng tài liệu Stripe:** Stripe không có API tra cứu theo idempotency key. Idempotency key chỉ dedup request gửi lại: kết quả được lưu "only after the execution of an endpoint begins", và "We generate a new request if a key is reused after the original is pruned" (sau ≥ 24h). Gửi lại request tạo charge để "tra" có thể **thực hiện charge** nếu request gốc chưa từng tới Stripe → cơ chế cũ bị **cấm**. Search API tra được PaymentIntent theo `metadata`, nhưng Stripe ghi rõ "Don't use search for read-after-write flows… Under normal operating conditions, data is searchable in under 1 minute. Propagation… could be delayed during an outage" | **Cần bạn duyệt cơ chế** (nhu cầu đã duyệt) | **Đề xuất A (chính):** tách **create → lưu id → confirm**. `PaymentIntent` tạo với `confirm=false` ("defaults to `false`") **không trừ tiền**; lưu `gateway_transaction_id` trong một transaction trước khi gọi confirm. Vì confirm chỉ được gửi sau khi id đã lưu, payment `PENDING` mà id còn `NULL` chắc chắn chưa từng được confirm → reconciliation chuyển `CANCELLED` an toàn, không cần tra. Payment đã có id → retrieve theo id (không bị độ trễ của search); nếu chưa thành công thì gọi **cancel** PaymentIntent trước khi kết luận `CANCELLED` (Stripe: "After it's canceled, no additional charges are made"; cancel lỗi nếu đã thành công → đọc lại → `SUCCEEDED`). Đánh đổi: thêm một lời gọi gateway và một transaction trên đường charge đồng bộ. **Đề xuất B (dự phòng):** gắn `metadata.payment_id`, tra bằng Search API, chỉ kết luận "không tìm thấy" khi payment cũ hơn ngưỡng (≥ 1 giờ vì độ trễ khi sự cố). Nguồn: docs.stripe.com/api/idempotent_requests, /search, /api/payment_intents/create, /api/payment_intents/cancel |
-| C32 | D6 | `messaging.md` §2–§3 (`unihub.audit.queue` có consumer là "Audit/observability consumer"); `test-matrix.md` M-54 (Phase 6†) | Phase 2 publish audit nhưng không có consumer → message dồn trong `unihub.audit.queue`; bảng `audit_events` không được ghi tới Phase 6 | **Cần bạn quyết** | (a) Chấp nhận dồn queue ở dev/test (khối lượng nhỏ), ghi vào §4.5; (b) khai báo queue với giới hạn độ dài/TTL cho tới khi có consumer (mất audit cũ — trái tinh thần "không mất audit đã publish"); (c) xây luôn consumer tối thiểu ghi `audit_events` (kéo một phần M-54 về Phase 2). Khuyến nghị: (a) |
-| C33 | D2, D5, C31 | `database-schema.md` §5.1 (partial index gồm `REFUND_REQUIRED`, `REFUNDED`); `payment.md` §6, §7 | Quy tắc mới: webhook/reconciliation thấy gateway báo **thành công** cho payment UniHub đã đóng là `CANCELLED`/`FAILED` → phải đi nhánh bù trừ (`REFUND_REQUIRED`), không no-op. Nhưng nếu registration đã có payment sống khác (student thử lại bằng key mới và thành công), transition này **vi phạm partial index** → không ghi được, tiền kẹt | **Cần bạn quyết** (đụng D5) | Thu hẹp index còn `PENDING`, `SUCCEEDED`. An toàn vì `chargePayment` chỉ nhận registration `RESERVED`, mà registration có payment `REFUND_REQUIRED`/`REFUNDED` thì không còn `RESERVED`. Với đề xuất A của C31 trường hợp này gần như không xảy ra, nhưng quy tắc phòng thủ vẫn phải ghi được |
-| C34 | D14 | Toàn repo: không có cấu hình CSP nào (`apps/web`, tài liệu deployment) | D14 đặt điều kiện "CSP chặt" cho việc lưu token ở `sessionStorage`, nhưng chưa có nơi nào định nghĩa hay cấu hình CSP | **Cần bạn quyết** nơi/thời điểm | Đề xuất: ghi chính sách CSP vào `web-coding-standards.md` ngay; cấu hình header ở web host/Ingress khi deploy (Phase 7); dev server Vite cấu hình tương đương để bắt lỗi sớm |
+| C31 | D10, G2 | `payment.md` §6 (cơ chế "tra giao dịch bằng `charge:{paymentId}`" của bản trước) | Stripe không có tra cứu theo idempotency key; gửi lại request tạo charge có thể trừ tiền muộn (bằng chứng ở D16) | ✅ **Đã chốt 2026-10-14 → D16: phương án A** (create `confirm=false` → lưu id → confirm), **B bị loại** | Xem D16 |
+| C32 | D6 | `messaging.md` §3; `test-matrix.md` M-54 | Phase 2 publish audit mà không có consumer → queue phình | ✅ **Đã chốt 2026-10-14 → D6**: adapter ghi log có cấu trúc ở Phase 2; adapter publish + consumer ở Phase 6 | — |
+| C33 | D2, D5, C31 | `database-schema.md` §5.1 | Partial index gồm `REFUND_*` chặn nhánh thành công muộn | ✅ **Đã chốt 2026-10-14 → D5**: index chỉ còn `PENDING`, `SUCCEEDED`; thành công muộn đi thẳng sang `REFUND_REQUIRED`, không phát `charge.succeeded` | — |
+| C34 | D14 | Toàn repo chưa có CSP | — | ✅ **Đã chốt 2026-10-14 → D14**: thẻ meta ở bản build production (Phase 2), HTTP header ở Phase 7; không có CSP thì quay về token trong memory | — |
 | C35 | D7, D10 | `database-schema.md` §10.1 (tên `V3__idempotency_result_and_live_payments.sql`) | Tên cũ không còn phản ánh phạm vi (V3 còn đổi trạng thái payment); permission mới cần một migration dữ liệu | Doc | Đổi tên `V3__phase2_idempotency_and_payments.sql`; thêm `V4__seed_registration_permission.sql` |
-| C36 | D13 | `test-matrix.md` §2.1 (bảng tiền tố Req ID) | M-79 cần một Req ID, nhưng S-17 không có bullet SRS lẫn INV; các tiền tố hiện có (`REQ`, `SC`, `P11`, `ARC-INV`, `DR`) đều không khớp | Doc — **nên review** | Đã thêm tiền tố `ARC-S-nn` (vector của `security-testing.md` §2.2 được một quyết định phase cấp dòng riêng), liệt kê ở §4.3 |
+| C36 | D13 | `test-matrix.md` §2.1 | M-79 cần Req ID | ✅ **Đã giải quyết 2026-10-14**: tìm thấy **REQ-1.3.1.3b** (*"students must complete online payment before the seat reservation is officially confirmed"*) — webhook giả mạo chính là cách vượt qua yêu cầu này. Dùng REQ-1.3.1.3b; bỏ tiền tố `ARC-S` | — |
+| C37 | D16, D12 | `payment.md` §2, §3, §11 (`TimeLimiter` 3s "cho đường đồng bộ"; "thread được giải phóng trong 3s"; breaker COUNT_BASED 20 / `minimumNumberOfCalls` 10) | Đường charge đồng bộ giờ có **hai** lời gọi gateway (create, confirm) và thêm một transaction. (a) Đảm bảo "3s" không còn đúng cho cả request: tệ nhất ≈ 3s + 3s + thời gian transaction; (b) breaker đếm theo lời gọi, nên mỗi charge góp **2** điểm dữ liệu: cửa sổ 20 ≈ 10 charge, ngưỡng 10 ≈ 5 charge | **Cần bạn duyệt** | Đề xuất: giữ `TimeLimiter` 3s **mỗi lời gọi** và HTTP timeout ≤ 3s mỗi lời gọi; ghi trần cả request ≈ 6,5s; giữ breaker đếm theo lời gọi (create lỗi cũng là tín hiệu gateway yếu) và hiệu chỉnh lại ở Phase 8. Phương án khác: 1,5s mỗi lời gọi để giữ trần 3s |
+| C38 | D14 | `web-coding-standards.md` (CSP `style-src 'self'`) | Một số thư viện UI chèn thẻ `<style>` lúc chạy (vd. khóa cuộn của dialog), sẽ bị `style-src 'self'` chặn | Verify khi code | Test build + kiểm tra trình duyệt không có vi phạm CSP. Nếu có, quyết định ngoại lệ (hash/nonce cho style) — không tự thêm `'unsafe-inline'` |
 
 ---
 
@@ -428,8 +481,9 @@ Tên là đề xuất. Chốt tên thật khi viết test, rồi điền vào `t
 - [ ] `ChargePaymentIdempotencyIT#concurrentSameKey_inProgress409_gatewayCalledOnce` (AC1.3, C3)
 - [ ] `ChargePaymentIdempotencyIT#circuitOpenBeforeBegin_writesNothing` — breaker `OPEN` trước tx1: `503`, không row `payments`, không row key (AC1.9, G1a)
 - [ ] `ChargePaymentIdempotencyIT#breakerRejectsAfterBegin_cancelsPaymentAndDropsKey_retryExecutes` — breaker chuyển `OPEN` giữa tx1 và lời gọi: payment `CANCELLED`, key bị xóa, retry cùng key gọi gateway thật đúng 1 lần (AC1.10, G1b)
-- [ ] `ChargePaymentIdempotencyIT#timeoutAfterSend_returns201Pending_keyCompleted_retryReplaysWithoutGatewayCall` (AC10.1, C30)
-- [ ] `ChargePaymentIdempotencyIT#connectFailureBeforeSend_cancelsPaymentAndDropsKey_retryExecutes` (AC10.2)
+- [ ] `ChargePaymentIdempotencyIT#timeoutAfterConfirmSent_returns201Pending_keyCompleted_retryReplaysWithoutSecondConfirm` (AC16.3)
+- [ ] `ChargePaymentIdempotencyIT#confirmNeverLeft_cancelsPaymentAndDropsKey_retryExecutes` (AC16.2)
+- [ ] `ChargePaymentIdempotencyIT#createReadTimeout_isNotCharged_cancelsAndDropsKey`, `#storeIdFailure_cancelsAndDropsKey` (AC16.1)
 - [ ] `PaymentReconciliationIT#crashBetweenBeginAndComplete_completesKey_retryReplays` — chỉ mô phỏng **crash** (không tx2 nào chạy); reconciliation resolve payment + chuyển key sang `COMPLETED` trong cùng transaction; retry cùng key → replay (AC1.12, G2) `[→ M-23]`
 - [ ] `ChargePaymentIdempotencyIT#sameKeyOtherActor_isIndependent` + `#actorInBody_isIgnored` (AC1.8, C2)
 - [ ] `RegistrationResultHttpMappingTest` / `PaymentResultHttpMappingTest` — mọi biến thể → status + body cố định (AC1.6)
@@ -454,12 +508,18 @@ Tên là đề xuất. Chốt tên thật khi viết test, rồi điền vào `t
 **T-CHARGE — response của charge (D10)** → M-19, M-20
 - [ ] `ChargePaymentIT#syncDecline_returns201Failed_replayShowsFailed` (AC10.3)
 - [ ] `ChargePaymentIT#syncSuccess_returns201Succeeded_chargeSucceededOutboxInSameTx` — ép rollback tx2 → không có payment `SUCCEEDED` lẫn outbox (AC10.4)
-- [ ] `PaymentLateSuccessIT#webhookSucceededForCancelledPayment_goesToRefundRequired`, `#reconciliationFindsSucceededForFailedPayment_goesToRefundRequired` (quy tắc late success — phụ thuộc C33) `[M-75]`
+- [ ] `PaymentLateSuccessIT#webhookSucceededForCancelledPayment_goesDirectlyToRefundRequired_noChargeSucceededEvent`, `#lateSuccessWhileAnotherPaymentSucceeded_doesNotViolateIndex` (AC5.5) `[M-75]`
+
+**T-STRIPE — create/confirm và reconciliation (D16)** → M-19, M-20, M-23
+- [ ] `StripePaymentGatewayIT` (WireMock): create gửi `confirm=false` + `metadata.payment_id` + key `pi-create:{paymentId}`; confirm gửi `error_on_requires_action=true` + key `pi-confirm:{paymentId}`; retry dùng cùng key (AC16.5)
+- [ ] `PaymentReconciliationIT#nullGatewayId_cancelsAndDropsKey_noGatewayCall`, `#succeeded_resolvesSucceeded`, `#requiresPaymentMethodWithLatestCharge_resolvesFailed`, `#requiresPaymentMethodWithoutLatestCharge_cancelsThenCancelled`, `#requiresConfirmation_cancelsThenCancelled`, `#processing_staysPending_noCancel`, `#requiresAction_cancelsThenCancelled`, `#requiresCapture_cancelsThenCancelled`, `#canceled_resolvesCancelled`, `#cancelRefusedBecauseSucceeded_rereadsAndResolvesSucceeded` (AC16.4)
+- [ ] `PaymentMetadataUsageTest` (ArchUnit hoặc unit): không đường code resolve nào đọc `metadata.payment_id` (AC16.6)
 
 **T-AUDIT — AuditTrail (D6)** → tiền đề M-54 (P6†)
-- [ ] `RabbitAuditTrailTest#publishesAfterCommit`, `#rollback_publishesNothing`, `#noTransaction_publishesImmediately` (AC6.1)
-- [ ] `RabbitAuditTrailTest#brokerFailure_neverThrows_countsFailure` (AC6.2)
-- [ ] `RabbitAuditTrailTest#mapsUserAndSystemActor` (AC6.3)
+- [ ] `LoggingAuditTrailTest#recordsAfterCommit`, `#rollback_recordsNothing`, `#noTransaction_recordsImmediately` (AC6.1)
+- [ ] `LoggingAuditTrailTest#failure_neverThrows_countsFailure` (AC6.2)
+- [ ] `LoggingAuditTrailTest#mapsUserAndSystemActor` (AC6.3)
+- [ ] `ArchitectureTest` hoặc IT: không có publish nào tới `unihub.system.audit.created` ở Phase 2 (AC6.4)
 
 **T-RBAC — permission `REGISTRATION_CREATE` (D7)** → M-18, M-19, M-01, M-03
 - [ ] `RegistrationAuthorizationIT#withoutRegistrationCreate_is403_noKeyRecorded`, `ChargeAuthorizationIT#withoutRegistrationCreate_is403` (AC7.1)
@@ -480,6 +540,8 @@ Tên là đề xuất. Chốt tên thật khi viết test, rồi điền vào `t
 - [ ] `session-store.test.ts`: khôi phục từ `sessionStorage` khi reload, xóa token hết hạn lúc khởi động, xóa token + cache khi `401` (AC14.1–14.3); gate theo `LoginResponse.permissions` (AC14.4)
 - [ ] `CheckoutPage.test.tsx`: dropdown test token chỉ hiện ở chế độ test key; token decline → `FAILED` → thử lại với key mới (AC11.1, AC11.2)
 - [ ] `WorkshopDetailPage.test.tsx`: ngừng poll số ghế khi tab ẩn (AC15.1); poll registration/payment dừng ở kết cục cuối hoặc sau 2 phút (AC15.2); retry `503` giữ key, ≤ 3 lần (AC15.3)
+- [ ] `csp-build.test.ts`: bản build production có thẻ CSP meta với các directive của D14 và không có `<script>` inline; bản dev không có CSP (AC14.0)
+- [ ] `errors.test.ts`: problem `type` không nhận ra → xử lý theo HTTP status (AC8.3)
 
 **T-MSG — relay và retry chain (D2)** → tiền đề M-19, M-23 (bằng chứng relay là M-41, P4)
 - [ ] `ConsumerRetryChainIT#transientFailure_retriedThreeTimes_thenParkingLot` (AC2.5)
@@ -529,7 +591,7 @@ Tất cả code ở `com.unihub.shared` (rule 3, `backend-coding-standards.md` �
 
 ### 1.4 Nợ từ Phase 1 dùng hạ tầng ở 1.3
 - [ ] `[§4.5 — M-04]` `[M-38 · P4]` `CancelWorkshop`/`UpdateWorkshop` publish `WorkshopCancelled`/`WorkshopRescheduled` qua translator → outbox (`unihub.workshop.event.cancelled`/`.rescheduled`); thêm test vào M-04, gỡ dòng tương ứng khỏi `test-matrix.md` §4.5 (thông báo cho sinh viên là M-38, Phase 4)
-- [ ] `[§4.5 — M-04]` `[M-54 · P6†]` **(D6)** `AuditTrail` (after-commit, không bao giờ throw, metric khi lỗi — §12) và gọi từ mọi use case ghi (workshop, registration, payment); gỡ dòng hoãn audit của M-04 khỏi §4.5; xử lý queue audit theo C32
+- [ ] `[§4.5 — M-04]` `[M-54 · P6†]` **(D6)** Port `AuditTrail` + adapter `LoggingAuditTrail` (log có cấu trúc, sau commit, không throw, metric khi lỗi — **không** publish lên broker); gọi từ mọi use case ghi (workshop, registration, payment); gỡ dòng hoãn audit của M-04 khỏi §4.5, thêm dòng hoãn adapter publish + consumer sang Phase 6
 
 ### 1.5 Redis — M-08 (hoãn từ Phase 1; không phải invariant)
 - [ ] `[→ M-08]` `[M-16]` Thêm Redisson, cấu hình qua properties, Redis container trong IT
@@ -580,7 +642,7 @@ Với mỗi mục: Red → Green → Refactor → IT nếu dòng yêu cầu → 
 ### 3.5 Đăng ký có phí & thanh toán (phụ thuộc Q2, Q5, Q14)
 - [ ] `[→ M-19]` `[M-33 · P3]` Workshop paid: `createRegistration` → `RESERVED`, `hold_expires_at = now + 15m` (`Clock`); có publish `hold.reserved` ở Phase 2 không thì theo bảng ranh giới (consumer là Phase 3)
 - [ ] `[→ M-19, M-23, M-24]` `[M-13]` Adapter Stripe **sandbox** (`infrastructure/out/client`), secret key inject runtime (INV-18), HTTP `connectTimeout`/`readTimeout` ≤ 3s
-- [ ] `[→ M-19]` `[→ M-20]` `chargePayment` (`PAYMENT_CHARGE`): ownership, registration phải `RESERVED` và chưa hết hạn, orchestrator gọi gateway **ngoài** transaction (§19.4), tạo `payments` `PENDING`, partial unique index "một payment sống" (D5) làm backstop; test retry cùng key không gọi gateway lần hai bổ sung vào M-20 (scope `PAYMENT_CHARGE`); **G1:** xin quyền breaker trước tx1, transaction bù `PENDING → CANCELLED` + xóa key nếu bị từ chối sau tx1 (D1 ràng buộc 7); **D5:** partial unique index — vi phạm → `409` domain failure, thử lại cần key mới `[M-77]`; **D10:** `201` với trạng thái thật sau khi hoàn tất, lỗi "chưa chạm" → bù trừ + `503`, "đã gửi, không rõ" → `201 PENDING` + key `COMPLETED`; `SUCCEEDED` đồng bộ ghi outbox `charge.succeeded` trong tx2; tra giao dịch theo C31 (chờ duyệt)
+- [ ] `[→ M-19]` `[→ M-20]` `chargePayment` (`PAYMENT_CHARGE`): ownership, registration phải `RESERVED` và chưa hết hạn, orchestrator gọi gateway **ngoài** transaction (§19.4), tạo `payments` `PENDING`, partial unique index "một payment sống" (D5) làm backstop; test retry cùng key không gọi gateway lần hai bổ sung vào M-20 (scope `PAYMENT_CHARGE`); **G1:** xin quyền breaker trước tx1, transaction bù `PENDING → CANCELLED` + xóa key nếu bị từ chối sau tx1 (D1 ràng buộc 7); **D5:** partial unique index — vi phạm → `409` domain failure, thử lại cần key mới `[M-77]`; **D10:** `201` với trạng thái thật sau khi hoàn tất, lỗi "chưa chạm" → bù trừ + `503`, "đã gửi, không rõ" → `201 PENDING` + key `COMPLETED`; `SUCCEEDED` đồng bộ ghi outbox `charge.succeeded` trong tx2; **D16:** create `confirm=false` → lưu id → confirm `error_on_requires_action=true`, key Stripe tất định theo bước, retry SDK cấu hình tường minh
 - [ ] `[→ M-19]` `[→ M-78]` `[M-17]` `getPayment`, `getRegistration`, `listMyRegistrations` (ownership; `404` cho người không sở hữu theo contract) — web cần để poll trạng thái; contract-diff phủ cả ba
 - [ ] `[→ M-19, M-23]` Webhook `POST /api/v1/webhooks/payment-gateway`: verify chữ ký trên **raw body** trước khi parse, không JWT, không rate limit; `400` khi chữ ký sai; không tìm thấy giao dịch → `200` + log; không `PENDING` → `200` no-op (`payment.md` §7)
 - [ ] `[→ M-19]` `[M-40 · P4]` Payment `SUCCEEDED` → outbox (routing key Q2) → consumer Registration re-check trạng thái tại Master → `CONFIRMED` + `ticket.confirmed` outbox cùng transaction; redelivery là no-op
@@ -591,7 +653,7 @@ Với mỗi mục: Red → Green → Refactor → IT nếu dòng yêu cầu → 
 
 ### 3.6 Reconciliation — INV-04
 - [ ] `[→ M-23]` `[M-35 · P3]` Sweep (`unihub:lock:job:payment-reconciliation` qua `JobLock`): `status = 'PENDING' AND initiated_at < now - 15m` → mỗi row một `unihub.payment.reconciliation.requested` qua outbox
-- [ ] `[→ M-23, M-24]` Consumer trên `unihub.reconciliation.queue`: gọi status API qua breaker (TimeLimiter 10s, Retry 3, backoff 1/2/4s), re-check `status <> 'PENDING'` → no-op, update có điều kiện `version`; **G2:** khi resolve một payment `PENDING`, chuyển key `IN_PROGRESS` tương ứng (`resource_id` = payment id, C27) sang `COMPLETED` + Result trong cùng transaction (D1 ràng buộc 8)
+- [ ] `[→ M-23, M-24]` Consumer trên `unihub.reconciliation.queue`: gọi status API qua breaker (TimeLimiter 10s, Retry 3, backoff 1/2/4s), re-check `status <> 'PENDING'` → no-op, update có điều kiện `version`; **G2:** khi resolve một payment `PENDING`, chuyển key `IN_PROGRESS` tương ứng (`resource_id` = payment id, C27) sang `COMPLETED` + Result trong cùng transaction (D1 ràng buộc 8); ánh xạ đủ trạng thái PaymentIntent và quy tắc key thống nhất của D16
 - [ ] **`[M-23]`** Payment kẹt `PENDING` > 15 phút được giải quyết mà **không cần webhook**; race webhook ↔ sweep hội tụ đúng một trạng thái ([ST §2], [DT §3.2], [BVA §4] ngưỡng 15 phút) — `Clock` + TTL rút ngắn, gateway stub (WireMock)
 
 ### 3.7 Circuit breaker & fault isolation — INV-05 (phụ thuộc Q8)
@@ -617,7 +679,7 @@ Theo `web-coding-standards.md` (`app → routes → features → shared`, types 
 
 - [ ] **`[M-78]`** Thêm dòng `M-78` vào `test-matrix.md` §2.2 theo skeleton §2.3: Req ID `REQ-1.3.1.3a, REQ-1.3.1.3b`, "Web sign-in, registration, checkout and my-registrations components render and handle the Phase 2 endpoints' outcomes", Level `Unit — e2e-testing.md §1 (Vitest + RTL)`, Phase 2 — Phase 2 chưa có dòng nào cho phần web
 - [ ] `[→ M-78]` Regenerate types từ `packages/api-contract` sau mọi thay đổi contract ở Mục 0
-- [ ] `[M-78]` Đăng nhập (D14): trang sign-in, token + `permissions` từ `LoginResponse` lưu ở `sessionStorage`, kiểm `exp` khi khởi động, HTTP client gắn bearer, `401`/logout → xóa token + cache, về sign-in; gate UI theo `permissions` (không giải mã JWT); CSP theo C34
+- [ ] `[M-78]` Đăng nhập (D14): trang sign-in, token + `permissions` từ `LoginResponse` lưu ở `sessionStorage`, kiểm `exp` khi khởi động, HTTP client gắn bearer, `401`/logout → xóa token + cache, về sign-in; gate UI theo `permissions` (không giải mã JWT); **CSP meta chỉ ở bản build production** (D14; nếu chưa có CSP thì token chỉ ở memory)
 - [ ] `[M-78]` Nút đăng ký trên trang detail: sinh `Idempotency-Key` một lần cho mỗi ý định (giữ qua retry), free → hiện `CONFIRMED`, paid → chuyển checkout; `409` hiện đúng lý do (Q6), `503` tự retry tối đa 3 lần với `Retry-After` + jitter, giữ nguyên key (D15); `type` URI để rẽ nhánh lỗi (D8); số ghế poll 3s/5s chỉ khi tab hiển thị (D15); invalidate query số ghế
 - [ ] `[M-78]` Checkout: dropdown test token Stripe chỉ ở chế độ test key, có token thành công và decline (D11), `chargePayment` với idempotency key riêng, hiển thị trạng thái thật của `201` (D10), poll `getPayment`/`getRegistration` mỗi 2s, dừng ở kết cục cuối hoặc sau 2 phút (D15), hiện thời gian giữ chỗ còn lại; `503` hiện thông báo của `payment.md` §3
 - [ ] `[M-78]` `[M-42 · P5]` Trang "Đăng ký của tôi" (`listMyRegistrations`) — hiển thị e-ticket QR là Phase 5
