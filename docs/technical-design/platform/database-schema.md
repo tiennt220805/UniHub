@@ -234,14 +234,14 @@ Rationale for each column, and the resilience/reconciliation flow around this ta
 
 **Rationale for `version`:** not named explicitly in §6.1's anti-overbooking list, but the same optimistic-concurrency pattern is applied here for a distinct reason: the reconciliation sweep and a late-arriving gateway webhook (`../modules/payment.md`) can race to resolve the same `PENDING` row concurrently. This is a direct, consistent extension of an already-established pattern to a second, structurally identical race — not a new invariant.
 
-**Rationale for "at most one *live* payment per registration" (Phase 2 decision D5, 2026-10-14):** a registration may accumulate several `payments` rows over its 15-minute hold — a declined card (`FAILED`) or a charge cancelled before it reached the gateway (`CANCELLED`, `../modules/payment.md` §3) must not lock the student out of trying again. What must never happen is two charges in flight, or two successful charges, for the same registration — even when two browser tabs send two different `Idempotency-Key`s, which `idempotency_keys` (§8.1) cannot catch. A **partial** unique index over the live statuses enforces exactly that. `REFUND_REQUIRED`/`REFUNDED` stay in the index: they are money that was taken, and their registration is no longer `RESERVED`, so it can never be charged again anyway. A partial index cannot be the target of `ON CONFLICT ON CONSTRAINT`; the adapter catches the duplicate-key error on it and translates it into a business outcome ("a payment for this registration is already in progress", `409`), never a `500` (`../../guidelines/backend-coding-standards.md` §21).
+**Rationale for "at most one *live* payment per registration" (Phase 2 decision D5, 2026-10-14):** a registration may accumulate several `payments` rows over its 15-minute hold — a declined card (`FAILED`) or a charge cancelled before it reached the gateway (`CANCELLED`, `../modules/payment.md` §3) must not lock the student out of trying again. What must never happen is two charges in flight, or two successful charges, for the same registration — even when two browser tabs send two different `Idempotency-Key`s, which `idempotency_keys` (§8.1) cannot catch. A **partial** unique index over the live statuses — `PENDING` and `SUCCEEDED` — enforces exactly that. `REFUND_REQUIRED`/`REFUNDED` are **not** live (Phase 2 checklist C33, 2026-10-14): they are money being returned. Keeping them in the index would block a late success from reaching `REFUND_REQUIRED` when the registration already has another live payment. A partial index cannot be the target of `ON CONFLICT ON CONSTRAINT`; the adapter catches the duplicate-key error on it and translates it into a business outcome ("a payment for this registration is already in progress", `409`), never a `500` (`../../guidelines/backend-coding-standards.md` §21).
 
-**Rationale for `REFUND_REQUIRED`/`REFUNDED` (Phase 2 decision D2/C10):** a payment can succeed after its registration stopped being `RESERVED` (the hold expired or the registration was cancelled while the charge was in flight). The seat is not re-granted; the money goes back (`../modules/payment.md` §9). `REFUND_REQUIRED` is entered by a conditional `UPDATE … WHERE status = 'SUCCEEDED'`, which is also what makes the transition idempotent under redelivery; `REFUNDED` once the gateway confirms the refund. In Phase 2 only the first transition is implemented; the gateway refund lands in Phase 3.
+**Rationale for `REFUND_REQUIRED`/`REFUNDED` (Phase 2 decision D2/C10):** a payment can succeed after its registration stopped being `RESERVED` (the hold expired or the registration was cancelled while the charge was in flight). The seat is not re-granted; the money goes back (`../modules/payment.md` §9). `REFUND_REQUIRED` is entered by a conditional `UPDATE … WHERE status = 'SUCCEEDED'`, which is also what makes the transition idempotent under redelivery; `REFUNDED` once the gateway confirms the refund. A **late success** — the gateway reports success for a payment already `CANCELLED`/`FAILED` — moves it **directly** to `REFUND_REQUIRED`, never through `SUCCEEDED`, and emits no `charge.succeeded` event, so it can never confirm a registration (`../modules/payment.md` §6). In Phase 2 only the first transition is implemented; the gateway refund lands in Phase 3.
 
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
 | `id` | UUID | PK | |
-| `registration_id` | UUID | NOT NULL, FK → `registrations.id` ON DELETE RESTRICT — **no table-wide UNIQUE** (see Indexes) | A registration has at most one *live* payment (`PENDING`, `SUCCEEDED`, `REFUND_REQUIRED`, `REFUNDED`) and any number of `FAILED`/`CANCELLED` attempts. *Was `UNIQUE` in `V1`; replaced by `V3` (§10.1).* |
+| `registration_id` | UUID | NOT NULL, FK → `registrations.id` ON DELETE RESTRICT — **no table-wide UNIQUE** (see Indexes) | A registration has at most one *live* payment (`PENDING`, `SUCCEEDED`) and any number of `FAILED`, `CANCELLED`, `REFUND_REQUIRED`, `REFUNDED` ones. *Was `UNIQUE` in `V1`; replaced by `V3` (§10.1).* |
 | `amount` | NUMERIC(12,2) | NOT NULL, CHECK (`amount > 0`) | |
 | `currency` | VARCHAR(3) | NOT NULL, DEFAULT `'VND'` | |
 | `gateway` | VARCHAR(20) | NOT NULL, DEFAULT `'STRIPE'` | Sandbox mode only (`proposal.md` §5.2). |
@@ -252,7 +252,7 @@ Rationale for each column, and the resilience/reconciliation flow around this ta
 | `version` | INT | NOT NULL, DEFAULT 0 | See Rationale above. |
 | `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
 
-**Indexes:** `(initiated_at) WHERE status = 'PENDING'` — the reconciliation sweep's primary scan target; `UNIQUE (registration_id) WHERE status IN ('PENDING', 'SUCCEEDED', 'REFUND_REQUIRED', 'REFUNDED')` (`uq_payments_live_per_registration`, `V3`) — at most one live payment per registration. **Open (Phase 2 checklist C33):** a late gateway success for a payment already closed as `CANCELLED`/`FAILED` must move it to `REFUND_REQUIRED` (`../modules/payment.md` §6–§7); if the registration meanwhile has another live payment, that transition would violate this index. Proposed: narrow the index to `PENDING`, `SUCCEEDED` — awaiting decision, the DDL in §10.1 keeps the decided shape until then.
+**Indexes:** `(initiated_at) WHERE status = 'PENDING'` — the reconciliation sweep's primary scan target; `UNIQUE (registration_id) WHERE status IN ('PENDING', 'SUCCEEDED')` (`uq_payments_live_per_registration`, `V3`) — at most one live payment per registration.
 
 ---
 
@@ -916,7 +916,7 @@ CREATE INDEX idx_idempotency_keys_open_resource
 -- "no two live payments for one registration" is enforced at every instant.
 CREATE UNIQUE INDEX uq_payments_live_per_registration
     ON payments (registration_id)
-    WHERE status IN ('PENDING', 'SUCCEEDED', 'REFUND_REQUIRED', 'REFUNDED');
+    WHERE status IN ('PENDING', 'SUCCEEDED');
 ALTER TABLE payments DROP CONSTRAINT payments_registration_id_key;  -- V1's implicit name; verify before applying
 ALTER TABLE payments DROP CONSTRAINT payments_status_check;         -- V1's implicit name; verify before applying
 ALTER TABLE payments ADD CONSTRAINT ck_payments_status
@@ -946,6 +946,8 @@ WHERE r.name = 'Student' AND p.code = 'REGISTRATION_CREATE'
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 ```
 
+`V4` is **forward-only**, like every migration here: there is no down migration; withdrawing the permission is a new migration. `REGISTRATION_CREATE` covers charging one's own registration as well as creating it (`../modules/payment.md` §8).
+
 Compatibility: an old pod never checks `REGISTRATION_CREATE` (the endpoints do not exist before Phase 2), and a token issued before `V4` simply lacks the code until its holder logs in again (≤ 30 minutes, `auth-and-identity.md` §4). Dev/test student accounts are **not** seeded here — they never enter a production migration (`../modules/user.md` §10).
 
 ---
@@ -961,7 +963,7 @@ Every guarantee-bearing constraint above, mapped back to what it enforces. For r
 | `version` | `registrations` | Same, at the registration side of the race |
 | `UNIQUE (scope, actor_user_id, idempotency_key)` (`V3`) | `idempotency_keys` | Exactly-once guarantee (`architecture.md` §4.5, `proposal.md` §11.2), scoped per operation type so a key can't spuriously collide across unrelated operations, and per authenticated user so one user's key can never block or replay another's |
 | `request_fingerprint` + `status`/`result_*`/`completed_at` CHECKs (`V3`) | `idempotency_keys` | A key replays only the request it was issued for (`422` otherwise); a completed key always carries a Result, an in-progress one never does |
-| `UNIQUE (registration_id) WHERE status IN ('PENDING','SUCCEEDED','REFUND_REQUIRED','REFUNDED')` (`V3`) | `payments` | Never two charges in flight or two successful charges for one registration, even across different idempotency keys; a failed attempt never blocks a retry (Phase 2 decision D5) |
+| `UNIQUE (registration_id) WHERE status IN ('PENDING','SUCCEEDED')` (`V3`) | `payments` | Never two charges in flight or two successful charges for one registration, even across different idempotency keys; a failed attempt never blocks a retry, and a refund never blocks a late-success compensation (Phase 2 decisions D5, C33) |
 | Written in same transaction as business row (documented, not a DB feature) | `idempotency_keys` | Same — the atomicity is what §4.5 actually requires |
 | `status` PENDING/PUBLISHED + relay poll | `event_publications` | Transactional outbox (`architecture.md` §4.3, §6.1) |
 | `correlation_id` | `event_publications` | End-to-end correlation through the outbox (`docs/requirement.md` §3.1, `observability.md` §1) |
