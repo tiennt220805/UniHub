@@ -769,6 +769,8 @@ WHERE (r.name, p.code) IN (
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 ```
 
+Phase 2 adds `REGISTRATION_CREATE`, bundled into `Student`, as a separate data migration `V4__seed_registration_permission.sql` of the same shape (`database-schema.md` §10.1) — an applied migration such as `V2` is never edited. Dev/test student accounts are never seeded by a migration (`../modules/user.md` §10).
+
 `roles.name` and `permissions.code` both carry a `UNIQUE NOT NULL` constraint (`database-schema.md` §2.2/§2.3) — `ON CONFLICT DO NOTHING` is exactly what makes this file safe to run against a database that already has these rows, satisfying the idempotency this pipeline requires without a second mechanism. `role_permissions`' composite primary key (`role_id`, `permission_id` — `database-schema.md` §2.5) gives the same `ON CONFLICT` target for the bundling step, so all three inserts share the identical once-only guarantee, in the same file.
 
 The migration SQL is bundled into a ConfigMap at deploy time (via the `configMapGenerator` in `base/kustomization.yaml`, §2 — not committed as a static manifest; its content is generated from the source tree's migration files), then mounted into the Flyway Job. The name is fixed (`disableNameSuffixHash`) because this Job is applied by `kubectl` directly, not through Kustomize, so Kustomize could not rewrite a hashed name inside it:

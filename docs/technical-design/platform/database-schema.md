@@ -185,8 +185,14 @@ Rationale for each column is narrated in `../modules/workshop.md`; this section 
 | `price` | NUMERIC(12,2) | NULL, CHECK `chk_workshop_price` (`(is_paid = false AND price IS NULL) OR (is_paid = true AND price IS NOT NULL AND price > 0)`) | `price IS NOT NULL` is explicit: `NULL > 0` is unknown, which a CHECK treats as passing, so without it a paid workshop with no price would be accepted. Added by `V1_1__workshop_paid_price_not_null.sql`. |
 | `brochure_s3_key` | VARCHAR(512) | NULL | Object storage pointer (`../modules/workshop.md`) — the PDF itself lives in S3, never in Postgres. |
 | `status` | VARCHAR(20) | NOT NULL, DEFAULT `'DRAFT'`, CHECK IN (`DRAFT`, `PUBLISHED`, `CANCELLED`, `COMPLETED`) | Reschedule is an update to `start_time`/`end_time` on a `PUBLISHED` row, not a status value — it's an event (notified via `event_publications`/`audit_events`), not a persistent state. |
-| `version` | INT | NOT NULL, DEFAULT 0 | Optimistic-concurrency marker (§6.1, `distributed-coordination.md` §2). Every capacity-affecting update is `UPDATE workshops SET seats_taken = ..., version = version + 1 WHERE id = ... AND version = :expected`. |
+| `version` | INT | NOT NULL, DEFAULT 0 | Optimistic-concurrency marker (§6.1, `distributed-coordination.md` §2). Shared by seat claims **and** organizer edits (decision below). A seat claim is `UPDATE workshops SET seats_taken = seats_taken + 1, version = version + 1 WHERE id = ? AND version = :expected AND seats_taken < capacity`; zero rows → re-read to tell a lost version race (retry) from a full workshop (sold out) (`../modules/registration.md` §2). |
 | `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
+**Decision — one `version` for seat claims and organizer edits (Phase 2 checklist D3, Q3, 2026-10-13):** both kinds of write bump the same `version`, so the seat path keeps the literal "version column + check constraint" pair the anti-overbooking invariant names (`architecture.md` §4.2, §6.1). Consequences an implementer must honour:
+- An organizer edit updates **only the columns it changes and never writes `seats_taken`** — the JPA mapping marks `seats_taken` not updatable, and seat changes go only through the Workshop module's seat-claim/release SQL.
+- A seat claim that loses a version race to an organizer edit retries internally (up to 3 attempts, each a new transaction inside the seat lock) instead of returning `409` to the student; exhausted retries → `503` + `Retry-After`, never recorded under the idempotency key (`../modules/registration.md` §2).
+- Lowering `capacity` below `seats_taken` is refused by both the CHECK above and the domain model.
+- **Revisit in Phase 8** using `unihub_seat_claim_version_conflicts_total`, `unihub_seat_claim_retries_exhausted_total` and `unihub_workshop_edit_conflicts_total` (`observability.md` §4): reconsider if, in the 12,000-concurrent-user run, exhausted retries exceed 0.1% of seat claims or organizer-edit conflicts exceed 5% of edits.
 
 **Indexes:** `(status, start_time)` for catalog browsing/filtering; a full-text/trigram index on `title`/`speaker_name` for search is a plausible future addition but not specified here — the SRS names search by "topic, speaker, or location" (§1.3.1) without a performance target that forces the choice now.
 
@@ -246,7 +252,7 @@ Rationale for each column, and the resilience/reconciliation flow around this ta
 | `version` | INT | NOT NULL, DEFAULT 0 | See Rationale above. |
 | `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
 
-**Indexes:** `(initiated_at) WHERE status = 'PENDING'` — the reconciliation sweep's primary scan target; `UNIQUE (registration_id) WHERE status IN ('PENDING', 'SUCCEEDED', 'REFUND_REQUIRED', 'REFUNDED')` (`uq_payments_live_per_registration`, `V3`) — at most one live payment per registration.
+**Indexes:** `(initiated_at) WHERE status = 'PENDING'` — the reconciliation sweep's primary scan target; `UNIQUE (registration_id) WHERE status IN ('PENDING', 'SUCCEEDED', 'REFUND_REQUIRED', 'REFUNDED')` (`uq_payments_live_per_registration`, `V3`) — at most one live payment per registration. **Open (Phase 2 checklist C33):** a late gateway success for a payment already closed as `CANCELLED`/`FAILED` must move it to `REFUND_REQUIRED` (`../modules/payment.md` §6–§7); if the registration meanwhile has another live payment, that transition would violate this index. Proposed: narrow the index to `PENDING`, `SUCCEEDED` — awaiting decision, the DDL in §10.1 keeps the decided shape until then.
 
 ---
 
@@ -873,7 +879,7 @@ CREATE INDEX idx_audit_events_occurred_at ON audit_events (occurred_at);
 
 ### 10.1 Pending migration `V3` — specification (Phase 2, not yet a file)
 
-Specified here first, per the rule above; the runnable file is `src/main/resources/db/migration/V3__idempotency_result_and_live_payments.sql` (name indicative), created with the first Phase 2 code that needs it. Numbered `V3` rather than `V1_n` because it is a new Phase 2 schema change, not a correction to `V1`; `V2` is the role/permission seed. Decisions: Phase 2 checklist D1 (Result storage, fingerprint, `IN_PROGRESS`), C2 (actor in the key), C6/D5 (live-payment index), C10/D2 (refund statuses), G2/C27 (`resource_id`).
+Specified here first, per the rule above; the runnable file is `src/main/resources/db/migration/V3__phase2_idempotency_and_payments.sql`, created with the first Phase 2 code that needs it. The permission seed that Phase 2 also needs is a separate data migration, `V4` (below). Numbered `V3` rather than `V1_n` because it is a new Phase 2 schema change, not a correction to `V1`; `V2` is the role/permission seed. Decisions: Phase 2 checklist D1 (Result storage, fingerprint, `IN_PROGRESS`), C2 (actor in the key), C6/D5 (live-payment index), C10/D2 (refund statuses), G2/C27 (`resource_id`).
 
 ```sql
 -- 8.1 idempotency_keys: store the use-case Result, scope by actor, add fingerprint + lifecycle.
@@ -927,6 +933,20 @@ ALTER TABLE payments ADD CONSTRAINT ck_payments_status
 | Both tables are empty in every environment when `V3` runs | — | — | All `NOT NULL` additions without defaults are valid only because of this; the migration must fail (not silently default) if it ever meets rows — `ALTER TABLE … ADD COLUMN … NOT NULL` without a default does exactly that |
 
 The two implicit constraint names (`payments_registration_id_key`, `payments_status_check`) are PostgreSQL's defaults for `V1`'s inline `UNIQUE`/`CHECK`; confirm them against `information_schema.table_constraints` on a `V2` database before writing the file.
+
+**`V4__seed_registration_permission.sql` — data migration (Phase 2 checklist D7, Q4).** Same shape and idempotency as `V2` (`deployment-and-cicd.md`): adds the permission guarding `createRegistration` and `chargePayment` and bundles it into the Student role.
+
+```sql
+INSERT INTO permissions (id, code) VALUES (gen_random_uuid(), 'REGISTRATION_CREATE')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.name = 'Student' AND p.code = 'REGISTRATION_CREATE'
+ON CONFLICT (role_id, permission_id) DO NOTHING;
+```
+
+Compatibility: an old pod never checks `REGISTRATION_CREATE` (the endpoints do not exist before Phase 2), and a token issued before `V4` simply lacks the code until its holder logs in again (≤ 30 minutes, `auth-and-identity.md` §4). Dev/test student accounts are **not** seeded here — they never enter a production migration (`../modules/user.md` §10).
 
 ---
 
