@@ -28,7 +28,7 @@ This file is the physical-level completion of `../strategy/test-strategy.md` §1
 
 | Dependency | Specified failure direction | Must stay unaffected | Source | INV |
 |---|---|---|---|---|
-| Payment Gateway | Degrade the paid-checkout path only (`503`, hold untouched) | Browsing, free registration, check-in, reporting, the webhook endpoint, K8s Readiness | `architecture.md` §1.4; `payment.md` §9; `observability.md` §5 | INV-05 |
+| Payment Gateway | Degrade the paid-checkout path only (`503`, hold untouched) | Browsing, free registration, check-in, reporting, the webhook endpoint, K8s Readiness | `architecture.md` §1.4; `payment.md` §10; `observability.md` §5 | INV-05 |
 | Redis | Registration writes **rejected** (`503`); job lock **skips** the cycle; rate limiter **fails open**; cache **falls through** | Catalog reads, check-in sync, reporting, payment webhook; every pod stays `Ready` | `architecture.md` §4.2; `distributed-coordination.md` §4; `observability.md` §5 (Readiness Composition ADR) | INV-08 (+ INV-09's skip side) |
 | RabbitMQ | Publish is decoupled via the outbox; consumers redeliver at-least-once | The HTTP request path that produced the event | `architecture.md` §4.3, §6.1; `messaging.md` §1, §4 | INV-10, INV-11 |
 | PostgreSQL Replica | Stale reads tolerated for routine reads only; consistency-sensitive reads go to the Master | Idempotency correctness, the seat-reservation decision | `architecture.md` §4.1 | INV-03 |

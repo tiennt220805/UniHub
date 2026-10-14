@@ -139,7 +139,7 @@ Chốt bởi Nguyễn Thành Tiến: D1–D4 ngày 2026-10-13; C2, C6, C10, C11 
   - **AC1.11** Timeout/lỗi sau khi request đã gửi tới gateway → payment `PENDING` + key `IN_PROGRESS` còn nguyên; retry cùng key → `409`, gateway không bị gọi lại.
   - **AC1.12 (G2)** Crash giữa tx1 và tx2 → reconciliation resolve payment và chuyển key sang `COMPLETED` + Result trong cùng transaction; retry cùng key sau đó → replay.
 - **Test cần có:** xem Mục 0C, nhóm T-IDEM.
-- **Tài liệu phải sửa (trước khi code):** `database-schema.md` §8.1 + §10 (đặc tả migration `V3`); `backend-coding-standards.md` §13.1, §17 (`422`), §19.4, §21 và đánh dấu §27 #1 xong; `web-coding-standards.md` §10, §13 #6; `registration.md` §4; `payment.md` §3, §6, §8, §9; `test-design-techniques.md` §3.3; `common/headers.yaml`, `paths/registration.yaml`, `paths/payment.yaml` (`422`, `409` cho key đang xử lý, `503` không được ghi); `architecture.md` §4.5 **không sửa** — xem C3.
+- **Tài liệu phải sửa (trước khi code):** `database-schema.md` §8.1 + §10 (đặc tả migration `V3`); `backend-coding-standards.md` §13.1, §17 (`422`), §19.4, §21 và đánh dấu §27 #1 xong; `web-coding-standards.md` §10, §13 #6; `registration.md` §4; `payment.md` §3, §6, §8, §10; `test-design-techniques.md` §3.3; `common/headers.yaml`, `paths/registration.yaml`, `paths/payment.yaml` (`422`, `409` cho key đang xử lý, `503` không được ghi); `architecture.md` §4.5 **không sửa** — xem C3.
 
 ### D2 — Q2 (+ C10, C11): Payment `SUCCEEDED` → Registration `CONFIRMED` bất đồng bộ qua outbox; nhánh bù trừ hoàn tiền `[→ M-19, M-25]` `[M-75]` `[M-76 · P3]`
 
@@ -223,7 +223,7 @@ Chốt bởi Nguyễn Thành Tiến: D1–D4 ngày 2026-10-13; C2, C6, C10, C11 
   - **AC5.3** Retry cùng key sau một charge `FAILED` → replay kết quả cũ, không gọi gateway.
   - **AC5.4** Vi phạm partial index không bao giờ lộ ra thành `500`.
 - **Test cần có:** Mục 0C, nhóm T-PAY.
-- **Tài liệu phải sửa:** `database-schema.md` §5.1, §10 (đặc tả `V3`), §11; `payment.md` §1, §8, §9; `paths/payment.yaml` (`409`, mô tả thử lại); `web-coding-standards.md` §10 (key mới sau `FAILED`); `test-matrix.md` (derived requirement M-77).
+- **Tài liệu phải sửa:** `database-schema.md` §5.1, §10 (đặc tả `V3`), §11; `payment.md` §1, §8, §10; `paths/payment.yaml` (`409`, mô tả thử lại); `web-coding-standards.md` §10 (key mới sau `FAILED`); `test-matrix.md` (derived requirement M-77).
 
 ---
 
@@ -254,7 +254,7 @@ Chốt bởi Nguyễn Thành Tiến: D1–D4 ngày 2026-10-13; C2, C6, C10, C11 
 | C19 | D4 | `backend-coding-standards.md` §25.1 (`seatLock.withLock(workshopId, supplier)`) | Hình dạng port khác: `tryAcquire(workshopId, wait, lease)` + handle | Doc | Sửa §25 theo D4 |
 | C20 | D4 | `backend-coding-standards.md` §25 (`SeatTemporarilyUnavailableException`); `ProblemKind` | Hai tên exception cho hai nguyên nhân `503` (lock bận / hết retry). `ProblemKind.UNAVAILABLE` đã có | Doc (thấp) | Giữ cả hai, cùng `UNAVAILABLE`: `SeatLockUnavailableException` (lock), `SeatTemporarilyUnavailableException` (hết retry) |
 | C21 | D4 | `registration.md` §2 (lease 5s, không watchdog) | Lock JVM không có lease; ràng buộc "release sau commit" với `ReentrantLock` đòi cùng một thread | Doc (thấp) | Javadoc: `leaseTime` bị bỏ qua ở in-process; acquire/release trên cùng request thread |
-| C22 | D2 | `registration.md` §5 dòng cuối; Phase 2 không có consumer hết hạn | Ở Phase 2 registration paid không bao giờ `EXPIRED`, nên payment đến muộn vẫn được xác nhận dù quá `hold_expires_at` | Doc + §5 sign-off | Chấp nhận cho Phase 2 (đã có ở bảng ranh giới); test race mô phỏng `EXPIRED` trực tiếp |
+| C22 | D2 | `registration.md` §6 dòng cuối; Phase 2 không có consumer hết hạn | Ở Phase 2 registration paid không bao giờ `EXPIRED`, nên payment đến muộn vẫn được xác nhận dù quá `hold_expires_at` | Doc + §5 sign-off | Chấp nhận cho Phase 2 (đã có ở bảng ranh giới); test race mô phỏng `EXPIRED` trực tiếp |
 | C23 | — | `test-matrix.md` §4.5 | Chưa có dòng cho SeatLock in-process (D4), alert parking-lot (C12), AuditTrail nếu hoãn (Q10), refund gateway hoãn sang Phase 3 (D2) | Doc | Refund: thêm ở Bước 2 cùng derived requirement; các dòng còn lại thêm cùng commit với code tương ứng |
 | C24 | D1 (G1) | `payment.md` §3 ("No `payments` row is created for a fallback response"), §9; `test-design-techniques.md` §3.3 dòng `OPEN` × sync charge; `paths/payment.yaml` `503` | Luồng D1 commit `PENDING` + key `IN_PROGRESS` ở tx1 **rồi** mới gọi gateway qua breaker. Nếu breaker chặn ngay lúc gọi, hệ thống để lại row + key, mâu thuẫn với "circuit-open không tạo row" và "lỗi hạ tầng không ghi idempotency"; retry cùng key không chạy thật | ✅ **Đã chốt 2026-10-14 → D1 ràng buộc 7** | (a) Xin quyền breaker trước tx1 → `503`, không ghi gì; (b) bị từ chối sau tx1 → transaction bù `PENDING → CANCELLED` + xóa key. "Không tạo row" chỉ còn đúng cho (a); (b) để lại một row `CANCELLED`, không bao giờ `PENDING` |
 | C25 | D1 (G2) | Checklist D1 ràng buộc 6 (bản cũ); `payment.md` §6; `database-schema.md` §8.1 | Chỉ quy định cleanup không dọn key `IN_PROGRESS` trước khi payment được giải quyết, nhưng không chỉ định ai ghi Result. Crash giữa tx1 và tx2 → client retry cùng key nhận `409` mãi mãi | ✅ **Đã chốt 2026-10-14 → D1 ràng buộc 8** | Reconciliation hoàn tất key `IN_PROGRESS` + Result trong cùng transaction với việc resolve payment; cleanup chỉ xóa `COMPLETED` |

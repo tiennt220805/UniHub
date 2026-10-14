@@ -4,7 +4,7 @@ This file is the physical-level completion of `architecture.md` §4.2 (the seat-
 
 **Read this file top to bottom to understand the Registration module end to end — this is the system's single highest-risk correctness path.** Where it uses a shared platform mechanism (Redis locking, RabbitMQ delay queues, the idempotency-key table), it explains what that mechanism gives Registration specifically and links out for the mechanism's own full design.
 
-**Scope:** the `registrations` table this module owns, narrated at the rationale level (§1); the seat-reservation distributed lock and the full write transaction it wraps — this is the centerpiece of this module and of the system's anti-overbooking guarantee (§2); the seat-hold expiry message flow (§3); idempotent registration-create under client retry (§4); a consolidated failure-mode table and reference table (§5–§6).
+**Scope:** the `registrations` table this module owns, narrated at the rationale level (§1); the seat-reservation distributed lock and the full write transaction it wraps — this is the centerpiece of this module and of the system's anti-overbooking guarantee (§2); the seat-hold expiry message flow (§3); idempotent registration-create under client retry (§4); confirming a paid registration once its payment succeeds, and the compensation branch when it no longer can be (§5); a consolidated failure-mode table and reference table (§6–§7).
 
 **Out of scope, and where it actually lives:** the exact `registrations` column list (`../platform/database-schema.md` §4 — referenced throughout, not repeated here); the Redis deployment and scheduled-job-lock mechanism, reused here only for the seat lock (`../platform/distributed-coordination.md`); the RabbitMQ broker/exchange/retry mechanism, reused here only for hold expiry (`../platform/messaging.md`); the `idempotency_keys` table's own schema and generic same-transaction pattern (`../platform/database-schema.md` §8.1, `architecture.md` §4.5 — this file applies that pattern to registration-create, it doesn't redefine it); payment initiation for paid tickets, which Registration calls into but does not itself implement (`../modules/payment.md`); ticket issuance/signing, which happens at the moment this module's write confirms a registration but is `../modules/checkin.md`'s design (`architecture.md` §5.3); workshop capacity's own column definitions, owned by `../modules/workshop.md`.
 
@@ -16,8 +16,9 @@ This file is the physical-level completion of `architecture.md` §4.2 (the seat-
 - [2. Distributed Lock & Transaction: Seat Reservation](#2-distributed-lock-transaction-seat-reservation)
 - [3. Seat-Hold Expiry](#3-seat-hold-expiry)
 - [4. Idempotent Registration-Create](#4-idempotent-registration-create)
-- [5. Failure Modes & Fail-Safe Behavior](#5-failure-modes-fail-safe-behavior)
-- [6. Reference Table](#6-reference-table)
+- [5. Payment Confirmation & Compensation](#5-payment-confirmation-compensation)
+- [6. Failure Modes & Fail-Safe Behavior](#6-failure-modes-fail-safe-behavior)
+- [7. Reference Table](#7-reference-table)
 - [API Surface](#api-surface)
 
 ---
@@ -115,7 +116,10 @@ flowchart LR
                                                           CANCELLED by another path; a
                                                           safe no-op, not an error
      UPDATE registrations SET status = 'EXPIRED', version = version + 1
-       WHERE id = ? AND version = :expected
+       WHERE id = ? AND version = :expected AND status = 'RESERVED'
+     if affected rows = 0: ROLLBACK, re-read, no-op  -- the payment-confirmation consumer
+                                                          (§5) won the race; exactly one of
+                                                          the two ever transitions the row
      UPDATE workshops SET seats_taken = seats_taken - 1, version = version + 1
        WHERE id = ? AND version = :expected            -- same-transaction requirement,
                                                           §1 above
@@ -130,26 +134,71 @@ flowchart LR
 
 **Rationale:** `docs/requirement.md` §2.8 and `architecture.md` §4.5 require that a client-generated key makes a registration request safe to retry — a student's double-click or a resent network request must never create two `registrations` rows for the same intent. The generic mechanism (same-transaction write, database-enforced unique constraint) is `../platform/database-schema.md` §8.1's design; this section is Registration's application of it.
 
-**Model:** every `POST /api/v1/registrations` request carries a client-generated `Idempotency-Key` header. Inside the same transaction as §2's seat-reservation write:
+**Model:** every `POST /api/v1/registrations` request carries a client-generated `Idempotency-Key` header. The key is scoped to the operation **and the authenticated caller** — `(scope, actor_user_id, idempotency_key)`, with the actor taken from the verified JWT, never from the request (`../platform/database-schema.md` §8.1). The request body's fingerprint (SHA-256 of its canonical JSON) is stored with the key. Inside the same transaction as §2's seat-reservation write:
 
 ```
-1. SELECT response_status, response_body FROM idempotency_keys
-     WHERE scope = 'REGISTRATION_CREATE' AND idempotency_key = :key (Master)
-   if found: return the stored response verbatim — do not re-run the seat-reservation
-             transaction at all, not even as a no-op re-check.
-2. if not found: proceed with §2's seat-reservation transaction. On success (or on a
-   definitive 409 sold-out outcome), INSERT INTO idempotency_keys (scope, idempotency_key,
-   response_status, response_body) VALUES ('REGISTRATION_CREATE', :key, :status, :body)
-   — in the SAME transaction as the registrations/workshops write above.
+1. SELECT status, request_fingerprint, result_type, result_body FROM idempotency_keys
+     WHERE scope = 'REGISTRATION_CREATE' AND actor_user_id = :actor AND idempotency_key = :key  (Master)
+   if found and fingerprint differs: 422 — the key was issued for a different request; nothing runs.
+   if found and COMPLETED:           return the stored Result verbatim — do not re-run the
+                                     seat-reservation transaction at all, not even as a no-op re-check.
+2. if not found: INSERT the key row as IN_PROGRESS — the FIRST statement of the transaction.
+   A concurrent request with the same key blocks on the unique index here; when this
+   transaction commits it fails with a duplicate and gets 409 ("still being processed" —
+   its retry replays this result); if this transaction rolls back it proceeds normally.
+3. Proceed with §2's seat-reservation transaction. On success (or on a definitive 409
+   sold-out / already-registered outcome), UPDATE the key row to COMPLETED with the
+   Result (result_type, result_body) — in the SAME transaction as the
+   registrations/workshops write. The IN_PROGRESS row is never committed on its own.
 ```
+
+The same lookup also runs once before the seat lock (fast replay path, `../../guidelines/backend-coding-standards.md` §25.1), so a retried request never needs the lock.
 
 **Why a 409 also gets recorded:** a "sold out" rejection is as much "the original result" as a success is — a retried request with the same key must see the identical `409`, not attempt the seat-reservation transaction a second time and potentially observe a *different* outcome (e.g. a seat that freed up between the two attempts). Idempotency guarantees the same request produces the same recorded result, not that the system re-evaluates current state on every retry.
 
-**Guarantees:** a given `Idempotency-Key` within the `REGISTRATION_CREATE` scope is acted on exactly once — every subsequent request bearing it returns the original result, regardless of which Backend API pod handles the retry (`../platform/database-schema.md` §8.1's UNIQUE constraint on `(scope, idempotency_key)` is the enforced backstop, not just an application-level check). Idempotency records are retained only long enough to cover a realistic retry window, swept by the scheduled job in `../platform/distributed-coordination.md` §2.
+**What is never recorded:** a `503` (seat-lock contention, Redis unreachable) or a lost version race. Those roll back with the key row, and a retry with the same key executes for real (`../../guidelines/backend-coding-standards.md` §21 rule 7).
+
+**Guarantees:** a given `Idempotency-Key` within the `REGISTRATION_CREATE` scope is acted on exactly once — every subsequent request bearing it returns the original result, regardless of which Backend API pod handles the retry (`../platform/database-schema.md` §8.1's UNIQUE constraint on `(scope, actor_user_id, idempotency_key)` is the enforced backstop, not just an application-level check). Idempotency records are retained only long enough to cover a realistic retry window, swept by the scheduled job in `../platform/distributed-coordination.md` §2.
 
 ---
 
-## 5. Failure Modes & Fail-Safe Behavior
+## 5. Payment Confirmation & Compensation
+
+**Rationale:** a paid registration is `RESERVED` until its payment succeeds (`docs/requirement.md` §1.3.1). The Payment module resolves the payment (webhook or reconciliation, `../modules/payment.md` §6–§7) but never writes `registrations` — this module is its sole writer (`architecture.md` §1.1). The hand-off is therefore asynchronous, through the outbox (`../../guidelines/backend-coding-standards.md` §7 type 4). Decisions: Phase 2 checklist D2 (Q2), C10, C11 (2026-10-13/14).
+
+**Model — confirmation:**
+
+1. In the same transaction that moves a payment to `SUCCEEDED`, the Payment module writes an outbox row `unihub.payment.charge.succeeded` (payload: `paymentId`, `registrationId`) → `unihub.payment-confirmation.queue` (`../platform/messaging.md` §2).
+2. This module's consumer, in one transaction at the Master:
+   ```
+   UPDATE registrations SET status = 'CONFIRMED', hold_expires_at = NULL,
+          ticket_code = :code, qr_payload = :payload, version = version + 1
+     WHERE id = :registrationId AND status = 'RESERVED'
+   if affected rows = 1: write outbox unihub.registration.ticket.confirmed; COMMIT
+   if affected rows = 0: re-read status
+     CONFIRMED            → COMMIT, no-op  (a redelivery of a message already applied)
+     EXPIRED | CANCELLED  → compensation, below
+   ```
+   `seats_taken` does not change: the seat was claimed when the registration entered `RESERVED` (§1). Ticket signing at `CONFIRMED` is `../modules/checkin.md` §4's design; until it is built (Phase 5) `ticket_code`/`qr_payload` stay `NULL`.
+
+**Model — compensation (payment succeeded, registration no longer `RESERVED`):** the money was taken but the seat cannot be held — it was released by expiry (§3) or cancellation and may already belong to someone else. The seat is **never** re-granted (`EXPIRED → CONFIRMED` is a forbidden transition, `../../testing/guidelines/test-design-techniques.md` §2). Instead:
+
+1. The consumer leaves the registration unchanged and writes an outbox row `unihub.registration.confirmation.rejected` (payload: `paymentId`, `registrationId`, reason `HOLD_EXPIRED` | `REGISTRATION_CANCELLED`) → `unihub.payment-refund.queue`.
+2. The Payment module — the only module allowed to call the gateway — moves the payment `SUCCEEDED → REFUND_REQUIRED` by a conditional update and, from Phase 3, refunds it (`../modules/payment.md` §9).
+
+**Deduplication without an inbox table:** every transition here is a conditional `UPDATE … WHERE status = <expected>` with an affected-rows check, so a redelivered message re-applies nothing. In the compensation branch the registration does not change, so every redelivery of `charge.succeeded` emits **another** `confirmation.rejected` event — deliberately: the Payment side deduplicates by its own conditional transition, keyed by the payment, never by event id (`../../guidelines/backend-coding-standards.md` §8.5). No inbox table is added — `architecture.md` §6.1 names exactly three Technical Pattern Entities.
+
+**What the client sees:** between the payment's `SUCCEEDED` and this consumer's commit, `getPayment` shows `SUCCEEDED` while `getRegistration` still shows `RESERVED` — "confirming"; the client keeps polling `getRegistration` (`../../../packages/api-contract/paths/registration.yaml`). In the compensation branch the client sees the registration `EXPIRED`/`CANCELLED` and the payment `REFUND_REQUIRED`, then `REFUNDED` (Phase 3).
+
+**Phase split:** Phase 2 implements confirmation and the compensation up to `REFUND_REQUIRED`. In Phase 2 nothing on the live path can trigger the compensation — there is no expiry consumer (§3, Phase 3) and no cancellation endpoint yet — so it is exercised by tests that put the registration in `EXPIRED`/`CANCELLED` directly. The gateway refund lands in Phase 3 with the expiry consumer, the thing that actually triggers this branch.
+
+**Trade-off — a late payment in Phase 2 still confirms:** until §3's consumer exists, a paid registration never leaves `RESERVED`, so a payment that succeeds after `hold_expires_at` is confirmed. Accepted for Phase 2 only (recorded in the Phase 2 checklist and its sign-off); from Phase 3 the hold's own clock is authoritative again, exactly as §6's last row states.
+
+**Guarantees:** a paid registration is confirmed at most once and only while it is still `RESERVED`; when it no longer is, the payment is always routed to a refund — the system never keeps money for a seat it did not hold, and never holds a seat it did not get paid for.
+
+---
+
+## 6. Failure Modes & Fail-Safe Behavior
 
 | Situation | Behavior | Why |
 |---|---|---|
@@ -157,11 +206,15 @@ flowchart LR
 | Lock acquired, workshop full | `409 Conflict` | §2 — permanent for this attempt, distinct from the transient `503` above. |
 | Redelivered `hold.expired` message for an already-resolved registration | No-op, safe re-check before acting | §3 — `architecture.md` §4.3's at-least-once delivery is tolerated by design. |
 | Retried `POST /registrations` with a previously-used `Idempotency-Key` | Original result returned verbatim, seat-reservation transaction never re-attempted | §4. |
+| Same `Idempotency-Key` with a different request body | `422`, nothing executed | §4 — the key was issued for another request. |
+| Same `Idempotency-Key` while the first request is still in its transaction | `409` ("still being processed"); the client's retry replays the first request's result | §4. |
+| `charge.succeeded` redelivered after the registration was confirmed | No-op (conditional update matches zero rows, status already `CONFIRMED`) | §5. |
+| Payment succeeds after the registration expired or was cancelled | Registration unchanged; `confirmation.rejected` emitted; payment → `REFUND_REQUIRED` (refund from Phase 3) | §5 — the seat is never re-granted. |
 | Paid-ticket registration whose payment never completes within the 15-minute window | Hold expires via §3, seat releases automatically, regardless of what state the Payment module's own row is in | `docs/requirement.md` §1.3.1 — the hold's own 15-minute clock is authoritative for seat release, independent of payment gateway timing (`../modules/payment.md`'s own resilience posture doesn't extend this window). |
 
 ---
 
-## 6. Reference Table
+## 7. Reference Table
 
 Every key format, tuning parameter, and idempotency scope in this document, in one place — the same purpose the closing tables in `../platform/database-schema.md` §11, `../platform/distributed-coordination.md` §5, and `../platform/messaging.md` §6 serve for their own documents.
 
@@ -171,7 +224,9 @@ Every key format, tuning parameter, and idempotency scope in this document, in o
 | Seat lock failure response | `503` (contention/Redis down) vs. `409` (sold out) | Distinguishes transient from permanent rejection (§2) |
 | Hold-delay queue | `unihub.registration.hold-delay.queue`, TTL 900000ms (15 min), no consumer | Exact 15-minute hold window (`docs/requirement.md` §1.3.1) |
 | Seat-hold-expiry queue | `unihub.seat-hold-expiry.queue` | Consumer that releases an expired hold (§3) |
-| Idempotency scope | `REGISTRATION_CREATE` | Composite uniqueness with client key (`../platform/database-schema.md` §8.1), scoped to this module's create endpoint (§4) |
+| Idempotency scope | `REGISTRATION_CREATE` | Composite uniqueness `(scope, actor_user_id, idempotency_key)` (`../platform/database-schema.md` §8.1), scoped to this module's create endpoint and the authenticated caller (§4) |
+| Payment-confirmation queue | `unihub.payment-confirmation.queue` ← `unihub.payment.charge.succeeded` | Paid registration `RESERVED → CONFIRMED` (§5) |
+| Compensation event | `unihub.registration.confirmation.rejected` → `unihub.payment-refund.queue` | Payment succeeded for a registration no longer `RESERVED` (§5) |
 
 ---
 
