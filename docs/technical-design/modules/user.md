@@ -23,6 +23,7 @@ File ingestion in this document targets a Kubernetes-mounted shared volume, not 
 - [7. Fault Isolation from Live Traffic](#7-fault-isolation-from-live-traffic)
 - [8. Upsert Idempotency & Concurrent-Run Safety](#8-upsert-idempotency-concurrent-run-safety)
 - [9. Reference Table](#9-reference-table)
+- [10. Login Credentials in Phase 2 & First-Login Setup (Open)](#10-login-credentials-in-phase-2-first-login-setup-open)
 - [API Surface](#api-surface)
 
 ---
@@ -35,7 +36,7 @@ File ingestion in this document targets a Kubernetes-mounted shared volume, not 
 
 - **`users`** — the identity backing every other module's `user_id` foreign keys. `legacy_student_id` and `password_hash` are both nullable specifically to accommodate the nightly sync below: a synced student row has no password yet (§8 explains why it's excluded from the sync's own `UPDATE`), and a directly-provisioned Organizer/Admin/Check-in Staff account has no `legacy_student_id` at all.
 - **`roles`** — a named, reconfigurable bundle of permissions (e.g. `Organizer`, `Check-in Staff`). The name is a display/config label only — **never** checked at the API layer (`architecture.md` §5.1).
-- **`permissions`** — one row per atomic capability (`WORKSHOP_CREATE`, `CHECKIN_SCAN`, `REPORT_VIEW`, ...). This is the literal string every `hasAuthority(...)` check in every module tests against.
+- **`permissions`** — one row per atomic capability (`WORKSHOP_CREATE`, `CHECKIN_SCAN`, `REPORT_VIEW`, `REGISTRATION_CREATE` — the Student bundle from Phase 2, `../platform/database-schema.md` §10.1 `V4` — ...). This is the literal string every `hasAuthority(...)` check in every module tests against.
 - **`user_roles`** / **`role_permissions`** — the M:N junctions. Reassigning a role, or changing what a role can do, is a data change to these tables — never a code change or redeploy (`architecture.md` §5.1's central guarantee).
 
 **What this module does *not* do:** resolve a user's permissions into a signed token, or verify that token on a later request — that's `../platform/auth-and-identity.md`'s job, reusing this module's data as input. The User module's responsibility ends at being the correct, current source of "who has what."
@@ -274,6 +275,24 @@ Every table, convention, and tuning parameter this document introduces, traced b
 | Batch commit size (500 rows) | Tuning parameter | Fault isolation from live registration traffic (§7, `docs/requirement.md` §1.3.6, `architecture.md` §4.1) |
 | 02:00 Asia/Ho_Chi_Minh (UTC+7) scheduling window | Tuning parameter | Minimizes overlap with the registration-surge scenario (§7, `docs/requirement.md` §1.4); pinned to a named zone rather than pod-local time |
 | `unihub:lock:job:nightly-student-sync` | Redis lock (reference only) | Exactly-one-instance-per-cycle — decided in `../platform/distributed-coordination.md` §2, not redeclared here |
+
+---
+
+## 10. Login Credentials in Phase 2 & First-Login Setup (Open)
+
+**Rationale:** Phase 2 needs a Student who can sign in and register, but a legacy-synced student has `password_hash = NULL` (§1, §8), and no document designs how such a student sets a first password — doing it properly needs an e-mail channel, which arrives with Notification in Phase 4. Decision: Phase 2 checklist D9 (Q7), 2026-10-14.
+
+**Model:**
+
+| Decision | Value |
+|---|---|
+| Phase 2 test accounts | A dev/test-only seeder creates a few Student accounts with a password and the `Student` role. It runs only under the `dev` profile (tests create their own users through fixtures). It never lives in `src/main/resources/db/migration` — no production migration ever creates them |
+| The password | Read from an environment variable when the seeder runs and hashed with BCrypt there. Neither a plaintext password nor a fixed hash is committed; the Gitleaks gate (M-13) stays green. A missing variable stops the seeder with a clear message — there is no default password |
+| Idempotency | Re-running the seeder creates nothing new |
+| Legacy-synced students | Cannot sign in until first-login setup exists; login treats them exactly like a wrong password (`../platform/auth-and-identity.md` §7) |
+| First-login setup | **Open item** — to be designed when an e-mail channel exists (Phase 4 or later); tracked in the Phase 2 checklist |
+
+**Guarantee:** no environment other than a developer's or a test's ever contains an account that was not created through a designed path.
 
 ---
 

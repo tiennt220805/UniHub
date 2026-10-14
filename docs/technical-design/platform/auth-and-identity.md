@@ -24,6 +24,7 @@ Both this token and the QR e-ticket use the JOSE (JSON Object Signing and Encryp
 - [4. Auth JWT — TTL, Lifecycle & Revocation](#4-auth-jwt-ttl-lifecycle-revocation)
 - [5. Failure Modes & Fail-Safe Behavior](#5-failure-modes-fail-safe-behavior)
 - [6. Reference Table](#6-reference-table)
+- [7. Web Application Session](#7-web-application-session)
 
 ---
 
@@ -177,4 +178,26 @@ Every claim, algorithm, and key-management decision for the auth JWT, in one pla
 | Auth JWT claims | `sub`, `permissions[]`, `iat`, `exp` — no `role`, no `jti`, no `iss`/`aud`, no UI-convenience fields | `docs/requirement.md` §2.11's "authorities, not role name" requirement |
 | Auth JWT TTL | 30 minutes, no refresh token | Bounding the revocation-lag window (`architecture.md` §5.2 Trade-offs) without adding refresh-token infrastructure/attack surface |
 | Auth signing secret storage | Kubernetes `Secret`, env-injected | `architecture.md` §5.4 — never in source/config |
+| Web session storage | `sessionStorage`; permissions from `LoginResponse`; cleared on `401`/sign-out; expiry checked at start-up | §7 |
 | Auth revocation levers | Secret rotation (global, all tokens, complete once the rolling restart finishes) or user suspension (blocks new logins only, enforced by an explicit `status = 'ACTIVE'` check at login) | `architecture.md` §5.2 — no instant single-token revocation by design |
+
+---
+
+## 7. Web Application Session
+
+**Rationale:** the Web Application holds the auth token in a browser, a trust context the Check-in Client's hardware keystore (`architecture.md` §5.3) does not cover. Decisions: Phase 2 checklist D14 (Q12, Q13), D7 (Q4), D9 (Q7), 2026-10-14.
+
+**Model:**
+
+| Decision | Value | Why |
+|---|---|---|
+| Where the token lives | `sessionStorage`, together with the session snapshot (`user`, `permissions`, expiry) | Once an XSS foothold exists, a token held only in memory is just as usable for the rest of the page's life, so memory buys little over `sessionStorage`; surviving a reload is a clear UX win. `localStorage` is rejected — it would outlive the tab and widen the exposure window |
+| Conditions | Strict Content-Security-Policy and no rendering of raw HTML; `exp` checked at start-up (an expired token is discarded, the user is signed out); token and query cache cleared on `401` and on sign-out | The storage choice is only as safe as the XSS posture around it. **Where the CSP is defined and configured is open** (Phase 2 checklist C34) |
+| Permissions for the UI | `LoginResponse.permissions` — the same resolved list the token carries (§2), returned in the body | The token stays opaque to the client; no unverified decoding. These are **UX-only** data: the Backend API remains the enforcement point on every request (`architecture.md` §5.1) |
+| Refresh | None (ADR above) — expiry means a new sign-in | Unchanged |
+| Upgrade path, out of scope | `httpOnly` cookie or a backend-for-frontend | Would change the contract's `bearerAuth` scheme |
+
+**Login handler, as Phase 2 builds it:** checks `users.status = 'ACTIVE'` (§4) and a BCrypt `password_hash`; a user with no password yet (a legacy-synced student, `../modules/user.md` §10) fails exactly like a wrong password — never revealing why. The response carries the token, `expiresIn`, `user` and `permissions`.
+
+**Guarantee:** no UI decision depends on decoding the token, and no client-side state is ever treated as authorization.
+
