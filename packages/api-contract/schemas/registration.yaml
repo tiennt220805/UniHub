@@ -99,7 +99,10 @@ RegistrationStatus:
     `../../../docs/technical-design/platform/database-schema.md` §4.1 /
     `../../../docs/technical-design/modules/registration.md` §1. `RESERVED`: seat held pending
     payment. `CONFIRMED`: free ticket confirmed immediately, or paid ticket
-    confirmed after payment success. `EXPIRED`: the 15-minute hold lapsed.
+    confirmed after payment success — asynchronously, so a paid registration
+    can stay `RESERVED` briefly after its payment shows `SUCCEEDED`
+    (`../../../docs/technical-design/modules/registration.md` §5). `EXPIRED`: the 15-minute hold lapsed;
+    a payment that succeeds afterwards is refunded, never converted.
     `CANCELLED`: released by the student or the Organizer before the event.
 
 RegistrationListResponse:

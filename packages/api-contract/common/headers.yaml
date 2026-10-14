@@ -8,6 +8,12 @@ IdempotencyKey:
     `../../../docs/technical-design/platform/database-schema.md` §8.1). A retried request carrying the
     same key returns the original recorded result verbatim — the underlying
     business transaction is never re-run, not even as a no-op re-check.
+    The key is scoped to the operation and to the authenticated caller
+    (taken from the bearer token, never from the request), so two users
+    can never collide on a key. Reusing a key with a different request
+    body is rejected with `422`; a key whose first request is still being
+    processed gets `409`. Only business outcomes are recorded — a `503`
+    never is, so a same-key retry after a `503` executes for real.
     Present on this parameter list only on the specific write operations that
     declare it (registration-create, payment-charge) — not a blanket
     requirement on every `POST` in this API.

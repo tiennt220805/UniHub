@@ -79,8 +79,20 @@ Payment:
 
 PaymentStatus:
   type: string
-  enum: [PENDING, SUCCEEDED, FAILED, CANCELLED]
-  description: '`../../../docs/technical-design/platform/database-schema.md` §5.1 / `../../../docs/technical-design/modules/payment.md` §1.'
+  enum: [PENDING, SUCCEEDED, FAILED, CANCELLED, REFUND_REQUIRED, REFUNDED]
+  description: >-
+    `../../../docs/technical-design/platform/database-schema.md` §5.1 /
+    `../../../docs/technical-design/modules/payment.md` §1, §9. `PENDING`:
+    charge initiated, outcome not yet known. `SUCCEEDED`, `FAILED`:
+    resolved by the gateway. `CANCELLED`: resolved without a charge
+    (including a charge refused by the circuit breaker after its row was
+    written). `REFUND_REQUIRED`: the payment succeeded but its registration
+    was no longer `RESERVED` (hold expired or cancelled), so the money is
+    being returned — the seat is never re-granted. `REFUNDED`: the refund
+    is confirmed. `FAILED`/`CANCELLED` are final for the `Idempotency-Key`
+    that created them; a new attempt needs a new key. Clients must treat
+    every value as possible from day one — `REFUNDED` is only reached once
+    the gateway refund ships (Phase 3).
 
 CreatePaymentChargeRequest:
   type: object

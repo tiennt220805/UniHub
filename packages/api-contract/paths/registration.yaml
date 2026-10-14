@@ -26,12 +26,16 @@ registrations:
       the resulting registration.
 
       **Idempotency (§4):** a retried request carrying the same
-      `Idempotency-Key` returns the original recorded response verbatim,
-      including its original status code — the seat-reservation transaction
-      is never re-attempted, not even as a no-op re-check. This means a
-      retry of a request that originally got `409` also gets `409` again,
-      even if a seat has since freed up; idempotency guarantees replay of
-      the recorded result, not re-evaluation of current state.
+      `Idempotency-Key` (scoped to this operation and the authenticated
+      caller) returns the original recorded response verbatim, including
+      its original status code — the seat-reservation transaction is never
+      re-attempted, not even as a no-op re-check. This means a retry of a
+      request that originally got `409` also gets `409` again, even if a
+      seat has since freed up; idempotency guarantees replay of the
+      recorded result, not re-evaluation of current state. Same key with a
+      different body → `422`; same key while the first request is still in
+      its transaction → `409` (retry shortly and it replays). A `503` is
+      never recorded.
 
       **Two distinct rejection paths, not one (§2):** `503` means the
       *coordination layer* couldn't be reached or was contended — the seat
@@ -85,7 +89,20 @@ registrations:
           Lock acquired, workshop is sold out
           (`../../../docs/technical-design/modules/registration.md` §2) — or the caller already has
           an active (`RESERVED`/`CONFIRMED`) registration for this workshop
-          (`../../../docs/technical-design/platform/database-schema.md` §4.1's partial unique index).
+          (`../../../docs/technical-design/platform/database-schema.md` §4.1's partial unique index)
+          — or a request with this `Idempotency-Key` is still being
+          processed (the only retryable cause; not recorded). The first two
+          are recorded under the key and replay identically.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '422':
+        description: >-
+          This `Idempotency-Key` was already used by the same caller with a
+          different request body
+          (`../../../docs/guidelines/backend-coding-standards.md` §21). Nothing was executed.
+          A client bug, not a retry case.
         content:
           application/problem+json:
             schema:
@@ -162,6 +179,15 @@ registrationById:
       uses to render/download the e-ticket
       (`CLAUDE.md`'s "Student never touches the Mobile App" boundary — this
       is where that ticket lives).
+
+      **Paid registration, after payment:** confirmation is asynchronous
+      (`../../../docs/technical-design/modules/registration.md` §5). For a short window
+      `getPayment` shows `SUCCEEDED` while this endpoint still shows
+      `RESERVED` — "confirming"; keep polling until the status leaves
+      `RESERVED`. If the hold had already expired (or the registration was
+      cancelled) when the payment succeeded, the status stays `EXPIRED`/
+      `CANCELLED` and the payment is refunded instead
+      (`REFUND_REQUIRED` → `REFUNDED`); the seat is not re-granted.
     tags: [Registration]
     parameters:
       - $ref: '#/RegistrationIdParam'
