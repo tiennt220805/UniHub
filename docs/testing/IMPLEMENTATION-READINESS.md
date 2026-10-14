@@ -19,7 +19,7 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 |---|---|---|
 | B1 | 1c: health-check điều khiển fallback Replica-unreachable → Master (hướng đã duyệt, cơ chế chưa có; `overlays/dev` 0 replica giải quyết theo) | D |
 | B2 | INV-07 với Redis outage dài hơn retry chain (~5m35s): hold-expiry bị đưa vào parking lot | Q |
-| B3 | Tín hiệu/metric cho audit-publish failure (nửa sau INV-14 hiện chưa test được) | D |
+| B3 | Rule alert cho audit-publish failure (metric `unihub_audit_publish_failures_total` đã định nghĩa 2026-10-14, `observability.md` §4; rule + test INV-14 vẫn ở Phase 6) | D |
 | B4 | Response status khi S3 unreachable (contract chỉ có 404/409) | Q |
 | B5 | Cách backend lấy `ipAddress` phía sau Ingress (ảnh hưởng limiter, load test, S-16) | Q |
 
@@ -33,8 +33,9 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 | C4 | Latency và vị trí đặt WireMock stub | Q |
 | C5 | Ngưỡng error rate, định nghĩa "remains available", latency của `409`, endpoint nào là "registration-confirmation" | Q |
 | C6 | Cách xử lý limiter per-IP khi chạy K6 từ một nguồn | Q |
+| C9 | Tải của việc poll số ghế (`staleTime` 3s / `refetchInterval` 5s khi tab hiển thị — ~2.400 rps ở 12.000 CCU, nặng hơn nếu cache M-08 bị hoãn) và `minimumNumberOfCalls = 10` của breaker: hiệu chỉnh theo số liệu Phase 8 (Phase 2 checklist D15, D12) | Q |
 | C7 | Retry cap và biến thể paid của adversarial; số lần lặp so sánh mesh; cache lạnh/ấm; cơ chế reset dữ liệu; vị trí script K6; `preAllocatedVUs` | Q |
-| C8 | Permission codes trong JWT Student: seed SQL cho Student là rỗng nhưng file migration chưa tồn tại; kiểm tra cột `users` theo DDL | Q/V |
+| C8 | Kiểm tra cột `users` theo DDL cho dữ liệu load test (phần permission của Student đã giải quyết, xem bên dưới) | V |
 
 ## D. Tooling và cấu hình
 
@@ -52,11 +53,10 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 | # | Mục | Loại |
 |---|---|---|
 | E1 | Hệ số so sánh latency probe (resilience §2.1) | Q |
-| E2 | `minimumNumberOfCalls` của breaker | Q |
 | E3 | Redisson: xử lý kết nối treo có nằm trong nhánh catch của `registration.md` §2 không | V |
 | E4 | Giới hạn burst khi kill pod; cơ chế làm pod "unhealthy nhưng còn chạy" | Q |
 | E5 | INV-20: giữ ở trạng thái pending hay xóa cho tới khi STRICT bật; phase của INV-19/20 là giả định | Q |
-| E6 | Chủ sở hữu phase cho test webhook signature (S-17); dạng test injection động (A03); OWASP edition | Q |
+| E6 | Dạng test injection động (A03); OWASP edition (phần S-17 đã giải quyết, xem bên dưới) | Q |
 
 ## F. Chưa chạy thử, chưa verify
 
@@ -85,3 +85,6 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 | # | Mục | Quyết định | Ngày |
 |---|---|---|---|
 | D1 | Required status checks trên `main` | Yêu cầu cả năm check: `lint`, `unit-test`, `integration-test`, `contract-diff`, `secret-scan-gitleaks` (`technical-design/platform/deployment-and-cicd.md` §5) | 2026-09-24 |
+| E2 | `minimumNumberOfCalls` của breaker | 10, override được trong test; hiệu chỉnh lại ở Phase 8 (`payment.md` §2; Phase 2 checklist D12) | 2026-10-14 |
+| E6 (một phần) | Phase sở hữu test chữ ký webhook S-17 | Phase 2, dòng `test-matrix.md` M-79 (Phase 2 checklist D13) | 2026-10-14 |
+| C8 (một phần) | Permission của Student | `REGISTRATION_CREATE`, seed bằng `V4` (`database-schema.md` §10.1; Phase 2 checklist D7) | 2026-10-14 |
