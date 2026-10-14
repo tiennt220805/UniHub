@@ -970,7 +970,7 @@ Rules for every gateway call:
 - **SDK retries are configured explicitly**, never left to the SDK's default (Stripe: "Retry defaults depend on the SDK, version, and how you construct the client"); on this synchronous path they are `0` so the `TimeLimiter` stays the only clock. "Reached the gateway" is judged over the whole retry chain: if any attempt may have been sent, the step counts as reached.
 - `metadata.payment_id` is set on create for operator investigation only — no code path resolves a payment from it.
 
-The `201` body is a snapshot taken when `complete` committed; `getPayment` is the source of truth. Only a crash between `begin` and `complete` leaves the key `IN_PROGRESS` for reconciliation (`completeOpenFor`, §21 rule 7). The breaker permission acquired before `begin` is either consumed by the calls or released, so a `HALF_OPEN` probe slot is never leaked. The time budget of two calls on this path is open (Phase 2 checklist C37).
+The `201` body is a snapshot taken when `complete` committed; `getPayment` is the source of truth. Only a crash between `begin` and `complete` leaves the key `IN_PROGRESS` for reconciliation (`completeOpenFor`, §21 rule 7). The breaker permission acquired before `begin` is either consumed by the calls or released, so a `HALF_OPEN` probe slot is never leaked. Each call has its own 3s `TimeLimiter` and ≤3s HTTP timeouts; the whole request is ≈ 6.5s worst case, and the breaker counts calls, not charges (`payment.md` §2, Phase 2 checklist C37).
 
 `begin`, `attach`, `complete` and `abandon` live on a separate `ChargePaymentSteps` bean. `TransactionTemplate` is **not** used in `application` — it sits outside the Spring allow-list (§3), and the two-bean shape already solves the problem.
 

@@ -132,8 +132,10 @@ payments:
           recorded under the `Idempotency-Key`, the seat-hold is untouched,
           and a retry with the **same** key executes for real. A timeout
           **after** the confirm was sent is a `201` `PENDING`, not
-          a `503`. The time budget of the two gateway calls is open
-          (`../../../docs/technical-design/modules/payment.md` §3, Phase 2 checklist C37). **`Retry-After`'s value is
+          a `503`. The request can take up to ≈ 6.5s in the worst case (two
+          gateway calls, each capped at 3s —
+          `../../../docs/technical-design/modules/payment.md` §2); clients should not time out sooner
+          than 10s. **`Retry-After`'s value is
           inferred — flagged as an assumption.** Not specified in
           `payment.md`; set here to the breaker's own
           `wait-duration-in-open-state` (30s, `payment.md` §2) as the

@@ -33,7 +33,7 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 | C4 | Latency và vị trí đặt WireMock stub | Q |
 | C5 | Ngưỡng error rate, định nghĩa "remains available", latency của `409`, endpoint nào là "registration-confirmation" | Q |
 | C6 | Cách xử lý limiter per-IP khi chạy K6 từ một nguồn | Q |
-| C9 | Tải của việc poll số ghế (`staleTime` 3s / `refetchInterval` 5s khi tab hiển thị — ~2.400 rps ở 12.000 CCU, nặng hơn nếu cache M-08 bị hoãn) và `minimumNumberOfCalls = 10` của breaker: hiệu chỉnh theo số liệu Phase 8 (Phase 2 checklist D15, D12) | Q |
+| C9 | Tải của việc poll số ghế (`staleTime` 3s / `refetchInterval` 5s khi tab hiển thị — ~2.400 rps ở 12.000 CCU, nặng hơn nếu cache M-08 bị hoãn) `minimumNumberOfCalls = 10`, cửa sổ breaker đếm theo lời gọi (≈ 2 lời gọi mỗi charge) và trần ≈ 6,5s của charge đồng bộ: hiệu chỉnh theo số liệu Phase 8 (Phase 2 checklist D15, D12, C37) | Q |
 | C7 | Retry cap và biến thể paid của adversarial; số lần lặp so sánh mesh; cache lạnh/ấm; cơ chế reset dữ liệu; vị trí script K6; `preAllocatedVUs` | Q |
 | C8 | Kiểm tra cột `users` theo DDL cho dữ liệu load test (phần permission của Student đã giải quyết, xem bên dưới) | V |
 
