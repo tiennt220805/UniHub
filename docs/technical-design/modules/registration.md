@@ -48,36 +48,35 @@ This file is the physical-level completion of `architecture.md` §4.2 (the seat-
 | Lease (TTL) | 5 seconds, fixed — **no watchdog auto-renewal** | The critical section is a single bounded Postgres transaction (re-check `seats_taken` vs `capacity`, insert/update, commit) with no external calls inside it — typically under 100ms. 5s comfortably covers that plus GC pauses or a slow connection-pool checkout, while still self-healing quickly if a pod crashes mid-hold, which matters most during the exact registration-opening spike (`docs/requirement.md` §1.4) this lock exists for. |
 | `tryLock` wait-time | 2 seconds | Bounds how long a request thread blocks under contention before giving up. `docs/requirement.md` §1.4 describes hundreds of requests competing for a single workshop's last few seats at once — piling up blocked threads for longer than this risks exhausting the API pod's thread/connection pool exactly when load is highest. |
 
-```java
-RLock lock = redisson.getLock("unihub:lock:seat:" + workshopId);
-boolean acquired;
-try {
-    acquired = lock.tryLock(2, 5, TimeUnit.SECONDS); // wait 2s, lease 5s fixed
-} catch (RedisConnectionException e) {
-    return HttpStatus.SERVICE_UNAVAILABLE; // Redis unreachable — reject, never proceed uncoordinated
-}
-if (!acquired) {
-    return HttpStatus.SERVICE_UNAVAILABLE; // high contention — transient, Retry-After
-}
-try {
-    // single Postgres transaction — same-transaction requirement per §1 above:
-    //   SELECT seats_taken, capacity, version FROM workshops WHERE id = ? (Master)
-    //   if seats_taken >= capacity: rollback; return 409 (sold out)
-    //   INSERT INTO registrations (...);
-    //   UPDATE workshops SET seats_taken = seats_taken + 1, version = version + 1
-    //     WHERE id = ? AND version = :expected
-    //   commit
-} finally {
-    lock.unlock();
-}
 ```
+handle = seatLock.tryAcquire(workshopId, wait = 2s, lease = 5s)
+           -- timeout, or (Phase 3) Redis unreachable → 503 + Retry-After, never proceed uncoordinated
+try:
+  repeat up to 3 attempts:            -- each attempt is a NEW transaction, still inside the lock
+    single Postgres transaction (same-transaction requirement, §1):
+      INSERT INTO registrations (...)
+      UPDATE workshops SET seats_taken = seats_taken + 1, version = version + 1
+        WHERE id = ? AND version = :expected AND seats_taken < capacity
+      if 0 rows: re-read workshops (Master)
+        seats_taken >= capacity → ROLLBACK, return 409 sold out (recorded, §4)
+        version changed         → ROLLBACK, next attempt   (e.g. an organizer edit won)
+      COMMIT
+  all attempts lost the version race → 503 + Retry-After (not recorded, §4)
+finally:
+  handle.close()                      -- AFTER commit or rollback, never before
+```
+
+**Version shared with organizer edits (Phase 2 checklist D3, Q3):** `workshops.version` is bumped by seat claims and by organizer edits alike, so a claim can lose a race to an edit. The claim retries internally (3 attempts) instead of answering `409` to a student who did nothing wrong; an organizer edit never writes `seats_taken` (`../platform/database-schema.md` §3.1). Revisit thresholds for Phase 8 are in that section.
+
+**Lock adapter per phase (Phase 2 checklist D4, Q11):** the port is `SeatLock.tryAcquire(workshopId, waitTimeout, leaseTime)` returning a handle that is closed after commit (`../../guidelines/backend-coding-standards.md` §19.2, §25). **Phase 2** uses an in-process adapter — one lock per workshop, `tryLock` with the 2 s wait, entries cleaned up when unused; it ignores the lease and does **not** coordinate across instances, so in Phase 2 the database check is the only cross-instance guard (recorded in `../../testing/reports/test-matrix.md` §4.5 with the adapter). **Phase 3** replaces it with the Redisson lock whose parameters are tabled above, including the fail-closed `503` when Redis is unreachable (INV-08, M-34).
 
 **Two distinct failure responses, not one:** losing the lock race (contention) and the workshop actually being full are different facts and must not be collapsed into the same status code:
 
 | Situation | Response | Why distinct |
 |---|---|---|
 | `tryLock` times out (contention) or Redis unreachable | `503 Service Unavailable` + `Retry-After` header | Transient — the seat may still be available; the client should retry shortly. |
-| Lock acquired, but `seats_taken >= capacity` on the Postgres check | `409 Conflict` ("sold out") | Permanent for this attempt — re-checking the same workshop won't change the outcome without someone else's cancellation. |
+| Lock acquired, but `seats_taken >= capacity` on the Postgres check | `409 Conflict` ("sold out", problem `type` `urn:unihub:problem:sold-out`) | Permanent for this attempt — re-checking the same workshop won't change the outcome without someone else's cancellation. |
+| Lock acquired, every attempt lost the version race | `503 Service Unavailable` + `Retry-After` | Transient — another writer (usually an organizer edit) kept bumping `version`; the seat may still be free. |
 
 **Trade-off — a fixed lease can, in principle, expire under a holder before it finishes:** if a pod's Postgres transaction somehow ran past 5 seconds (a slow query, a stalled connection), a second pod could acquire the lock and run concurrently with the first still believing it holds exclusivity. This is accepted, not closed, for the same reason `architecture.md` §4.2 accepts it: the lock is advisory. Even in that scenario, PostgreSQL's `version`-based optimistic-concurrency check (`../platform/database-schema.md` §3.1) still rejects whichever of the two transactions commits second — the invariant holds at the database layer regardless of what happens at the coordination layer.
 
@@ -154,6 +153,8 @@ flowchart LR
 
 The same lookup also runs once before the seat lock (fast replay path, `../../guidelines/backend-coding-standards.md` §25.1), so a retried request never needs the lock.
 
+**Authorization and audit:** the endpoint requires the permission `REGISTRATION_CREATE` (seeded for Students, Phase 2 checklist D7); the registration is always created for the authenticated caller. Creating and confirming a registration are recorded through `AuditTrail` (checklist D6). Each `409` carries its own problem `type` (`sold-out`, `already-registered`, `registration-not-open`, `idempotency-key-in-use`; `422` → `idempotency-key-reused` — checklist D8).
+
 **Why a 409 also gets recorded:** a "sold out" rejection is as much "the original result" as a success is — a retried request with the same key must see the identical `409`, not attempt the seat-reservation transaction a second time and potentially observe a *different* outcome (e.g. a seat that freed up between the two attempts). Idempotency guarantees the same request produces the same recorded result, not that the system re-evaluates current state on every retry.
 
 **What is never recorded:** a `503` (seat-lock contention, Redis unreachable) or a lost version race. Those roll back with the key row, and a retry with the same key executes for real (`../../guidelines/backend-coding-standards.md` §21 rule 7).
@@ -202,7 +203,8 @@ The same lookup also runs once before the seat lock (fast replay path, `../../gu
 
 | Situation | Behavior | Why |
 |---|---|---|
-| `tryLock` times out or Redis unreachable | `503 Service Unavailable`, `Retry-After` header | §2 — coordination unavailable means the write must never proceed uncoordinated (`architecture.md` §4.2). |
+| `tryLock` times out or Redis unreachable | `503 Service Unavailable`, `Retry-After` header | §2 — coordination unavailable means the write must never proceed uncoordinated (`architecture.md` §4.2). Redis applies from Phase 3; Phase 2's in-process lock only times out. |
+| Seat claim loses the version race 3 times (organizer edits) | `503`, `Retry-After`, not recorded | §2 — transient, never surfaced as `409`. |
 | Lock acquired, workshop full | `409 Conflict` | §2 — permanent for this attempt, distinct from the transient `503` above. |
 | Redelivered `hold.expired` message for an already-resolved registration | No-op, safe re-check before acting | §3 — `architecture.md` §4.3's at-least-once delivery is tolerated by design. |
 | Retried `POST /registrations` with a previously-used `Idempotency-Key` | Original result returned verbatim, seat-reservation transaction never re-attempted | §4. |
@@ -220,6 +222,8 @@ Every key format, tuning parameter, and idempotency scope in this document, in o
 
 | Item | Value | Backs |
 |---|---|---|
+| Seat claim retry | 3 attempts on a lost version race, then `503` | Shared `workshops.version` (§2, `../platform/database-schema.md` §3.1) |
+| Seat lock adapter | Phase 2 in-process (per-workshop, no cross-instance guarantee); Phase 3 Redisson | §2 |
 | Seat lock key | `unihub:lock:seat:{workshopId}`, 5s lease, 2s wait | Anti-overbooking coordination layer (`architecture.md` §6.1/§4.2, `proposal.md` §11.1) |
 | Seat lock failure response | `503` (contention/Redis down) vs. `409` (sold out) | Distinguishes transient from permanent rejection (§2) |
 | Hold-delay queue | `unihub.registration.hold-delay.queue`, TTL 900000ms (15 min), no consumer | Exact 15-minute hold window (`docs/requirement.md` §1.3.1) |
