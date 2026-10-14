@@ -127,7 +127,7 @@ The two payment hand-off keys (`charge.succeeded`, `confirmation.rejected`, Phas
 **Guarantees:** an audit pipeline outage never blocks or fails the business operation it would have recorded (`architecture.md` §5.5) — the direct consequence of this message kind's publish being outside the outbox's atomicity.
 
 
-**Phase 2 note (checklist D6, Q10):** the `AuditTrail` adapter publishes from Phase 2, but the consumer of `unihub.audit.queue` that writes `audit_events` is built in Phase 6 (M-54). Until then published events wait in the queue; how that is handled is open (Phase 2 checklist C32).
+**Phase 2 note (checklist D6, C32):** nothing is published to `unihub.system.audit.created` before Phase 6. The Phase 2 `AuditTrail` adapter writes structured log lines instead; the publishing adapter and the consumer of `unihub.audit.queue` that writes `audit_events` are built **together** in Phase 6 (M-54). Publishing earlier would fill a queue that has no consumer, and a RabbitMQ memory alarm blocks every publisher — the outbox relay included — while queue arguments cannot be changed once declared.
 
 ---
 
