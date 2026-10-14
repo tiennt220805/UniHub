@@ -21,8 +21,9 @@ registrations:
     description: >-
       `../../../docs/technical-design/modules/registration.md` §2/§4 — this system's single
       highest-risk correctness path. Requires `REGISTRATION_CREATE`
-      (seeded for the Student role); the registration is always created for
-      the authenticated caller.
+      (seeded for the Student role; it also covers paying for one's own
+      registration via `chargePayment`); the registration is always created
+      for the authenticated caller.
 
       **Idempotency (§4):** a retried request carrying the same
       `Idempotency-Key` (scoped to this operation and the authenticated

@@ -12,8 +12,9 @@ payments:
     summary: Initiate a payment charge for a RESERVED registration
     description: >-
       `../../../docs/technical-design/modules/payment.md` §3/§8. Requires `REGISTRATION_CREATE` — the
-      same permission as `createRegistration` — and the caller must own the
-      registration (see `403` below).
+      same permission as `createRegistration`, which covers paying for one's
+      own registration — and the caller must own the registration (see
+      `403` below).
 
       **The response carries the payment's real status when the charge
       step completed** (`payment.md` §8): `SUCCEEDED` or `FAILED` when the
@@ -30,21 +31,23 @@ payments:
       the first request is still being processed → `409`.
 
       **At most one live payment per registration (§1):** a registration
-      can have several attempts, but only one that is `PENDING`,
-      `SUCCEEDED`, `REFUND_REQUIRED` or `REFUNDED`. A payment that ends
+      can have several attempts, but only one that is `PENDING` or
+      `SUCCEEDED`. A payment that ends
       `FAILED` or `CANCELLED` is final for its key — retrying that key
       replays it; a new attempt (e.g. another card) uses a **new** key and
       is accepted.
 
-      **Gateway not reached vs. reached (§3, §8):** if the request never
-      left UniHub — the shared `paymentGateway` breaker refused it, or the
-      connection failed — the response is `503`, nothing is recorded under
-      the key, and the registration's seat-hold is left completely untouched:
-      the student keeps the remainder of their 15-minute window and retries
-      with the **same** key. If the request reached the gateway but the
-      outcome is unknown (timeout, error after sending), the response is
-      `201` with `PENDING`; a same-key retry replays it and the gateway is
-      never called twice.
+      **Charged or not (§3, §8):** the server creates the gateway payment
+      unconfirmed and only then confirms it — the confirm is the only call
+      that can move money. If nothing could have been charged — any failure
+      before the confirm, or a confirm refused by the shared
+      `paymentGateway` breaker or failed before it left UniHub — the
+      response is `503`, nothing is recorded under the key, and the
+      registration's seat-hold is left completely untouched: the student
+      keeps the remainder of their 15-minute window and retries with the
+      **same** key. If the confirm was sent but its outcome is unknown, the
+      response is `201` with `PENDING`; a same-key retry replays it and the
+      confirm is never sent twice.
     tags: [Payment]
     x-required-permission: REGISTRATION_CREATE
     x-idempotent: true
@@ -95,9 +98,8 @@ payments:
         description: >-
           One of three causes: the registration is not `RESERVED` (already
           `CONFIRMED`, `CANCELLED`, or `EXPIRED`); the registration already
-          has a live payment (`PENDING`, `SUCCEEDED`, `REFUND_REQUIRED` or
-          `REFUNDED` — `../../../docs/technical-design/platform/database-schema.md` §5.1's partial
-          unique index), e.g. from another tab with another key; or a
+          has a live payment (`PENDING` or `SUCCEEDED` —
+          `../../../docs/technical-design/platform/database-schema.md` §5.1's partial unique index), e.g. from another tab with another key; or a
           request with this `Idempotency-Key` is still being processed (the
           only retryable cause — a same-key retry later replays its result).
           The first two are recorded under the key and replay identically.
@@ -121,15 +123,17 @@ payments:
               $ref: '../common/error.yaml'
       '503':
         description: >-
-          The request never reached the gateway
+          Nothing could have been charged
           (`../../../docs/technical-design/modules/payment.md` §3): the `paymentGateway` circuit
-          refused it, or the connection failed. Refused before anything was
-          written → no `payments` row; refused right after the payment row
-          was written → that row is now `CANCELLED`. Either way nothing is
+          refused the call, creating the unconfirmed gateway payment failed
+          in any way (including a timeout), or the confirm failed before it
+          left UniHub. Refused before anything was written → no `payments`
+          row; otherwise the payment row is now `CANCELLED`. Either way nothing is
           recorded under the `Idempotency-Key`, the seat-hold is untouched,
           and a retry with the **same** key executes for real. A timeout
           **after** the request reached the gateway is a `201` `PENDING`, not
-          a `503`. **`Retry-After`'s value is
+          a `503`. The time budget of the two gateway calls is open
+          (`../../../docs/technical-design/modules/payment.md` §3, Phase 2 checklist C37). **`Retry-After`'s value is
           inferred — flagged as an assumption.** Not specified in
           `payment.md`; set here to the breaker's own
           `wait-duration-in-open-state` (30s, `payment.md` §2) as the

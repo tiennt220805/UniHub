@@ -23,6 +23,10 @@ properties:
       `…:payment-in-progress` (409), `…:idempotency-key-in-use` (409, the
       only retryable one), `…:idempotency-key-reused` (422). Every other
       error uses `about:blank`, where the `status` code alone conveys enough.
+      A slug names a business condition, never an HTTP status, and a slug
+      once used is never reused for another meaning. Clients must treat an
+      unrecognised `type` by its `status` — that is what keeps adding a new
+      `type` non-breaking.
     example: about:blank
   title:
     type: string
