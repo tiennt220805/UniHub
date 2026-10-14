@@ -341,6 +341,11 @@ affected rows = 0 → re-read:
 
 **Phase 2 scope:** the hand-off, and the compensation up to `REFUND_REQUIRED` (status change only, no gateway call). Nothing on the Phase 2 live path can reach the compensation — there is no seat-hold expiry consumer and no cancellation endpoint yet — so it is exercised by tests. `REFUND_REQUIRED`/`REFUNDED` are in the schema and the contract enum from Phase 2, because adding an enum value to a response after clients exist is a breaking change.
 
+**Derived requirements** (stated here, not in `docs/requirement.md`; traced in `../../testing/reports/test-matrix.md` §2.2 under the `DR-` prefix):
+- **DR-PAY-1** — A payment that succeeds for a registration no longer `RESERVED` is moved to `REFUND_REQUIRED` exactly once, however often the triggering messages are redelivered, and its registration is never re-confirmed (Phase 2).
+- **DR-PAY-2** — A payment in `REFUND_REQUIRED` is refunded through the gateway at most once (key `refund:{paymentId}`) and reaches `REFUNDED`; re-processing while still `REFUND_REQUIRED` retries the refund (Phase 3).
+- **DR-PAY-3** — A registration has at most one live payment at any time, across all idempotency keys; a `FAILED` or `CANCELLED` attempt never blocks a new attempt with a new key (§1, §8; Phase 2).
+
 **Guarantees:** money taken for a registration that could not be confirmed is always routed to exactly one refund; the system never re-grants a seat it released.
 
 ---
