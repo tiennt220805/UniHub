@@ -7,8 +7,8 @@
 | Trường | Giá trị |
 |---|---|
 | Phase | 2 — Registration & Payment |
-| Ngày bắt đầu | — |
-| Trạng thái tổng thể | `☑ Chưa bắt đầu` / `☐ Đang làm` / `☐ Chờ sign-off` / `☐ Hoàn tất` |
+| Ngày bắt đầu | 2026-10-14 |
+| Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☑ Đang làm` / `☐ Chờ sign-off` / `☐ Hoàn tất` |
 | Nhánh làm việc | `main` (push thẳng, không PR — `test-matrix.md` §4.4) |
 | INV trong scope | INV-02, INV-03, INV-04, INV-05, INV-10 (`test-plan.md` §3) |
 | Matrix rows | M-18 … M-27 (Phase 2), M-08 (hoãn từ Phase 1 sang đây, `phase-1.md` §5), M-75, M-77 (derived requirement Phase 2, thêm vào `test-matrix.md` ở Bước 2 — D2, D5), M-76 (derived, Phase 3 — chỉ tài liệu ở đây), M-78 (dòng mới đề xuất cho web Phase 2 — Mục 4) |
@@ -590,10 +590,10 @@ Tên là đề xuất. Chốt tên thật khi viết test, rồi điền vào `t
 Tất cả code ở `com.unihub.shared` (rule 3, `backend-coding-standards.md` §13). Mỗi mục kèm test của chính nó.
 
 ### 1.1 Read/Write routing — INV-03
-- [ ] `[→ M-22]` `AbstractRoutingDataSource` bọc trong `LazyConnectionDataSourceProxy`; `readOnly` → Replica, `readOnly` + `@ReadFromPrimary` → Master, read-write → Master (§20)
-- [ ] `[→ M-22]` `[M-13]` Cấu hình datasource replica qua `@ConfigurationProperties`, secrets inject runtime (Gitleaks M-13 phải tiếp tục xanh); local dev trỏ replica về Master (`docker-compose.yml` không có replica — giữ nguyên)
-- [ ] `[→ M-22]` `[M-16]` `ReplicaIntegrationTestSupport` (`integration-testing.md` §1–§2): streaming replica từ `pg_basebackup` trên `postgres:16-alpine`, helper pause/resume WAL replay, resume trong `finally` và assert `pg_is_wal_replay_paused() = false`, **không** `withReuse(true)` — đóng mục F4 trong `IMPLEMENTATION-READINESS.md`; `IntegrationTestInfrastructureIT` (M-16) vẫn xanh với base class mới
-- [ ] `[→ M-22]` Test unit/slice cho routing key chọn đúng datasource (bằng chứng chính là M-22 ở Mục 3.8)
+- [x] `[→ M-22]` `AbstractRoutingDataSource` bọc trong `LazyConnectionDataSourceProxy`; `readOnly` → Replica, `readOnly` + `@ReadFromPrimary` → Master, read-write → Master (§20)
+- [x] `[→ M-22]` `[M-13]` Cấu hình datasource replica qua `@ConfigurationProperties`, secrets inject runtime (Gitleaks M-13 phải tiếp tục xanh); local dev trỏ replica về Master (`docker-compose.yml` không có replica — giữ nguyên)
+- [x] `[→ M-22]` `[M-16]` `ReplicaIntegrationTestSupport` (`integration-testing.md` §1–§2): streaming replica từ `pg_basebackup` trên `postgres:16-alpine`, helper pause/resume WAL replay, resume trong `finally` và assert `pg_is_wal_replay_paused() = false`, **không** `withReuse(true)` — đóng mục F4 trong `IMPLEMENTATION-READINESS.md`; `IntegrationTestInfrastructureIT` (M-16) vẫn xanh với base class mới
+- [x] `[→ M-22]` Test unit/slice cho routing key chọn đúng datasource (bằng chứng chính là M-22 ở Mục 3.8)
 
 ### 1.2 Idempotency — INV-02 (phụ thuộc Q1)
 - [ ] `[→ M-20, M-21]` `[M-58 · P7]` Migration `V3__idempotency_store_result.sql` (Q1) — chịu được đọc bởi pod cũ/mới (INV-15, `architecture.md` §6.2); bảng còn rỗng nên an toàn

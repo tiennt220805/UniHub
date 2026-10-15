@@ -65,7 +65,6 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 | F1 | Makefile `pre-migration`: lọc `-l`, generator options, vòng retry `pg_isready` |
 | F2 | Property/`HealthContributor` cho nhóm `dependencies` (DEGRADED) |
 | F3 | Kubelet probe rewrite dưới STRICT |
-| F4 | Fixture replica (`pg_basebackup`, `pg_hba`) |
 | F5 | `withReuse(true)` với reuse bật, và chạy test song song |
 | F6 | Mesh-off R2 với STRICT |
 
@@ -88,3 +87,4 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 | E2 | `minimumNumberOfCalls` của breaker | 10, override được trong test; hiệu chỉnh lại ở Phase 8 (`payment.md` §2; Phase 2 checklist D12) | 2026-10-14 |
 | E6 (một phần) | Phase sở hữu test chữ ký webhook S-17 | Phase 2, dòng `test-matrix.md` M-79 (Phase 2 checklist D13) | 2026-10-14 |
 | C8 (một phần) | Permission của Student | `REGISTRATION_CREATE`, seed bằng `V4` (`database-schema.md` §10.1; Phase 2 checklist D7) | 2026-10-14 |
+| F4 | Fixture replica (`pg_basebackup`, `pg_hba`) | Đã chạy thật: `ReplicaIntegrationTestSupport` clone Master bằng `pg_basebackup` qua bridge network mặc định, thêm dòng `host replication` vào `pg_hba.conf` rồi reload; `ReplicaFixtureIT` chứng minh standby nhận schema, pause replay làm replica cũ, resume thì hội tụ (Phase 2 checklist §1.1) | 2026-10-14 |
