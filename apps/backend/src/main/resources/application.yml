@@ -30,6 +30,12 @@ springdoc:
   api-docs:
     version: openapi_3_1
 
+# Read/write splitting (architecture.md §4.1, backend-coding-standards.md §20). The Master is
+# spring.datasource.*; the Replica is unihub.datasource.replica.{url,username,password}, injected from the
+# environment only (UNIHUB_DATASOURCE_REPLICA_URL, ..._USERNAME, ..._PASSWORD) — never set here (M-13).
+# Left unset, read-only transactions use the Master pool: local dev and overlays/dev run no Replica
+# (deployment-and-cicd.md §3). Username/password default to the Master's.
+
 # Nightly legacy student sync (docs/technical-design/modules/user.md §2, §7). Off by default in every
 # environment: Phase 1 runs a single instance and the job lock is still in-process (InProcessJobLock,
 # INV-09 is Phase 3), so turning the trigger on is a deliberate per-environment choice
