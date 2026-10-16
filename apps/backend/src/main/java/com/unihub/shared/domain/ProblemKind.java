@@ -6,5 +6,9 @@ public enum ProblemKind {
     INVALID_REQUEST,
     NOT_FOUND,
     CONFLICT,
+    /**
+     * Well-formed but unprocessable, e.g. an Idempotency-Key reused with another body (HTTP 422).
+     */
+    UNPROCESSABLE,
     UNAVAILABLE
 }

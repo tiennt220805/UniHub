@@ -589,11 +589,12 @@ Action names follow the `audit_events.action` examples (`WORKSHOP_CANCELLED`, `R
 | `shared.security` | `Permissions`, `Actor` |
 | `shared.event` | `OutboxMessage` |
 | `shared.messaging` | `NonRetryableMessageException` |
-| `shared.application.port.out` | `EventPublisher`, `MessageBroker`, `AuditTrail` (+ `AuditEntry`, `AuditActions`, `AuditTargets`), `IdempotencyStore` (+ `IdempotencyRecord`, `IdempotencyScope`, `IdempotencyKeyInUseException`, `IdempotencyKeyReusedException`) |
+| `shared.application.port.out` | `EventPublisher`, `MessageBroker`, `AuditTrail` (+ `AuditEntry`, `AuditActions`, `AuditTargets`), `IdempotencyStore` (+ `IdempotencyRecord`, `StoredResult`, `IdempotencyScope`, `IdempotencyKeyInUseException`, `IdempotencyKeyReusedException`), `IdempotencyKeyCleanup` |
 | `shared.application.routing` | `@ReadFromPrimary` (§20) |
-| `shared.application.usecase` | `RelayPendingEvents` |
-| `shared.web` | `GlobalProblemHandler` (§17), `Problems` (builds a `ProblemDetail` response for a Result variant), `CurrentActor`, `CorrelationIds`, correlation-ID filter |
-| `shared.infrastructure..` | `OutboxEventPublisher`, `JdbcIdempotencyStore`, `RabbitMessageBroker`, `RabbitAuditTrail`, the listener error handler, `EventRelayScheduler`, datasource routing, the `Clock` bean |
+| `shared.application.port.in` | `PurgeIdempotencyKeysUseCase` |
+| `shared.application.usecase` | `RelayPendingEvents`, `PurgeIdempotencyKeys` |
+| `shared.web` | `GlobalProblemHandler` (§17), `Problems` (builds a `ProblemDetail` response for a Result variant), `CurrentActor`, `RequestFingerprint` (§21 rule 4), `CorrelationIds`, correlation-ID filter |
+| `shared.infrastructure..` | `OutboxEventPublisher`, `JdbcIdempotencyStore`, `JdbcIdempotencyKeyCleanup`, `IdempotencyCleanupScheduler`, `RabbitMessageBroker`, `RabbitAuditTrail`, the listener error handler, `EventRelayScheduler`, datasource routing, the `Clock` bean |
 
 Event Publication, Idempotency Key and Audit Event are *Technical Pattern Entities* (`architecture.md` §6.1). They belong to `shared`, not to any business module.
 
@@ -717,7 +718,7 @@ public interface IdempotencyStore {                                     // §21 
     void completeOpenFor(IdempotencyScope scope, UUID resourceId, Object result);
     void abandonOpenFor(IdempotencyScope scope, UUID resourceId);
 }
-public sealed interface IdempotencyRecord { /* InProgress(fingerprint) | Completed(fingerprint, result) — §21 */ }
+public sealed interface IdempotencyRecord { /* InProgress(fingerprint) | Completed(fingerprint, StoredResult) — §21 */ }
 public enum IdempotencyScope { REGISTRATION_CREATE, PAYMENT_CHARGE }    // database-schema.md §8.1
 public final class IdempotencyKeyInUseException extends DomainException {
     public IdempotencyKeyInUseException(IdempotencyScope scope) {
@@ -1074,7 +1075,8 @@ public SearchWorkshopsResult search(SearchWorkshopsCriteria criteria) {
 Implements `architecture.md` §4.5 and `database-schema.md` §8.1 (target shape after migration `V3`, `database-schema.md` §10.1). Decisions: Phase 2 checklist D1, C2, G1, G2 (2026-10-13/14).
 
 ```java
-// shared/application/port/out/IdempotencyStore.java — every method needs an active transaction (MANDATORY)
+// shared/application/port/out/IdempotencyStore.java — every write needs the caller's transaction (MANDATORY);
+// find is @ReadFromPrimary @Transactional(readOnly = true): it runs before the entry point's transaction (§25.1)
 public interface IdempotencyStore {
     /** Consistency-sensitive: always reads the Master. Empty when no row exists. */
     Optional<IdempotencyRecord> find(IdempotencyScope scope, UserId actor, String key);
@@ -1094,8 +1096,10 @@ public interface IdempotencyStore {
 
 public sealed interface IdempotencyRecord {
     record InProgress(String requestFingerprint) implements IdempotencyRecord {}
-    record Completed(String requestFingerprint, Object result) implements IdempotencyRecord {}
+    record Completed(String requestFingerprint, StoredResult result) implements IdempotencyRecord {}
 }
+// StoredResult(String type, String body): `type` = simple name of the sealed Result variant, `body` = its JSON.
+// shared cannot import a module's Result, so the caller (IdempotentReplay, §25.1) maps type -> variant.
 // IdempotencyScope values: REGISTRATION_CREATE, PAYMENT_CHARGE (database-schema.md §8.1)
 ```
 
@@ -1543,7 +1547,7 @@ These changes belong to the documents named, not to this one. Each is a precondi
 
 | # | Change | Document | Needed by |
 |---|---|---|---|
-| 1 | ✅ **Done (2026-10-14)** — `idempotency_keys` stores the use-case Result (`result_type` + `result_body`), keyed by `(scope, actor_user_id, idempotency_key)`, with `request_fingerprint`, `IN_PROGRESS`/`COMPLETED` and `resource_id`; specified as migration `V3` (`database-schema.md` §10.1, not yet a file). `registration.md` §4, `payment.md` §8 and §21 here match | `database-schema.md` §8.1 | Phase 2 (M-20) |
+| 1 | ✅ **Done (2026-10-14)** — `idempotency_keys` stores the use-case Result (`result_type` + `result_body`), keyed by `(scope, actor_user_id, idempotency_key)`, with `request_fingerprint`, `IN_PROGRESS`/`COMPLETED` and `resource_id`; specified as migration `V3` (`database-schema.md` §10.1, applied as `V3__phase2_idempotency_and_payments.sql`). `registration.md` §4, `payment.md` §8 and §21 here match | `database-schema.md` §8.1 | Phase 2 (M-20) |
 | 2 | ✅ **Done** — JaCoCo `includes` = `com.unihub.*.application.usecase`, `com.unihub.*.domain.*`; `excludes` = `com.unihub.*.domain.exception`. Confirm on the scaffold that the report actually lists the usecase packages | `unit-testing.md` §3, `deployment-and-cicd.md` Coverage ADR + reference table | Phase 1 (M-15) |
 | 3 | ✅ **Done** — `event_publications` gained `correlation_id VARCHAR(32) NULL` and `routing_key VARCHAR(100) NOT NULL` (the relay needs the key and must not derive it); the index text now matches the DDL. Log trail is continuous across the outbox; the Tempo trace is not (documented trade-off) | `database-schema.md` §8.2, `observability.md` §1 | Phase 1 (in the initial migration) |
 | 4 | ✅ **Done** — single-instance relay per 1s cycle behind `unihub:lock:job:outbox-relay` (lease 30s), batch 200, per-message confirm, `mandatory = true`, no transaction across a publish; failing rows skipped and surfaced by `unihub_outbox_oldest_pending_age_seconds`. Claim-with-lease is the documented upgrade path | `messaging.md` §5, `distributed-coordination.md` §2/§5, `architecture.md` §4.6 | Phase 2 (INV-10); end-to-end in Phase 4 |

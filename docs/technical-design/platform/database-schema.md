@@ -354,7 +354,7 @@ Cross-cutting, not business data (§6.1) — no module "owns" these the way it o
 
 **Lifecycle of an `IN_PROGRESS` row (`PAYMENT_CHARGE` only):** it leaves `IN_PROGRESS` in exactly one of three ways — the charge's second transaction completes it with the Result; the breaker compensation (the charge was refused after its row was written) **deletes** it together with moving the payment to `CANCELLED`, so a same-key retry executes for real; or reconciliation completes it with the Result in the same transaction that resolves the stuck payment. The sweep never touches it.
 
-**Retention:** minutes, not permanent (§6.3) — the scheduled job in `distributed-coordination.md` §2 deletes `COMPLETED` rows older than the retry window (by `completed_at`), not native TTL (Postgres rows don't expire on their own). `IN_PROGRESS` rows are never swept.
+**Retention:** minutes, not permanent (§6.3) — the scheduled job in `distributed-coordination.md` §2 deletes `COMPLETED` rows older than the retry window — **30 minutes** (decided 2026-10-16: the 15-minute seat hold plus a client retry margin), swept every minute, both configurable under `unihub.jobs.idempotency-cleanup.*` — by `completed_at`, not native TTL (Postgres rows don't expire on their own). `IN_PROGRESS` rows are never swept.
 
 ### 8.2 `event_publications`
 
@@ -877,9 +877,9 @@ CREATE INDEX idx_audit_events_target ON audit_events (target_type, target_id);
 CREATE INDEX idx_audit_events_occurred_at ON audit_events (occurred_at);
 ```
 
-### 10.1 Pending migration `V3` — specification (Phase 2, not yet a file)
+### 10.1 Migration `V3` — specification (Phase 2; applied as `V3__phase2_idempotency_and_payments.sql`)
 
-Specified here first, per the rule above; the runnable file is `src/main/resources/db/migration/V3__phase2_idempotency_and_payments.sql`, created with the first Phase 2 code that needs it. The permission seed that Phase 2 also needs is a separate data migration, `V4` (below). Numbered `V3` rather than `V1_n` because it is a new Phase 2 schema change, not a correction to `V1`; `V2` is the role/permission seed. Decisions: Phase 2 checklist D1 (Result storage, fingerprint, `IN_PROGRESS`), C2 (actor in the key), C6/D5 (live-payment index), C10/D2 (refund statuses), G2/C27 (`resource_id`).
+Specified here first, per the rule above; the runnable file is `src/main/resources/db/migration/V3__phase2_idempotency_and_payments.sql` (written 2026-10-16 with checklist 1.2; the only difference from the block below is that the `status` CHECK is named, `ck_idempotency_keys_status`, so a test can assert it). The permission seed that Phase 2 also needs is a separate data migration, `V4` (below). Numbered `V3` rather than `V1_n` because it is a new Phase 2 schema change, not a correction to `V1`; `V2` is the role/permission seed. Decisions: Phase 2 checklist D1 (Result storage, fingerprint, `IN_PROGRESS`), C2 (actor in the key), C6/D5 (live-payment index), C10/D2 (refund statuses), G2/C27 (`resource_id`).
 
 ```sql
 -- 8.1 idempotency_keys: store the use-case Result, scope by actor, add fingerprint + lifecycle.

@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.unihub.shared.application.port.out.IdempotencyKeyInUseException;
+import com.unihub.shared.application.port.out.IdempotencyKeyReusedException;
+import com.unihub.shared.application.port.out.IdempotencyScope;
 import com.unihub.shared.infrastructure.IntegrationTestSupport;
 import com.unihub.shared.security.TestJwts;
 import java.util.ArrayList;
@@ -28,6 +31,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -44,6 +49,9 @@ class ProblemShapeIT extends IntegrationTestSupport {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String BASE = "/api/v1/workshops";
     private static final String FAILING_PATH = "/api/v1/test-only/unexpected-failure";
+    private static final String IDEMPOTENT_PATH = "/api/v1/test-only/idempotent";
+    private static final String KEY_IN_USE_PATH = "/api/v1/test-only/idempotency-key-in-use";
+    private static final String KEY_REUSED_PATH = "/api/v1/test-only/idempotency-key-reused";
     private static final String INTERNAL_MESSAGE =
             "internal detail that must never leave the server";
 
@@ -69,6 +77,22 @@ class ProblemShapeIT extends IntegrationTestSupport {
             @GetMapping(FAILING_PATH)
             String fail() {
                 throw new IllegalStateException(INTERNAL_MESSAGE);
+            }
+
+            /** What every idempotent write declares: the contract's required uuid header. */
+            @PostMapping(path = IDEMPOTENT_PATH, produces = MediaType.APPLICATION_JSON_VALUE)
+            String idempotent(@RequestHeader("Idempotency-Key") UUID key) {
+                return "\"" + key + "\"";
+            }
+
+            @PostMapping(KEY_IN_USE_PATH)
+            String keyInUse() {
+                throw new IdempotencyKeyInUseException(IdempotencyScope.REGISTRATION_CREATE);
+            }
+
+            @PostMapping(KEY_REUSED_PATH)
+            String keyReused() {
+                throw new IdempotencyKeyReusedException(IdempotencyScope.PAYMENT_CHARGE);
             }
         }
     }
@@ -262,6 +286,53 @@ class ProblemShapeIT extends IntegrationTestSupport {
                 send(HttpMethod.POST, BASE, editor(), MediaType.TEXT_PLAIN, CREATE_BODY),
                 415,
                 BASE);
+    }
+
+    // ---------- Idempotency-Key header and its two problems ----------
+
+    private ResponseEntity<String> sendWithKey(String path, String key) {
+        var headers = new HttpHeaders();
+        headers.setBearerAuth(editor());
+        if (key != null) {
+            headers.set("Idempotency-Key", key);
+        }
+        return http.exchange(path, HttpMethod.POST, new HttpEntity<>(null, headers), String.class);
+    }
+
+    @Test
+    @DisplayName("a well-formed Idempotency-Key is accepted, in either letter case")
+    void idempotencyKey_wellFormed() {
+        var key = UUID.randomUUID();
+
+        assertJson(sendWithKey(IDEMPOTENT_PATH, key.toString()), 200);
+        assertJson(sendWithKey(IDEMPOTENT_PATH, key.toString().toUpperCase()), 200);
+    }
+
+    @Test
+    @DisplayName("400 when the Idempotency-Key header is missing")
+    void idempotencyKey_missing() throws Exception {
+        assertProblem(sendWithKey(IDEMPOTENT_PATH, null), 400, IDEMPOTENT_PATH);
+    }
+
+    @Test
+    @DisplayName("400 when the Idempotency-Key header is not a uuid")
+    void idempotencyKey_malformed() throws Exception {
+        assertProblem(sendWithKey(IDEMPOTENT_PATH, "not-a-uuid"), 400, IDEMPOTENT_PATH);
+        assertProblem(sendWithKey(IDEMPOTENT_PATH, ""), 400, IDEMPOTENT_PATH);
+    }
+
+    @Test
+    @DisplayName("409 when the same key is still being processed")
+    void idempotencyKey_inUse() throws Exception {
+        assertProblem(
+                sendWithKey(KEY_IN_USE_PATH, UUID.randomUUID().toString()), 409, KEY_IN_USE_PATH);
+    }
+
+    @Test
+    @DisplayName("422 when the same key arrives with a different body")
+    void idempotencyKey_reused() throws Exception {
+        assertProblem(
+                sendWithKey(KEY_REUSED_PATH, UUID.randomUUID().toString()), 422, KEY_REUSED_PATH);
     }
 
     // ---------- 500 ----------

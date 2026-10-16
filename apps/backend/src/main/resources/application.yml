@@ -48,3 +48,11 @@ unihub:
       zone: Asia/Ho_Chi_Minh
       inbound-dir: /var/unihub/legacy-sync/inbound
       batch-size: 500
+    # Idempotency-key sweep (distributed-coordination.md §2, database-schema.md §8.1). On by default: a
+    # duplicate run only finds nothing left to delete. retention is measured from completed_at and must
+    # cover the 15-minute seat hold plus a client retry margin (Phase 2 checklist 1.2, 2026-10-16); only
+    # COMPLETED keys are ever deleted. interval is the pause between sweeps.
+    idempotency-cleanup:
+      enabled: true
+      interval: PT1M
+      retention: PT30M

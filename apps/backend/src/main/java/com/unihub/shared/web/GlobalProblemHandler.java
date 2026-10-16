@@ -43,6 +43,7 @@ class GlobalProblemHandler extends ResponseEntityExceptionHandler {
                     case INVALID_REQUEST -> HttpStatus.BAD_REQUEST;
                     case NOT_FOUND -> HttpStatus.NOT_FOUND;
                     case CONFLICT -> HttpStatus.CONFLICT;
+                    case UNPROCESSABLE -> HttpStatus.UNPROCESSABLE_ENTITY;
                     case UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
                 };
         var body = ProblemDetail.forStatusAndDetail(status, ex.getMessage());
