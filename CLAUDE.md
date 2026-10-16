@@ -83,3 +83,7 @@ These are correctness guarantees the architecture was explicitly designed around
 - Don't write physical-level design decisions (schema DDL, Redis key naming, TTL values, retry counts) directly into `architecture.md` — that belongs in `docs/technical-design/`, which stays at implementation-detail level.
 - Real financial settlement and production cloud deployment are explicitly **out of scope** (`proposal.md` §5.2) — don't build toward them. The Mobile App itself *is* in scope and gets built; only publishing a signed build to the Apple App Store / Google Play Store is out of scope — distribution stays on non-store channels (e.g. Expo preview/internal builds).
 - When a task touches a "Known Limit" documented in `architecture.md` §5.6 or a trade-off elsewhere in the doc, treat it as a deliberate, already-discussed decision — surface it to the user rather than silently "fixing" it.
+
+## Advisor
+
+- Consult the advisor before locking a plan, after the same error twice, and before calling a task done.
