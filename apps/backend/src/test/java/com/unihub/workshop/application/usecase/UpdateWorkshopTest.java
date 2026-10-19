@@ -56,9 +56,10 @@ class UpdateWorkshopTest {
     private final WorkshopRepository workshops = mock(WorkshopRepository.class);
     private final EventPublisher eventPublisher = mock(EventPublisher.class);
     private final AuditTrail auditTrail = mock(AuditTrail.class);
+    private final InMemoryWorkshopCache cache = new InMemoryWorkshopCache();
     private final UpdateWorkshop useCase =
             new UpdateWorkshop(
-                    workshops, eventPublisher, auditTrail, Clock.fixed(NOW, ZoneOffset.UTC));
+                    workshops, eventPublisher, auditTrail, cache, Clock.fixed(NOW, ZoneOffset.UTC));
 
     static Stream<WorkshopBuilder> terminal() {
         return Stream.of(aCancelledWorkshop(), aCompletedWorkshop());
@@ -324,5 +325,45 @@ class UpdateWorkshopTest {
 
         verify(eventPublisher, never()).publish(any());
         verify(auditTrail, never()).record(any());
+    }
+
+    @Test
+    @DisplayName("a successful edit drops the workshop's cached detail and seats")
+    void update_invalidatesTheCache() {
+        var workshop = stored(aPublishedWorkshop().build());
+
+        useCase.update(patch(workshop.id().value()).title(FieldChange.to("Renamed")).build());
+
+        assertThat(cache.invalidated).containsExactly(workshop.id().value());
+    }
+
+    @Test
+    @DisplayName("a reschedule drops the cache too")
+    void update_reschedule_invalidatesTheCache() {
+        var workshop = stored(aPublishedWorkshop().build());
+
+        useCase.update(
+                patch(workshop.id().value())
+                        .startTime(FieldChange.to(NEW_START))
+                        .endTime(FieldChange.to(NEW_END))
+                        .build());
+
+        assertThat(cache.invalidated).containsExactly(workshop.id().value());
+    }
+
+    @Test
+    @DisplayName("a rejected edit leaves the cache alone")
+    void update_rejected_doesNotInvalidate() {
+        var workshop = stored(aCancelledWorkshop().build());
+
+        assertThatThrownBy(
+                        () ->
+                                useCase.update(
+                                        patch(workshop.id().value())
+                                                .title(FieldChange.to("Nope"))
+                                                .build()))
+                .isInstanceOf(InvalidWorkshopStateException.class);
+
+        assertThat(cache.invalidated).isEmpty();
     }
 }

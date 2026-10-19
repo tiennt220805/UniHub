@@ -9,6 +9,7 @@ import com.unihub.shared.domain.id.WorkshopId;
 import com.unihub.workshop.application.command.UpdateWorkshopCommand;
 import com.unihub.workshop.application.event.WorkshopOutboxTranslator;
 import com.unihub.workshop.application.port.in.UpdateWorkshopUseCase;
+import com.unihub.workshop.application.port.out.WorkshopCache;
 import com.unihub.workshop.application.port.out.WorkshopRepository;
 import com.unihub.workshop.application.result.WorkshopResult;
 import com.unihub.workshop.domain.event.WorkshopRescheduled;
@@ -23,16 +24,19 @@ class UpdateWorkshop implements UpdateWorkshopUseCase {
     private final WorkshopRepository workshops;
     private final EventPublisher eventPublisher;
     private final AuditTrail auditTrail;
+    private final WorkshopCache cache;
     private final Clock clock;
 
     UpdateWorkshop(
             WorkshopRepository workshops,
             EventPublisher eventPublisher,
             AuditTrail auditTrail,
+            WorkshopCache cache,
             Clock clock) {
         this.workshops = workshops;
         this.eventPublisher = eventPublisher;
         this.auditTrail = auditTrail;
+        this.cache = cache;
         this.clock = clock;
     }
 
@@ -65,6 +69,8 @@ class UpdateWorkshop implements UpdateWorkshopUseCase {
                 .flatMap(event -> WorkshopOutboxTranslator.translate(event).stream())
                 .forEach(eventPublisher::publish);
 
+        // Dropped after this transaction commits, never before (WorkshopCache.invalidate).
+        cache.invalidate(id);
         auditTrail.record(
                 AuditEntry.of(
                         command.actor(),

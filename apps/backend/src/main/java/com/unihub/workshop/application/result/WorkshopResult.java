@@ -1,5 +1,7 @@
 package com.unihub.workshop.application.result;
 
+import com.unihub.workshop.application.port.out.WorkshopDetailSnapshot;
+import com.unihub.workshop.application.port.out.WorkshopSeatsSnapshot;
 import com.unihub.workshop.domain.model.Workshop;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -50,5 +52,31 @@ public record WorkshopResult(
                 w.version().value(),
                 w.createdAt(),
                 w.updatedAt());
+    }
+
+    /**
+     * The two cached halves put back together. Where both carry a field (capacity), the 3s seats
+     * snapshot wins: it is the one invalidated by every seat or status change.
+     */
+    public static WorkshopResult from(WorkshopDetailSnapshot detail, WorkshopSeatsSnapshot seats) {
+        return new WorkshopResult(
+                detail.id(),
+                detail.title(),
+                detail.description(),
+                detail.aiSummary(),
+                detail.speakerName(),
+                detail.speakerBio(),
+                detail.location(),
+                detail.startTime(),
+                detail.endTime(),
+                seats.capacity(),
+                seats.seatsTaken(),
+                detail.paid(),
+                detail.price(),
+                detail.hasBrochure(),
+                seats.status(),
+                seats.version(),
+                detail.createdAt(),
+                seats.updatedAt());
     }
 }

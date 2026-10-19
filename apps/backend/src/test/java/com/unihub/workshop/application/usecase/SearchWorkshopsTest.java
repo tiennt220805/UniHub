@@ -23,7 +23,8 @@ import org.junit.jupiter.api.Test;
 class SearchWorkshopsTest {
 
     private final WorkshopCatalogQueries catalog = mock(WorkshopCatalogQueries.class);
-    private final SearchWorkshops useCase = new SearchWorkshops(catalog);
+    private final InMemoryWorkshopCache cache = new InMemoryWorkshopCache();
+    private final SearchWorkshops useCase = new SearchWorkshops(catalog, cache);
 
     @Test
     @DisplayName(
@@ -107,5 +108,84 @@ class SearchWorkshopsTest {
         useCase.search(raw);
 
         verify(catalog).search(normalised);
+    }
+
+    // ---------- cache-aside (workshop.md §2) ----------
+
+    private static WorkshopCatalogPage onePage() {
+        return new WorkshopCatalogPage(
+                List.of(
+                        new WorkshopCatalogEntry(
+                                UUID.randomUUID(),
+                                "Intro",
+                                "Room 101",
+                                Instant.parse("2026-01-01T00:00:00Z"),
+                                "PUBLISHED")),
+                0,
+                20,
+                1L,
+                1);
+    }
+
+    @Test
+    @DisplayName(
+            "the same query twice reads the catalog once; the second answer is the cached page")
+    void search_secondIdenticalQuery_isServedFromTheCache() {
+        var criteria = new SearchWorkshopsCriteria("kube", null, null, null, null, 0, 20);
+        when(catalog.search(criteria)).thenReturn(onePage());
+
+        var first = useCase.search(criteria);
+        var second = useCase.search(criteria);
+
+        verify(catalog, org.mockito.Mockito.times(1)).search(criteria);
+        assertThat(second).isEqualTo(first);
+    }
+
+    @Test
+    @DisplayName("queries that normalise to the same filters share one cache entry")
+    void search_blankAndAbsentFilters_shareAnEntry() {
+        var absent = new SearchWorkshopsCriteria(null, null, null, null, null, 0, 20);
+        var blank = new SearchWorkshopsCriteria("  ", "", null, null, null, 0, 20);
+        when(catalog.search(absent)).thenReturn(onePage());
+
+        useCase.search(absent);
+        useCase.search(blank);
+
+        verify(catalog, org.mockito.Mockito.times(1)).search(absent);
+    }
+
+    @Test
+    @DisplayName("a different page or filter is a different entry and reads the catalog")
+    void search_differentQuery_isAMiss() {
+        var pageZero = new SearchWorkshopsCriteria(null, null, null, null, null, 0, 20);
+        var pageOne = new SearchWorkshopsCriteria(null, null, null, null, null, 1, 20);
+        when(catalog.search(pageZero)).thenReturn(onePage());
+        when(catalog.search(pageOne)).thenReturn(onePage());
+
+        useCase.search(pageZero);
+        useCase.search(pageOne);
+
+        verify(catalog).search(pageZero);
+        verify(catalog).search(pageOne);
+    }
+
+    @Test
+    @DisplayName("a query rejected for its date range never reaches the cache or the catalog")
+    void search_invalidRange_touchesNeither() {
+        var criteria =
+                new SearchWorkshopsCriteria(
+                        null,
+                        null,
+                        null,
+                        Instant.parse("2026-02-01T00:00:00Z"),
+                        Instant.parse("2026-01-01T00:00:00Z"),
+                        0,
+                        20);
+
+        assertThatThrownBy(() -> useCase.search(criteria))
+                .isInstanceOf(InvalidWorkshopSearchException.class);
+
+        assertThat(cache.lists).isEmpty();
+        verifyNoInteractions(catalog);
     }
 }

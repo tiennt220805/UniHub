@@ -128,6 +128,11 @@ dependencies {
     // could not record (observability.md §4, unihub_audit_publish_failures_total). No registry and no
     // actuator yet; the counter attaches to the global registry when the observability stack lands.
     implementation("io.micrometer:micrometer-core")
+    // Redis client (distributed-coordination.md §1: Redisson, single-server mode). Pinned on the 3.x line that
+    // matches Boot 3.3 (4.x targets newer Boot/Netty). Plain `redisson`, not the Spring Boot starter: the
+    // client is configured from unihub.redis.* in RedisConfig, and created only when an address is set, so
+    // the app still boots with no Redis (contract-diff boots it without any dependency).
+    implementation("org.redisson:redisson:3.45.1")
     // Runtime JDBC driver for the application itself. The buildscript{} block above declares the same
     // artifact separately for the Flyway Gradle plugin's own classloader (see that block's comment) —
     // the two are independent dependency graphs, so this is not a duplicate.

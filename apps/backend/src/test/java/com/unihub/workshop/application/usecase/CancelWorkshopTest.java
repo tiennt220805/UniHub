@@ -50,9 +50,10 @@ class CancelWorkshopTest {
     private final WorkshopRepository workshops = mock(WorkshopRepository.class);
     private final EventPublisher eventPublisher = mock(EventPublisher.class);
     private final AuditTrail auditTrail = mock(AuditTrail.class);
+    private final InMemoryWorkshopCache cache = new InMemoryWorkshopCache();
     private final CancelWorkshop useCase =
             new CancelWorkshop(
-                    workshops, eventPublisher, auditTrail, Clock.fixed(NOW, ZoneOffset.UTC));
+                    workshops, eventPublisher, auditTrail, cache, Clock.fixed(NOW, ZoneOffset.UTC));
 
     static Stream<WorkshopBuilder> cancellable() {
         return Stream.of(aDraftWorkshop(), aPublishedWorkshop());
@@ -175,5 +176,32 @@ class CancelWorkshopTest {
         assertThat(recorded.getValue().targetType()).isEqualTo(AuditTargets.WORKSHOP);
         assertThat(recorded.getValue().targetId()).isEqualTo(workshop.id().value());
         assertThat(recorded.getValue().occurredAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    @DisplayName("a successful cancel drops the workshop's cached detail and seats")
+    void cancel_invalidatesTheCache() {
+        var workshop = aPublishedWorkshop().build();
+        when(workshops.findById(workshop.id())).thenReturn(Optional.of(workshop));
+        when(workshops.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        useCase.cancel(new CancelWorkshopCommand(ACTOR, workshop.id().value()));
+
+        assertThat(cache.invalidated).containsExactly(workshop.id().value());
+    }
+
+    @Test
+    @DisplayName("a rejected cancel leaves the cache alone")
+    void cancel_rejected_doesNotInvalidate() {
+        var workshop = aCancelledWorkshop().build();
+        when(workshops.findById(workshop.id())).thenReturn(Optional.of(workshop));
+
+        assertThatThrownBy(
+                        () ->
+                                useCase.cancel(
+                                        new CancelWorkshopCommand(ACTOR, workshop.id().value())))
+                .isInstanceOf(InvalidWorkshopStateException.class);
+
+        assertThat(cache.invalidated).isEmpty();
     }
 }

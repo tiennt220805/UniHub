@@ -9,6 +9,7 @@ import com.unihub.shared.domain.id.WorkshopId;
 import com.unihub.workshop.application.command.CancelWorkshopCommand;
 import com.unihub.workshop.application.event.WorkshopOutboxTranslator;
 import com.unihub.workshop.application.port.in.CancelWorkshopUseCase;
+import com.unihub.workshop.application.port.out.WorkshopCache;
 import com.unihub.workshop.application.port.out.WorkshopRepository;
 import com.unihub.workshop.application.result.WorkshopResult;
 import com.unihub.workshop.domain.exception.WorkshopNotFoundException;
@@ -21,16 +22,19 @@ class CancelWorkshop implements CancelWorkshopUseCase {
     private final WorkshopRepository workshops;
     private final EventPublisher eventPublisher;
     private final AuditTrail auditTrail;
+    private final WorkshopCache cache;
     private final Clock clock;
 
     CancelWorkshop(
             WorkshopRepository workshops,
             EventPublisher eventPublisher,
             AuditTrail auditTrail,
+            WorkshopCache cache,
             Clock clock) {
         this.workshops = workshops;
         this.eventPublisher = eventPublisher;
         this.auditTrail = auditTrail;
+        this.cache = cache;
         this.clock = clock;
     }
 
@@ -48,6 +52,8 @@ class CancelWorkshop implements CancelWorkshopUseCase {
         workshop.pullEvents().stream()
                 .flatMap(event -> WorkshopOutboxTranslator.translate(event).stream())
                 .forEach(eventPublisher::publish);
+        // Dropped after this transaction commits, never before (WorkshopCache.invalidate).
+        cache.invalidate(id);
         auditTrail.record(
                 AuditEntry.of(
                         command.actor(),

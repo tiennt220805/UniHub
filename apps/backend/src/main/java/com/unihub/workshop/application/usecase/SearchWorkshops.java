@@ -2,6 +2,7 @@ package com.unihub.workshop.application.usecase;
 
 import com.unihub.workshop.application.command.SearchWorkshopsCriteria;
 import com.unihub.workshop.application.port.in.SearchWorkshopsUseCase;
+import com.unihub.workshop.application.port.out.WorkshopCache;
 import com.unihub.workshop.application.port.out.WorkshopCatalogQueries;
 import com.unihub.workshop.application.result.SearchWorkshopsResult;
 import com.unihub.workshop.domain.exception.InvalidWorkshopSearchException;
@@ -11,9 +12,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 class SearchWorkshops implements SearchWorkshopsUseCase {
     private final WorkshopCatalogQueries catalog;
+    private final WorkshopCache cache;
 
-    SearchWorkshops(WorkshopCatalogQueries catalog) {
+    SearchWorkshops(WorkshopCatalogQueries catalog, WorkshopCache cache) {
         this.catalog = catalog;
+        this.cache = cache;
     }
 
     @Override
@@ -26,8 +29,15 @@ class SearchWorkshops implements SearchWorkshopsUseCase {
                 && criteria.dateFrom().isAfter(criteria.dateTo())) {
             throw new InvalidWorkshopSearchException("dateFrom must not be after dateTo");
         }
-        return SearchWorkshopsResult.of(
-                catalog.search(normalised(criteria))); // WorkshopCatalogQueries → Replica
+        var normalised = normalised(criteria);
+        // Cached 30s per normalised query and never invalidated by a write (workshop.md §2).
+        var cached = cache.findList(normalised);
+        if (cached.isPresent()) {
+            return SearchWorkshopsResult.of(cached.get());
+        }
+        var page = catalog.search(normalised); // WorkshopCatalogQueries → Replica
+        cache.putList(normalised, page);
+        return SearchWorkshopsResult.of(page);
     }
 
     private static SearchWorkshopsCriteria normalised(SearchWorkshopsCriteria c) {

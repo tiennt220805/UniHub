@@ -93,3 +93,10 @@ unihub:
   # How long a publish waits for the broker's confirm before the message counts as not delivered.
   messaging:
     confirm-timeout: PT5S
+  # Redis (distributed-coordination.md §1). The address and password come from the environment only
+  # (UNIHUB_REDIS_ADDRESS, UNIHUB_REDIS_PASSWORD) — never set here (M-13). With no address there is no Redis
+  # client at all: the workshop catalog is simply not cached and every read goes to the database. Timeouts
+  # are short on purpose: an unreachable Redis must cost a request milliseconds, not seconds.
+  redis:
+    connect-timeout: PT0.5S
+    command-timeout: PT0.5S
