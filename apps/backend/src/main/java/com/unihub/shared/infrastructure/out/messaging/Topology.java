@@ -1,0 +1,164 @@
+package com.unihub.shared.infrastructure.out.messaging;
+
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import org.springframework.amqp.core.Binding;
+import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.Declarable;
+import org.springframework.amqp.core.Declarables;
+import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.QueueBuilder;
+import org.springframework.amqp.core.TopicExchange;
+
+/**
+ * The RabbitMQ topology of messaging.md §2 and §4, as data: one durable topic exchange, the
+ * business queues and their bindings, a dedicated three-stage retry chain per consumed queue, and
+ * the single shared parking lot. Queue arguments cannot change once a queue exists, so a change
+ * here is a new queue, not an edit.
+ *
+ * <p>Retry stages are reached by an application-level republish through the default exchange (the
+ * routing key is the stage queue's own name). Each stage dead-letters back to its business queue
+ * through a fixed {@code x-dead-letter-routing-key} that is bound to that queue, so the key the
+ * message originally arrived with no longer matters.
+ */
+public final class Topology {
+
+    public static final String EXCHANGE = "unihub.events";
+    public static final String PARKING_LOT = "unihub.parking-lot";
+
+    /** The stage names are fixed by messaging.md §4; only a test ever changes the delays. */
+    public static final List<String> RETRY_STAGES = List.of("5s", "30s", "5m");
+
+    public static final List<Duration> RETRY_DELAYS =
+            List.of(Duration.ofSeconds(5), Duration.ofSeconds(30), Duration.ofMinutes(5));
+
+    /** Seat-hold window (docs/requirement.md §1.3.1): exactly 15 minutes. */
+    static final Duration HOLD_WINDOW = Duration.ofMinutes(15);
+
+    // Routing keys (messaging.md §2), copied verbatim.
+    public static final String TICKET_CONFIRMED = "unihub.registration.ticket.confirmed";
+    public static final String WORKSHOP_CANCELLED = "unihub.workshop.event.cancelled";
+    public static final String WORKSHOP_RESCHEDULED = "unihub.workshop.event.rescheduled";
+    public static final String CHARGE_SUCCEEDED = "unihub.payment.charge.succeeded";
+    public static final String CONFIRMATION_REJECTED = "unihub.registration.confirmation.rejected";
+    public static final String NOTIFICATION_REDELIVERY = "unihub.notification.redelivery.requested";
+    public static final String HOLD_RESERVED = "unihub.registration.hold.reserved";
+    public static final String HOLD_EXPIRED = "unihub.registration.hold.expired";
+    public static final String SUMMARIZATION_REQUESTED = "unihub.workshop.summarization.requested";
+    public static final String RECONCILIATION_REQUESTED = "unihub.payment.reconciliation.requested";
+    public static final String AUDIT_CREATED = "unihub.system.audit.created";
+
+    public static final String HOLD_DELAY_QUEUE = "unihub.registration.hold-delay.queue";
+
+    /**
+     * A queue with a consumer, and the fixed key its retry stages dead-letter back with. That key
+     * is one of the queue's own bindings, except for the notification queue, which has three real
+     * keys and needs one dedicated key for its chain (messaging.md §2, §4).
+     */
+    record ConsumedQueue(String name, List<String> bindingKeys, String retryDeadLetterKey) {}
+
+    static final List<ConsumedQueue> CONSUMED_QUEUES =
+            List.of(
+                    new ConsumedQueue(
+                            "unihub.notification.queue",
+                            List.of(
+                                    TICKET_CONFIRMED,
+                                    WORKSHOP_CANCELLED,
+                                    WORKSHOP_RESCHEDULED,
+                                    NOTIFICATION_REDELIVERY),
+                            NOTIFICATION_REDELIVERY),
+                    new ConsumedQueue(
+                            "unihub.payment-confirmation.queue",
+                            List.of(CHARGE_SUCCEEDED),
+                            CHARGE_SUCCEEDED),
+                    new ConsumedQueue(
+                            "unihub.payment-refund.queue",
+                            List.of(CONFIRMATION_REJECTED),
+                            CONFIRMATION_REJECTED),
+                    new ConsumedQueue(
+                            "unihub.seat-hold-expiry.queue", List.of(HOLD_EXPIRED), HOLD_EXPIRED),
+                    new ConsumedQueue(
+                            "unihub.summarization.queue",
+                            List.of(SUMMARIZATION_REQUESTED),
+                            SUMMARIZATION_REQUESTED),
+                    new ConsumedQueue(
+                            "unihub.reconciliation.queue",
+                            List.of(RECONCILIATION_REQUESTED),
+                            RECONCILIATION_REQUESTED),
+                    new ConsumedQueue("unihub.audit.queue", List.of(AUDIT_CREATED), AUDIT_CREATED));
+
+    private Topology() {}
+
+    /** {@code unihub.notification.queue} → {@code unihub.notification.retry.5s}, {@code .30s}, … */
+    public static List<String> retryStageQueues(String businessQueue) {
+        var base =
+                businessQueue.endsWith(".queue")
+                        ? businessQueue.substring(0, businessQueue.length() - ".queue".length())
+                        : businessQueue;
+        return RETRY_STAGES.stream().map(stage -> base + ".retry." + stage).toList();
+    }
+
+    /** Everything the broker must hold for the application to publish and consume. */
+    public static Declarables declarables() {
+        var all = new ArrayList<Declarable>();
+        var exchange = new TopicExchange(EXCHANGE, true, false);
+        all.add(exchange);
+        all.add(QueueBuilder.durable(PARKING_LOT).build());
+
+        for (var consumed : CONSUMED_QUEUES) {
+            var queue = QueueBuilder.durable(consumed.name()).build();
+            all.add(queue);
+            for (var key : consumed.bindingKeys()) {
+                all.add(BindingBuilder.bind(queue).to(exchange).with(key));
+            }
+            all.addAll(
+                    retryChain(consumed.name(), consumed.retryDeadLetterKey(), RETRY_DELAYS)
+                            .getDeclarables());
+        }
+
+        // Delay-only queue: no consumer; a message leaves it only by expiring, and is dead-lettered
+        // back to the exchange as hold.expired (registration.md §3).
+        var holdDelay =
+                QueueBuilder.durable(HOLD_DELAY_QUEUE)
+                        .ttl((int) HOLD_WINDOW.toMillis())
+                        .deadLetterExchange(EXCHANGE)
+                        .deadLetterRoutingKey(HOLD_EXPIRED)
+                        .build();
+        all.add(holdDelay);
+        all.add(BindingBuilder.bind(holdDelay).to(exchange).with(HOLD_RESERVED));
+        return new Declarables(all);
+    }
+
+    /**
+     * The retry stages of one business queue, in order. Each stage holds a message for its delay,
+     * then dead-letters it to {@code deadLetterKey} on the main exchange.
+     */
+    public static Declarables retryChain(
+            String businessQueue, String deadLetterKey, List<Duration> delays) {
+        var stages = retryStageQueues(businessQueue);
+        var declared = new ArrayList<Declarable>();
+        for (int i = 0; i < stages.size(); i++) {
+            Queue stage =
+                    QueueBuilder.durable(stages.get(i))
+                            .ttl((int) delays.get(i).toMillis())
+                            .deadLetterExchange(EXCHANGE)
+                            .deadLetterRoutingKey(deadLetterKey)
+                            .build();
+            declared.add(stage);
+        }
+        return new Declarables(declared);
+    }
+
+    static List<Binding> bindingsOf(Declarables declarables) {
+        return declarables.getDeclarablesByType(Binding.class);
+    }
+
+    static List<Queue> queuesOf(Declarables declarables) {
+        return declarables.getDeclarablesByType(Queue.class);
+    }
+
+    static List<TopicExchange> exchangesOf(Declarables declarables) {
+        return declarables.getDeclarablesByType(TopicExchange.class);
+    }
+}

@@ -367,7 +367,7 @@ Cross-cutting, not business data (§6.1) — no module "owns" these the way it o
 | `aggregate_id` | UUID | NOT NULL | The business row this event describes. No FK — the aggregate may belong to any of several tables; see the same polymorphic trade-off as §7.1. |
 | `event_type` | VARCHAR(100) | NOT NULL | e.g. `RegistrationConfirmed`, `WorkshopCancelled`. Diagnostic label only — the relay routes by `routing_key`, never by this column. |
 | `routing_key` | VARCHAR(100) | NOT NULL | The exact `messaging.md` §2 routing key to publish with, captured when the row is written. Stored rather than derived from `event_type` so the relay needs no type-to-key mapping of its own, and a row always publishes with the key its producer intended. |
-| `payload` | JSONB | NOT NULL | The message body to publish. Business content only — transport metadata (event id, correlation id) lives in its own columns, never inside the payload. |
+| `payload` | JSONB | NOT NULL | The message body to publish. Business content only — transport metadata (event id, correlation id) lives in its own columns, never inside the payload. The one exception is `schemaVersion`, a top-level field the outbox adds (see Retention below). |
 | `correlation_id` | VARCHAR(32) | NULL | The originating request's correlation id — the 32-hex-character OpenTelemetry trace id (`observability.md` §1). The relay publishes later, on another thread and outside that request's trace; without this column the correlation id would be lost at the outbox boundary. The relay restores it into the MDC before publishing so the shared `RabbitTemplate` post-processor writes it into the `correlationId` message header (`observability.md` §1). `NULL` only if a row is ever written outside any traced context. |
 | `status` | VARCHAR(20) | NOT NULL, DEFAULT `'PENDING'`, CHECK IN (`PENDING`, `PUBLISHED`) | |
 | `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | The relay's poll order. |
@@ -377,7 +377,9 @@ Cross-cutting, not business data (§6.1) — no module "owns" these the way it o
 
 **Trade-off — `correlation_id` links logs, not traces:** a consumer's processing belongs to a new trace, joined to the originating request only through the `correlationId` header and MDC key. Grepping logs by correlation id shows the whole causal chain; Grafana Tempo shows two traces rather than one. Storing the full W3C `traceparent` instead would let the relay continue the original trace, and is an additive column if that ever becomes a real need.
 
-**Retention:** short-lived — discarded after confirmed publish, by the same `distributed-coordination.md` §2 sweep pattern (§6.1, §6.3).
+**Retention:** short-lived — `PUBLISHED` rows are deleted **1 hour** after `published_at` (decided 2026-10-19: long enough to investigate a recent publish incident, short enough that the table stays small), swept every minute by the same `distributed-coordination.md` §2 pattern (§6.1, §6.3); both configurable under `unihub.jobs.event-publication-cleanup.*`. A `PENDING` row is never deleted. The sweep has no index on `published_at`; add a partial one (`WHERE status = 'PUBLISHED'`) if the table ever holds enough rows for the sweep to show up.
+
+**`schemaVersion`:** carried as a top-level field of `payload`, written by the outbox (`backend-coding-standards.md` §8.2); there is no column for it.
 
 ### 8.3 `audit_events`
 

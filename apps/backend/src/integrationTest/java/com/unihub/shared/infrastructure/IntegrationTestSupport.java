@@ -48,5 +48,31 @@ public abstract class IntegrationTestSupport {
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .load()
                 .migrate();
+
+        // Every Spring context in this JVM talks to this broker. System properties (not a per-class
+        // @DynamicPropertySource) so a context that only happens to publish — the outbox relay runs
+        // in
+        // every full context — never falls back to localhost:5672. A test's own
+        // @DynamicPropertySource
+        // still overrides them.
+        System.setProperty("spring.rabbitmq.host", RABBITMQ.getHost());
+        System.setProperty("spring.rabbitmq.port", String.valueOf(RABBITMQ.getAmqpPort()));
+        System.setProperty("spring.rabbitmq.username", RABBITMQ.getAdminUsername());
+        System.setProperty("spring.rabbitmq.password", RABBITMQ.getAdminPassword());
+
+        // Spring caches one context per distinct test configuration, and each keeps a Master pool
+        // open
+        // for the rest of the run. At Hikari's default of 10 connections a dozen cached contexts
+        // exhaust the container's 100 connection slots ("too many clients"). Five is enough for the
+        // concurrent-transaction tests, which hold at most three.
+        System.setProperty("spring.datasource.hikari.maximum-pool-size", "5");
+        System.setProperty("spring.datasource.hikari.minimum-idle", "1");
+
+        // The outbox relay would publish rows other tests commit, while they are still asserting on
+        // them. Contexts do not start it; a test that exercises it enables it for its own context
+        // or
+        // calls the use case directly.
+        System.setProperty("unihub.jobs.outbox-relay.enabled", "false");
+        System.setProperty("unihub.jobs.event-publication-cleanup.enabled", "false");
     }
 }

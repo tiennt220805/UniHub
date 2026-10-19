@@ -119,6 +119,11 @@ dependencies {
     // simple read/insert adapters; chosen over spring-boot-starter-data-jpa (not otherwise needed yet,
     // and architecture.md §6.2 / INV-15 keep schema generation out of the ORM's hands regardless).
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
+    // Spring AMQP: the RabbitTemplate the outbox relay publishes through and the @RabbitListener
+    // infrastructure for module consumers (messaging.md §1, backend-coding-standards.md §8). Nothing
+    // connects to the broker until the first publish or a declared listener, so the app still boots
+    // with no broker (contract-diff boots it without any dependency).
+    implementation("org.springframework.boot:spring-boot-starter-amqp")
     // Runtime JDBC driver for the application itself. The buildscript{} block above declares the same
     // artifact separately for the Flyway Gradle plugin's own classloader (see that block's comment) —
     // the two are independent dependency graphs, so this is not a duplicate.

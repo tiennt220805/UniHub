@@ -23,6 +23,28 @@ spring:
         boot:
           allow_jdbc_metadata_access: false
 
+  # The scheduler's default pool is one thread, shared by every job. The outbox relay can wait up to the
+  # confirm timeout per message, so a single thread would let one slow cycle stall the nightly sync and
+  # both cleanup sweeps. Four covers the four jobs; each is already serialized by its own job lock.
+  task:
+    scheduling:
+      pool:
+        size: 4
+
+  # RabbitMQ (messaging.md §1, backend-coding-standards.md §8.6). Host, port and credentials come from the
+  # environment only (SPRING_RABBITMQ_*) — never set here (M-13). Confirms are what lets the outbox relay mark a
+  # row PUBLISHED; returns plus mandatory make an unroutable message a failure instead of a silent discard.
+  # default-requeue-rejected=false: business queues have no dead-letter exchange, so a failed message is
+  # republished to its retry chain by the shared recoverer (never by a broker reject).
+  rabbitmq:
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        default-requeue-rejected: false
+
 # packages/api-contract is OpenAPI 3.1; springdoc 2.6.0 defaults to 3.0.x. Pinned so the spec
 # `generateOpenApiDocs` produces (contract-testing.md §2) is the same dialect as the hand-written one —
 # otherwise `openAPI: 3.1.0 vs 3.0.1` alone fails contract-diff.
@@ -56,3 +78,18 @@ unihub:
       enabled: true
       interval: PT1M
       retention: PT30M
+    # Outbox relay (messaging.md §5). On by default: without it no event leaves event_publications.
+    # One cycle per interval (fixedDelay, so cycles never overlap), at most batch-size rows each.
+    outbox-relay:
+      enabled: true
+      interval: PT1S
+      batch-size: 200
+    # Published-row sweep (distributed-coordination.md §2, database-schema.md §8.2). retention is measured
+    # from published_at (decided 2026-10-16); only PUBLISHED rows are ever deleted.
+    event-publication-cleanup:
+      enabled: true
+      interval: PT1M
+      retention: PT1H
+  # How long a publish waits for the broker's confirm before the message counts as not delivered.
+  messaging:
+    confirm-timeout: PT5S

@@ -353,6 +353,7 @@ public record RegistrationConfirmedIntegrationEvent(
 |---|---|---|
 | `eventId` | `OutboxEventPublisher`, at insert | `event_publications.id`, then the AMQP `message-id` property |
 | Correlation ID | `OutboxEventPublisher`, read from the MDC key `correlationId` (`observability.md` §1: the trace ID *is* the correlation ID) | `event_publications.correlation_id` (`database-schema.md` §8.2). At publish time the relay puts the stored value back into the MDC, so the global `RabbitTemplate` post-processor (`observability.md` §1) writes it into the `correlationId` message header, then clears the MDC in `finally` |
+| `schemaVersion` | `OutboxMessage.schemaVersion()` | A top-level field **inside** `event_publications.payload`: the table has no column for it and a consumer needs it in the body to reject a version it does not know (§8.6). The only metadata that lives in the payload (decided 2026-10-19, Phase 2 checklist 1.3) |
 | `event_type` | Simple class name of the record | `event_publications.event_type` (diagnostic label only) |
 | Routing key | `OutboxMessage.routingKey()` | `event_publications.routing_key` — the relay publishes with this stored value and never derives it |
 
@@ -364,9 +365,11 @@ Routing keys are always copied verbatim from `messaging.md` §2 and never invent
 |---|---|---|
 | `EventPublisher` (port) | `shared.application.port.out` | `void publish(OutboxMessage message)` — called by use cases inside their transaction |
 | `OutboxEventPublisher` | `shared.infrastructure.out.persistence` | Inserts one `event_publications` row in the caller's transaction. Never touches RabbitMQ. |
-| `RelayPendingEvents` (use case) | `shared.application.usecase` | Reads `PENDING` rows, publishes them through `MessageBroker`, marks them `PUBLISHED` after a publisher confirm |
-| `MessageBroker` (port) / `RabbitMessageBroker` | `shared.application.port.out` / `shared.infrastructure.out.messaging` | The only class that calls `RabbitTemplate` for outbox traffic |
-| `EventRelayScheduler` | `shared.infrastructure.in.scheduling` | `@Scheduled(fixedDelay)` trigger: takes the `unihub:lock:job:outbox-relay` job lock (skip the cycle if not acquired), then calls `RelayPendingEvents` |
+| `RelayPendingEventsUseCase` (port-in) / `RelayPendingEvents` (use case) | `shared.application.port.in` / `shared.application.usecase` | Reads `PENDING` rows through `PendingEventStore`, publishes each through `MessageBroker`, marks it `PUBLISHED` after the publisher confirm. **Not `@Transactional`**: every store call is its own autocommit statement. A `BrokerPublishException` leaves that row `PENDING` and the cycle goes on; a `BrokerUnavailableException` ends the cycle |
+| `PendingEventStore` (port) / `JdbcPendingEventStore` | `shared.application.port.out` / `shared.infrastructure.out.persistence` | `findPending(limit)` and `markPublished(id)`. No transaction annotation on purpose: with none open, the routing datasource sends the statement to the Master (a Replica read could return a row already marked `PUBLISHED`) |
+| `MessageBroker` (port) / `RabbitMessageBroker` | `shared.application.port.out` / `shared.infrastructure.out.messaging` | The only class that calls `RabbitTemplate` for outbox traffic. Publishes the stored JSON as raw bytes (never through the JSON converter, which would encode it twice) and returns only after the confirm **and** a check that the message was not returned as unroutable |
+| `EventRelayScheduler` | `shared.infrastructure.in.scheduling` | `@Scheduled(fixedDelay)` trigger: takes the `unihub:lock:job:outbox-relay` job lock (skip the cycle if not acquired), then calls `RelayPendingEventsUseCase`. On by default (`unihub.jobs.outbox-relay.*`) |
+| `PurgeEventPublicationsUseCase` / `PurgeEventPublications` / `EventPublicationCleanupScheduler` | `shared.application.port.in` / `.usecase` / `shared.infrastructure.in.scheduling` | Deletes `PUBLISHED` rows older than the retention (1 hour from `published_at`, `unihub.jobs.event-publication-cleanup.*`) under `unihub:lock:job:event-publication-cleanup`. Never deletes a `PENDING` row |
 
 **Relay mechanism — decided in `messaging.md` §5:** one instance per cycle behind the scheduled-job lock; it reads a batch of `PENDING` rows from the Master **without row locks and without an open transaction**; for each row it restores `correlation_id` into the MDC, publishes with `message-id = id` and `mandatory = true`, waits for the publisher confirm, and marks the row `PUBLISHED` in its own autocommit update. A row that fails is left `PENDING` and skipped, so it never blocks the rows behind it. Code must not deviate from this shape: in particular, a `SELECT … FOR UPDATE SKIP LOCKED` held across the publish is **forbidden** (§19.1). The multi-instance claim-with-lease variant is the documented upgrade path, not an alternative to pick ad hoc.
 
@@ -419,7 +422,10 @@ The shared `Jackson2JsonMessageConverter` is configured to infer the target type
 
 `messaging.md` §4 is authoritative. Business queues have **no dead-letter exchange**; retries and the parking-lot are reached only through an **application-level republish** by the shared error handler. Consequences for code:
 
-- A listener never catches and swallows an exception. It lets it propagate to the shared error handler (`shared.infrastructure.in.messaging`), which republishes to the correct retry stage using the `x-death` count, or to `unihub.parking-lot` once retries are exhausted.
+- A listener never catches and swallows an exception. It lets it propagate to the shared error handler, `RetryChainRecoverer` (`shared.infrastructure.out.messaging`: it publishes, so it is a driven adapter and the ArchUnit rule for `infrastructure.in` forbids it there). It is wired into every listener container once, by `ListenerContainerConfig`, as the recoverer of a stateless retry interceptor with `maxAttempts(1)`: no in-process retry, the first failure goes to the recoverer. It republishes to the next retry stage using the `x-death` counts — **summed over the three stage queues of this queue's own chain**, because each stage is a different queue and so a different `x-death` entry — or to `unihub.parking-lot` once the three retries are used. The republish waits for a publisher confirm; if it cannot be confirmed the original is **requeued** (`ImmediateRequeueAmqpException`), never rejected, so a failure of the error handler cannot lose the message.
+- Permanent failures: besides `NonRetryableMessageException`, a payload that cannot be converted (`MessageConversionException`) goes straight to the parking lot without reaching the listener.
+- The first failure records `x-original-routing-key`, `x-original-exchange` and `x-original-queue` on the message and every hop carries them, because after a retry hop the received routing key is the stage's fixed dead-letter key. The parking-lot message adds `x-exception-message` and `x-exception-class`.
+- `CorrelationIdListenerAdvice` (`shared.infrastructure.in.messaging`), also wired once by `ListenerContainerConfig`, restores the `correlationId` header into the MDC for one delivery, clears it in `finally`, and logs every delivery (event id, routing key, queue, correlation id) at `INFO` (§23).
 - A permanent failure (unparseable payload, unsupported `schemaVersion`) is signalled by throwing `shared.messaging.NonRetryableMessageException`. The error handler sends it **straight to `unihub.parking-lot`**, with the original routing key and the exception message as headers.
 - `AmqpRejectAndDontRequeueException` is **banned** in this codebase: on a queue without a dead-letter exchange it silently drops the message.
 - `spring.rabbitmq.listener.simple.default-requeue-rejected=false`.
@@ -589,12 +595,12 @@ Action names follow the `audit_events.action` examples (`WORKSHOP_CANCELLED`, `R
 | `shared.security` | `Permissions`, `Actor` |
 | `shared.event` | `OutboxMessage` |
 | `shared.messaging` | `NonRetryableMessageException` |
-| `shared.application.port.out` | `EventPublisher`, `MessageBroker`, `AuditTrail` (+ `AuditEntry`, `AuditActions`, `AuditTargets`), `IdempotencyStore` (+ `IdempotencyRecord`, `StoredResult`, `IdempotencyScope`, `IdempotencyKeyInUseException`, `IdempotencyKeyReusedException`), `IdempotencyKeyCleanup` |
+| `shared.application.port.out` | `EventPublisher`, `MessageBroker`, `AuditTrail` (+ `AuditEntry`, `AuditActions`, `AuditTargets`), `IdempotencyStore` (+ `IdempotencyRecord`, `StoredResult`, `IdempotencyScope`, `IdempotencyKeyInUseException`, `IdempotencyKeyReusedException`), `IdempotencyKeyCleanup`, `PendingEvent` + `PendingEventStore`, `BrokerPublishException`, `BrokerUnavailableException`, `EventPublicationCleanup` |
 | `shared.application.routing` | `@ReadFromPrimary` (§20) |
-| `shared.application.port.in` | `PurgeIdempotencyKeysUseCase` |
-| `shared.application.usecase` | `RelayPendingEvents`, `PurgeIdempotencyKeys` |
+| `shared.application.port.in` | `PurgeIdempotencyKeysUseCase`, `RelayPendingEventsUseCase`, `PurgeEventPublicationsUseCase` |
+| `shared.application.usecase` | `RelayPendingEvents`, `PurgeIdempotencyKeys`, `PurgeEventPublications` |
 | `shared.web` | `GlobalProblemHandler` (§17), `Problems` (builds a `ProblemDetail` response for a Result variant), `CurrentActor`, `RequestFingerprint` (§21 rule 4), `CorrelationIds`, correlation-ID filter |
-| `shared.infrastructure..` | `OutboxEventPublisher`, `JdbcIdempotencyStore`, `JdbcIdempotencyKeyCleanup`, `IdempotencyCleanupScheduler`, `RabbitMessageBroker`, `RabbitAuditTrail`, the listener error handler, `EventRelayScheduler`, datasource routing, the `Clock` bean |
+| `shared.infrastructure..` | `OutboxEventPublisher`, `JdbcPendingEventStore`, `JdbcEventPublicationCleanup`, `JdbcIdempotencyStore`, `JdbcIdempotencyKeyCleanup`, `IdempotencyCleanupScheduler`, `EventRelayScheduler`, `EventPublicationCleanupScheduler`, `RabbitMessageBroker`, `ConfirmedSender`, `Topology` (the whole of `messaging.md` §2/§4 as data), `RetryChainRecoverer` (the listener error handler), `CorrelationIdPostProcessor`, `CorrelationIdListenerAdvice`, `RabbitMessagingConfig`, `ListenerContainerConfig`, `RabbitAuditTrail` (Phase 6), datasource routing, the `Clock` bean |
 
 Event Publication, Idempotency Key and Audit Event are *Technical Pattern Entities* (`architecture.md` §6.1). They belong to `shared`, not to any business module.
 
