@@ -124,6 +124,10 @@ dependencies {
     // connects to the broker until the first publish or a declared listener, so the app still boots
     // with no broker (contract-diff boots it without any dependency).
     implementation("org.springframework.boot:spring-boot-starter-amqp")
+    // Micrometer's API only (version from the Boot BOM): LoggingAuditTrail counts the audit entries it
+    // could not record (observability.md §4, unihub_audit_publish_failures_total). No registry and no
+    // actuator yet; the counter attaches to the global registry when the observability stack lands.
+    implementation("io.micrometer:micrometer-core")
     // Runtime JDBC driver for the application itself. The buildscript{} block above declares the same
     // artifact separately for the Flyway Gradle plugin's own classloader (see that block's comment) —
     // the two are independent dependency graphs, so this is not a duplicate.

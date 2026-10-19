@@ -8,6 +8,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.unihub.shared.application.port.out.AuditActions;
+import com.unihub.shared.application.port.out.AuditEntry;
+import com.unihub.shared.application.port.out.AuditTargets;
+import com.unihub.shared.application.port.out.AuditTrail;
 import com.unihub.shared.domain.id.UserId;
 import com.unihub.shared.security.Actor;
 import com.unihub.workshop.application.command.CreateWorkshopCommand;
@@ -16,7 +20,9 @@ import com.unihub.workshop.domain.exception.InvalidWorkshopException;
 import com.unihub.workshop.domain.model.Workshop;
 import com.unihub.workshop.domain.model.WorkshopStatus;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,7 +35,9 @@ class CreateWorkshopTest {
     private static final Instant START = Instant.parse("2026-12-01T09:00:00Z");
 
     private final WorkshopRepository workshops = mock(WorkshopRepository.class);
-    private final CreateWorkshop useCase = new CreateWorkshop(workshops);
+    private final AuditTrail auditTrail = mock(AuditTrail.class);
+    private final CreateWorkshop useCase =
+            new CreateWorkshop(workshops, auditTrail, Clock.fixed(START, ZoneOffset.UTC));
 
     private CreateWorkshopCommand command(
             Instant start, Instant end, boolean paid, BigDecimal price) {
@@ -88,5 +96,22 @@ class CreateWorkshopTest {
                 .isInstanceOf(InvalidWorkshopException.class);
 
         verify(workshops, never()).save(any());
+        verify(auditTrail, never()).record(any());
+    }
+
+    @Test
+    @DisplayName("creating is audited as WORKSHOP_CREATED, targeting the new workshop")
+    void create_isAudited() {
+        when(workshops.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        var result = useCase.create(command(START, START.plusSeconds(3600), false, null));
+
+        var recorded = ArgumentCaptor.forClass(AuditEntry.class);
+        verify(auditTrail).record(recorded.capture());
+        assertThat(recorded.getValue().actor()).isEqualTo(ACTOR);
+        assertThat(recorded.getValue().action()).isEqualTo(AuditActions.WORKSHOP_CREATED);
+        assertThat(recorded.getValue().targetType()).isEqualTo(AuditTargets.WORKSHOP);
+        assertThat(recorded.getValue().targetId()).isEqualTo(result.id());
+        assertThat(recorded.getValue().occurredAt()).isEqualTo(START);
     }
 }

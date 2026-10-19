@@ -336,16 +336,18 @@ public interface OutboxMessage {
 ```java
 // registration/api/event/RegistrationConfirmedIntegrationEvent.java
 public record RegistrationConfirmedIntegrationEvent(
-        RegistrationId registrationId, WorkshopId workshopId, UserId userId, Instant occurredAt)
+        UUID registrationId, UUID workshopId, UUID userId, Instant occurredAt)
         implements OutboxMessage {
     public static final String ROUTING_KEY = "unihub.registration.ticket.confirmed"; // messaging.md §2
     public static final int SCHEMA_VERSION = 1;
     @Override public String routingKey()    { return ROUTING_KEY; }
     @Override public String aggregateType() { return "REGISTRATION"; }
-    @Override public UUID aggregateId()     { return registrationId.value(); }
+    @Override public UUID aggregateId()     { return registrationId; }
     @Override public int schemaVersion()    { return SCHEMA_VERSION; }
 }
 ```
+
+Integration events carry plain `UUID`s, not the id value objects (`RegistrationId`, `WorkshopId`): a value object serializes as `{"value": "…"}`, which would make every consumer parse a nested object. `shared.domain` is plain Java and cannot carry Jackson annotations, so the flat form is chosen at the contract (decided 2026-10-19, first events: `WorkshopCancelledIntegrationEvent`, `WorkshopRescheduledIntegrationEvent`). The translator unwraps with `.value()`.
 
 **Transport metadata is not part of the business payload:**
 
@@ -579,6 +581,8 @@ The Phase 6 adapter (`shared.infrastructure.out.messaging.RabbitAuditTrail`) mus
 3. Catch every exception, log at `WARN`, and increment a failure counter so the gap surfaces as an alert (fail-open but not silent, `architecture.md` §5.5).
 4. Map the actor exactly as `audit_events` stores it (`database-schema.md` §8.3): `UserActor` → `actor_type = 'USER'`, `actor_user_id = userId`; `SystemActor` → `actor_type = 'SYSTEM'`, `actor_user_id = NULL`, and `process` written to `metadata.process`.
 
+**As built (Phase 2 checklist 1.4, 2026-10-19):** `AuditTrail`, `AuditEntry`, `AuditActions` and `AuditTargets` are in `shared.application.port.out`; the adapter is `shared.infrastructure.out.audit.LoggingAuditTrail`. It writes one JSON line per entry (`actorType`, `actorUserId` for a user, `action`, `targetType`, `targetId`, `occurredAt`, `metadata` — with `process` for a `SYSTEM` actor) on the logger `unihub.audit`. `logback-spring.xml` routes that logger, and only it, through an `AsyncAppender` with `neverBlock=true`, so a slow sink never slows the business operation; a full queue drops the line, and **dropped lines are not counted** — a known gap closed in Phase 6. An entry that cannot be formatted or written increments the Micrometer counter `unihub.audit.publish.failures` (`unihub_audit_publish_failures_total`, `observability.md` §4) on the global registry, a no-op until a registry exists. `AuditActions`/`AuditTargets` hold only the values some use case records; each new use case adds its own.
+
 **Phase 2 scope (checklist D6, Q10; C32):** the **port** is built in Phase 2 and every write use case calls it from then on — workshop create/update/cancel/reschedule/publish, registration create/confirm, payment charge and every payment transition, and the refund (Phase 3). The Phase 2 adapter is **`LoggingAuditTrail`**: the same after-commit, never-throw, failure-counter rules as below, but it writes one structured log line through a dedicated logger with a non-blocking asynchronous appender instead of publishing. It does **not** publish to the broker: a queue without a consumer grows without bound, and a RabbitMQ memory alarm blocks every publisher — the outbox relay and registration confirmation included. `RabbitAuditTrail` (below) and the consumer that persists `audit_events` are built together in Phase 6 (M-54); swapping the adapter changes no use case.
 
 Action names follow the `audit_events.action` examples (`WORKSHOP_CANCELLED`, `ROLE_PERMISSIONS_CHANGED`) and live as constants in `shared.application.port.out.AuditActions`. Operations no person performs — a hold expiring, the reconciliation sweep resolving a payment — are audited with `Actor.system("<job-name>")`. They are never attributed to a real user (for example the student whose hold expired): that would make the audit trail false.
@@ -600,7 +604,7 @@ Action names follow the `audit_events.action` examples (`WORKSHOP_CANCELLED`, `R
 | `shared.application.port.in` | `PurgeIdempotencyKeysUseCase`, `RelayPendingEventsUseCase`, `PurgeEventPublicationsUseCase` |
 | `shared.application.usecase` | `RelayPendingEvents`, `PurgeIdempotencyKeys`, `PurgeEventPublications` |
 | `shared.web` | `GlobalProblemHandler` (§17), `Problems` (builds a `ProblemDetail` response for a Result variant), `CurrentActor`, `RequestFingerprint` (§21 rule 4), `CorrelationIds`, correlation-ID filter |
-| `shared.infrastructure..` | `OutboxEventPublisher`, `JdbcPendingEventStore`, `JdbcEventPublicationCleanup`, `JdbcIdempotencyStore`, `JdbcIdempotencyKeyCleanup`, `IdempotencyCleanupScheduler`, `EventRelayScheduler`, `EventPublicationCleanupScheduler`, `RabbitMessageBroker`, `ConfirmedSender`, `Topology` (the whole of `messaging.md` §2/§4 as data), `RetryChainRecoverer` (the listener error handler), `CorrelationIdPostProcessor`, `CorrelationIdListenerAdvice`, `RabbitMessagingConfig`, `ListenerContainerConfig`, `RabbitAuditTrail` (Phase 6), datasource routing, the `Clock` bean |
+| `shared.infrastructure..` | `LoggingAuditTrail`, `OutboxEventPublisher`, `JdbcPendingEventStore`, `JdbcEventPublicationCleanup`, `JdbcIdempotencyStore`, `JdbcIdempotencyKeyCleanup`, `IdempotencyCleanupScheduler`, `EventRelayScheduler`, `EventPublicationCleanupScheduler`, `RabbitMessageBroker`, `ConfirmedSender`, `Topology` (the whole of `messaging.md` §2/§4 as data), `RetryChainRecoverer` (the listener error handler), `CorrelationIdPostProcessor`, `CorrelationIdListenerAdvice`, `RabbitMessagingConfig`, `ListenerContainerConfig`, `RabbitAuditTrail` (Phase 6), datasource routing, the `Clock` bean |
 
 Event Publication, Idempotency Key and Audit Event are *Technical Pattern Entities* (`architecture.md` §6.1). They belong to `shared`, not to any business module.
 

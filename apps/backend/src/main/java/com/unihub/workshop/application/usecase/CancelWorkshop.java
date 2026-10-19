@@ -1,7 +1,13 @@
 package com.unihub.workshop.application.usecase;
 
+import com.unihub.shared.application.port.out.AuditActions;
+import com.unihub.shared.application.port.out.AuditEntry;
+import com.unihub.shared.application.port.out.AuditTargets;
+import com.unihub.shared.application.port.out.AuditTrail;
+import com.unihub.shared.application.port.out.EventPublisher;
 import com.unihub.shared.domain.id.WorkshopId;
 import com.unihub.workshop.application.command.CancelWorkshopCommand;
+import com.unihub.workshop.application.event.WorkshopOutboxTranslator;
 import com.unihub.workshop.application.port.in.CancelWorkshopUseCase;
 import com.unihub.workshop.application.port.out.WorkshopRepository;
 import com.unihub.workshop.application.result.WorkshopResult;
@@ -13,10 +19,18 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 class CancelWorkshop implements CancelWorkshopUseCase {
     private final WorkshopRepository workshops;
+    private final EventPublisher eventPublisher;
+    private final AuditTrail auditTrail;
     private final Clock clock;
 
-    CancelWorkshop(WorkshopRepository workshops, Clock clock) {
+    CancelWorkshop(
+            WorkshopRepository workshops,
+            EventPublisher eventPublisher,
+            AuditTrail auditTrail,
+            Clock clock) {
         this.workshops = workshops;
+        this.eventPublisher = eventPublisher;
+        this.auditTrail = auditTrail;
         this.clock = clock;
     }
 
@@ -25,7 +39,22 @@ class CancelWorkshop implements CancelWorkshopUseCase {
     public WorkshopResult cancel(CancelWorkshopCommand command) {
         var id = WorkshopId.of(command.workshopId());
         var workshop = workshops.findById(id).orElseThrow(() -> new WorkshopNotFoundException(id));
-        workshop.cancel(clock.instant());
-        return WorkshopResult.from(workshops.save(workshop));
+        var now = clock.instant();
+        workshop.cancel(now);
+        var saved = workshops.save(workshop);
+
+        // Same transaction as the status change: the event exists exactly when the cancellation
+        // does.
+        workshop.pullEvents().stream()
+                .flatMap(event -> WorkshopOutboxTranslator.translate(event).stream())
+                .forEach(eventPublisher::publish);
+        auditTrail.record(
+                AuditEntry.of(
+                        command.actor(),
+                        AuditActions.WORKSHOP_CANCELLED,
+                        AuditTargets.WORKSHOP,
+                        id.value(),
+                        now));
+        return WorkshopResult.from(saved);
     }
 }
