@@ -29,6 +29,16 @@ public interface IdempotencyStore {
     Optional<IdempotencyRecord> find(IdempotencyScope scope, UserId actor, String key);
 
     /**
+     * Rebuilds the Result a {@link StoredResult} was serialized from: the variant of {@code
+     * resultType} (a sealed interface) whose simple name is {@code stored.type()}. The adapter that
+     * serialized it decodes it, so the two cannot drift, and {@code application} never touches a
+     * JSON library.
+     *
+     * @throws IllegalStateException when no permitted variant has that name
+     */
+    <R> R decode(StoredResult stored, Class<R> resultType);
+
+    /**
      * Inserts the key as {@code IN_PROGRESS}. A concurrent insert of the same key blocks until the
      * other transaction ends; if that one commits, this throws {@link
      * IdempotencyKeyInUseException}.

@@ -3,6 +3,9 @@ package com.unihub.shared.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.unihub.registration.domain.exception.AlreadyRegisteredException;
+import com.unihub.shared.application.port.out.IdempotencyKeyInUseException;
+import com.unihub.shared.application.port.out.IdempotencyKeyReusedException;
+import com.unihub.shared.application.port.out.IdempotencyScope;
 import com.unihub.shared.domain.id.UserId;
 import com.unihub.shared.domain.id.WorkshopId;
 import org.junit.jupiter.api.DisplayName;
@@ -19,6 +22,22 @@ class ProblemTypesTest {
                 .hasToString("urn:unihub:problem:already-registered");
         assertThat(ProblemTypes.REGISTRATION_NOT_OPEN)
                 .hasToString("urn:unihub:problem:registration-not-open");
+        assertThat(ProblemTypes.IDEMPOTENCY_KEY_IN_USE)
+                .hasToString("urn:unihub:problem:idempotency-key-in-use");
+        assertThat(ProblemTypes.IDEMPOTENCY_KEY_REUSED)
+                .hasToString("urn:unihub:problem:idempotency-key-reused");
+    }
+
+    @Test
+    @DisplayName("the idempotency exceptions carry the same types as the constants, 409 and 422")
+    void idempotencyExceptions_carryTheirTypes() {
+        var inUse = new IdempotencyKeyInUseException(IdempotencyScope.REGISTRATION_CREATE);
+        var reused = new IdempotencyKeyReusedException(IdempotencyScope.REGISTRATION_CREATE);
+
+        assertThat(inUse.problemType()).isEqualTo(ProblemTypes.IDEMPOTENCY_KEY_IN_USE.toString());
+        assertThat(reused.problemType()).isEqualTo(ProblemTypes.IDEMPOTENCY_KEY_REUSED.toString());
+        assertThat(inUse.kind()).isEqualTo(com.unihub.shared.domain.ProblemKind.CONFLICT);
+        assertThat(reused.kind()).isEqualTo(com.unihub.shared.domain.ProblemKind.UNPROCESSABLE);
     }
 
     @Test

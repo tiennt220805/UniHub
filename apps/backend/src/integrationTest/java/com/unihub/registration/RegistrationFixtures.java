@@ -47,6 +47,23 @@ public final class RegistrationFixtures {
                 "SELECT version FROM workshops WHERE id = ?", Long.class, id.value());
     }
 
+    public int idempotencyKeys(UserId user) {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM idempotency_keys WHERE actor_user_id = ?",
+                Integer.class,
+                user.value());
+    }
+
+    /** {@code result_type} of the user's only key, or null when it has none. */
+    public String recordedResultType(UserId user) {
+        var types =
+                jdbc.queryForList(
+                        "SELECT result_type FROM idempotency_keys WHERE actor_user_id = ?",
+                        String.class,
+                        user.value());
+        return types.isEmpty() ? null : types.get(0);
+    }
+
     public int registrationRows(WorkshopId id) {
         return jdbc.queryForObject(
                 "SELECT count(*) FROM registrations WHERE workshop_id = ?",
@@ -57,6 +74,7 @@ public final class RegistrationFixtures {
     public void cleanUp() {
         users.forEach(
                 user -> {
+                    jdbc.update("DELETE FROM idempotency_keys WHERE actor_user_id = ?", user);
                     jdbc.update(
                             "DELETE FROM payments WHERE registration_id IN "
                                     + "(SELECT id FROM registrations WHERE user_id = ?)",

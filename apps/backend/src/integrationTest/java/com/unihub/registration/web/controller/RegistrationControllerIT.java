@@ -76,10 +76,14 @@ class RegistrationControllerIT extends IntegrationTestSupport {
     }
 
     private ResponseEntity<String> register(UserId student, WorkshopId workshop) {
+        return register(student, workshop, UUID.randomUUID());
+    }
+
+    private ResponseEntity<String> register(UserId student, WorkshopId workshop, UUID key) {
         var headers = new HttpHeaders();
         headers.setBearerAuth(TestJwts.valid(student.value(), "REGISTRATION_CREATE"));
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.add("Idempotency-Key", UUID.randomUUID().toString());
+        headers.add("Idempotency-Key", key.toString());
         var body = "{\"workshopId\":\"" + workshop.value() + "\"}";
         return http.exchange(PATH, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
     }
@@ -200,5 +204,53 @@ class RegistrationControllerIT extends IntegrationTestSupport {
         var response = register(fixtures.aStudent(), WorkshopId.newId());
 
         assertProblem(response, 404, "about:blank");
+    }
+
+    @Test
+    @DisplayName("a retried request with the same key gets the identical 201, body and all")
+    void sameKey_replaysTheIdentical201() throws Exception {
+        var workshop = saved(aPaidWorkshop().withCapacity(5).build());
+        var student = fixtures.aStudent();
+        var key = UUID.randomUUID();
+
+        var first = register(student, workshop, key);
+        var retry = register(student, workshop, key);
+
+        assertThat(first.getStatusCode().value()).isEqualTo(201);
+        assertThat(retry.getStatusCode().value()).isEqualTo(201);
+        assertThat(json(retry)).isEqualTo(json(first));
+        assertThat(fixtures.registrationRows(workshop)).isEqualTo(1);
+        assertThat(fixtures.seatsTaken(workshop)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a replayed sold-out keeps its problem type, status and body")
+    void replayedSoldOut_keepsItsType() throws Exception {
+        var workshop = saved(aPublishedWorkshop().withCapacity(1).build());
+        register(fixtures.aStudent(), workshop);
+        var student = fixtures.aStudent();
+        var key = UUID.randomUUID();
+
+        var first = register(student, workshop, key);
+        var retry = register(student, workshop, key);
+
+        assertProblem(first, 409, "urn:unihub:problem:sold-out");
+        assertProblem(retry, 409, "urn:unihub:problem:sold-out");
+        assertThat(json(retry)).isEqualTo(json(first));
+    }
+
+    @Test
+    @DisplayName("the same key with another workshop is 422 idempotency-key-reused")
+    void sameKeyOtherBody_is422() throws Exception {
+        var first = saved(aPublishedWorkshop().withCapacity(5).build());
+        var second = saved(aPublishedWorkshop().withCapacity(5).build());
+        var student = fixtures.aStudent();
+        var key = UUID.randomUUID();
+        register(student, first, key);
+
+        var response = register(student, second, key);
+
+        assertProblem(response, 422, "urn:unihub:problem:idempotency-key-reused");
+        assertThat(fixtures.seatsTaken(second)).isZero();
     }
 }

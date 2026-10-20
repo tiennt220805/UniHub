@@ -8,22 +8,27 @@ import com.unihub.shared.application.port.out.AuditActions;
 import com.unihub.shared.application.port.out.AuditEntry;
 import com.unihub.shared.application.port.out.AuditTargets;
 import com.unihub.shared.application.port.out.AuditTrail;
+import com.unihub.shared.application.port.out.IdempotencyScope;
+import com.unihub.shared.application.port.out.IdempotencyStore;
+import com.unihub.shared.application.usecase.IdempotentReplay;
 import com.unihub.shared.domain.id.RegistrationId;
 import com.unihub.workshop.api.SeatClaimOutcome;
 import com.unihub.workshop.api.SeatInventory;
 import java.time.Clock;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * One attempt at the seat reservation, in one transaction: the seat claim (Workshop, {@code
  * MANDATORY}) and the {@code registrations} insert commit together or not at all
- * (database-schema.md §4.1), and the audit entry is recorded here (it takes effect after commit).
- * The idempotency record and the outbox row join this transaction with their own checklist items
- * (3.3, 3.4).
+ * (database-schema.md §4.1), the audit entry is recorded here (it takes effect after commit) and so
+ * is the idempotency key, begun first and completed last. The outbox row joins this transaction
+ * with its own checklist item (3.4).
  */
 @Service
 class ReserveSeatTransaction {
+    private final IdempotencyStore idempotency;
     private final SeatInventory seatInventory;
     private final RegistrationRepository registrations;
     private final AuditTrail auditTrail;
@@ -31,11 +36,13 @@ class ReserveSeatTransaction {
     private final Clock clock;
 
     ReserveSeatTransaction(
+            IdempotencyStore idempotency,
             SeatInventory seatInventory,
             RegistrationRepository registrations,
             AuditTrail auditTrail,
             RegistrationPolicy policy,
             Clock clock) {
+        this.idempotency = idempotency;
         this.seatInventory = seatInventory;
         this.registrations = registrations;
         this.auditTrail = auditTrail;
@@ -45,6 +52,36 @@ class ReserveSeatTransaction {
 
     @Transactional
     public ReserveSeatResult execute(ReserveSeatCommand command) {
+        var userId = command.actor().userId();
+        var scope = IdempotencyScope.REGISTRATION_CREATE;
+
+        // Backstop re-check: a duplicate may have committed while this request waited for the lock.
+        var replay =
+                IdempotentReplay.of(
+                        idempotency,
+                        scope,
+                        userId,
+                        command.idempotencyKey(),
+                        command.requestFingerprint(),
+                        ReserveSeatResult.class);
+        if (replay.isPresent()) {
+            return replay.get();
+        }
+        // The first write of the transaction (§21 rule 2): a concurrent request with the same key
+        // blocks here, then gets IdempotencyKeyInUseException if this one commits.
+        idempotency.begin(
+                scope, userId, command.idempotencyKey(), command.requestFingerprint(), null);
+
+        var result = decide(command);
+
+        // Every decided outcome is recorded, a rejection included (registration.md §4: "why a 409
+        // also gets recorded"). The row commits with the effect, or rolls back with it.
+        idempotency.complete(
+                scope, userId, command.idempotencyKey(), result, registrationIdOrNull(result));
+        return result;
+    }
+
+    private ReserveSeatResult decide(ReserveSeatCommand command) {
         var userId = command.actor().userId();
         var workshopId = command.workshopId();
 
@@ -81,6 +118,16 @@ class ReserveSeatTransaction {
                         : new ReserveSeatResult.Reserved(
                                 id, saved.holdExpiresAt(), saved.createdAt(), saved.updatedAt());
             }
+        };
+    }
+
+    private static UUID registrationIdOrNull(ReserveSeatResult result) {
+        return switch (result) {
+            case ReserveSeatResult.Reserved reserved -> reserved.id().value();
+            case ReserveSeatResult.Confirmed confirmed -> confirmed.id().value();
+            case ReserveSeatResult.SoldOut soldOut -> null;
+            case ReserveSeatResult.NotOpenForRegistration closed -> null;
+            case ReserveSeatResult.AlreadyRegistered already -> null;
         };
     }
 }

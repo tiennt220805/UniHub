@@ -28,8 +28,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * RBAC on {@code createRegistration} (D7): the permission decides, never a role, and a refused
- * caller leaves no effect. The idempotency-key half of AC7.1 ("no key recorded") joins this class
- * with checklist 3.3.
+ * caller leaves no effect, no idempotency key included (AC7.1).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class RegistrationAuthorizationIT extends IntegrationTestSupport {
@@ -82,7 +81,7 @@ class RegistrationAuthorizationIT extends IntegrationTestSupport {
     @Test
     @DisplayName(
             "without REGISTRATION_CREATE: no token is 401, a token without it is 403, no effect")
-    void withoutRegistrationCreate_isRefused_noEffect() {
+    void withoutRegistrationCreate_is403_noKeyRecorded() {
         fixtures = new RegistrationFixtures(jdbc);
         var workshop = aPublishedWorkshop().withCapacity(5).build();
         tx.executeWithoutResult(s -> workshops.save(workshop));
@@ -96,5 +95,12 @@ class RegistrationAuthorizationIT extends IntegrationTestSupport {
 
         assertThat(fixtures.seatsTaken(workshop.id())).isZero();
         assertThat(fixtures.registrationRows(workshop.id())).isZero();
+        // the refusal happens before the use case: no idempotency key is recorded either
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM idempotency_keys WHERE actor_user_id = ?",
+                                Integer.class,
+                                user))
+                .isZero();
     }
 }

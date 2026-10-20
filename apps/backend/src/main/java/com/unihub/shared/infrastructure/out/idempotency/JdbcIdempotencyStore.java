@@ -87,6 +87,26 @@ class JdbcIdempotencyStore implements IdempotencyStore {
     }
 
     @Override
+    public <R> R decode(StoredResult stored, Class<R> resultType) {
+        var variants = resultType.getPermittedSubclasses();
+        if (variants == null) {
+            throw new IllegalArgumentException(resultType.getName() + " is not a sealed type");
+        }
+        for (Class<?> variant : variants) {
+            if (variant.getSimpleName().equals(stored.type())) {
+                try {
+                    return resultType.cast(json.readValue(stored.body(), variant));
+                } catch (JsonProcessingException e) {
+                    throw new IllegalStateException(
+                            "Stored result " + stored.type() + " cannot be rebuilt", e);
+                }
+            }
+        }
+        throw new IllegalStateException(
+                "Stored result type " + stored.type() + " is not a variant of " + resultType);
+    }
+
+    @Override
     public void begin(
             IdempotencyScope scope,
             UserId actor,

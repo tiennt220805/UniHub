@@ -1,5 +1,6 @@
 package com.unihub.registration.web.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.unihub.registration.application.port.in.ReserveSeatUseCase;
 import com.unihub.registration.application.result.ReserveSeatResult;
 import com.unihub.registration.web.dto.CreateRegistrationRequest;
@@ -10,6 +11,7 @@ import com.unihub.shared.web.ApiProblems;
 import com.unihub.shared.web.CurrentActor;
 import com.unihub.shared.web.ProblemTypes;
 import com.unihub.shared.web.Problems;
+import com.unihub.shared.web.RequestFingerprint;
 import com.unihub.shared.web.dto.ProblemSchema;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -42,12 +44,14 @@ import org.springframework.web.bind.annotation.RestController;
  * (D8); the transient failures (lock busy, claim retries exhausted) and a missing workshop are
  * exceptions that {@code GlobalProblemHandler} turns into 503 + {@code Retry-After} and 404.
  *
- * <p>The {@code Idempotency-Key} header is required and validated as a UUID, as the contract says,
- * but is not acted on yet: recording and replaying results is checklist 3.3. Until then a retry
- * after a lost 201 answers 409 {@code already-registered} instead of replaying the 201.
+ * <p>The {@code Idempotency-Key} header is required and validated as a UUID; with the hash of the
+ * body (canonical JSON) it goes into the Command, and the use case records and replays the Result.
+ * Replaying is deterministic because this mapping is: a Result always becomes the same status,
+ * {@code type} and body. A key reused with another body is 422, one still being processed is 409
+ * (both exceptions with their own {@code type}).
  *
- * <p>The annotations on the method only DESCRIBE the contract for contract-diff. 422 (key reused)
- * and 429 (rate limit) are documented only: neither mechanism exists yet.
+ * <p>The annotations on the method only DESCRIBE the contract for contract-diff. 429 (rate limit)
+ * is documented only: no rate limiter exists yet.
  */
 @RestController
 @RequestMapping("/api/v1/registrations")
@@ -55,9 +59,11 @@ class RegistrationController {
     private static final String CORRELATION_ID_PATTERN = "^[0-9a-f]{32}$";
 
     private final ReserveSeatUseCase reserveSeat;
+    private final ObjectMapper json;
 
-    RegistrationController(ReserveSeatUseCase reserveSeat) {
+    RegistrationController(ReserveSeatUseCase reserveSeat, ObjectMapper json) {
         this.reserveSeat = reserveSeat;
+        this.json = json;
     }
 
     @Operation(
@@ -142,7 +148,12 @@ class RegistrationController {
             @Valid @RequestBody CreateRegistrationRequest request,
             @AuthenticationPrincipal Jwt jwt,
             HttpServletRequest http) {
-        var command = RegistrationWebMapper.toCommand(request, CurrentActor.from(jwt));
+        var command =
+                RegistrationWebMapper.toCommand(
+                        request,
+                        idempotencyKey.toString(),
+                        RequestFingerprint.of(json, request),
+                        CurrentActor.from(jwt));
         return switch (reserveSeat.reserve(command)) {
             case ReserveSeatResult.Reserved reserved ->
                     ResponseEntity.status(HttpStatus.CREATED)

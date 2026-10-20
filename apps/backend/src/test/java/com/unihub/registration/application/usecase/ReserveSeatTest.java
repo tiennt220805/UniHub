@@ -16,6 +16,12 @@ import com.unihub.registration.application.port.out.SeatLockHandle;
 import com.unihub.registration.application.result.ReserveSeatResult;
 import com.unihub.registration.domain.exception.SeatLockUnavailableException;
 import com.unihub.registration.domain.exception.SeatTemporarilyUnavailableException;
+import com.unihub.shared.application.port.out.IdempotencyKeyInUseException;
+import com.unihub.shared.application.port.out.IdempotencyKeyReusedException;
+import com.unihub.shared.application.port.out.IdempotencyRecord;
+import com.unihub.shared.application.port.out.IdempotencyScope;
+import com.unihub.shared.application.port.out.IdempotencyStore;
+import com.unihub.shared.application.port.out.StoredResult;
 import com.unihub.shared.domain.OptimisticConflictException;
 import com.unihub.shared.domain.id.RegistrationId;
 import com.unihub.shared.domain.id.UserId;
@@ -25,7 +31,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -36,13 +44,19 @@ class ReserveSeatTest {
                     Duration.ofMinutes(15), Duration.ofSeconds(2), Duration.ofSeconds(5), 3);
     private static final WorkshopId WORKSHOP = WorkshopId.newId();
     private static final ReserveSeatCommand COMMAND =
-            new ReserveSeatCommand(new Actor.UserActor(UserId.newId(), Set.of()), WORKSHOP);
+            new ReserveSeatCommand(
+                    new Actor.UserActor(UserId.newId(), Set.of()),
+                    WORKSHOP,
+                    UUID.randomUUID().toString(),
+                    "f".repeat(64));
 
     private final List<String> events = new ArrayList<>();
+    private final IdempotencyStore idempotency = mock(IdempotencyStore.class);
     private final SeatLock seatLock = mock(SeatLock.class);
     private final ReserveSeatTransaction transaction = mock(ReserveSeatTransaction.class);
     private final SeatClaimMetrics metrics = mock(SeatClaimMetrics.class);
-    private final ReserveSeat reserveSeat = new ReserveSeat(seatLock, transaction, metrics, POLICY);
+    private final ReserveSeat reserveSeat =
+            new ReserveSeat(idempotency, seatLock, transaction, metrics, POLICY);
 
     private void lockGranted() {
         SeatLockHandle handle = () -> events.add("unlock");
@@ -158,5 +172,53 @@ class ReserveSeatTest {
                                         Duration.ofSeconds(5),
                                         0))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // ---------- idempotency: the fast replay path ----------
+
+    private void recorded(IdempotencyRecord record) {
+        when(idempotency.find(
+                        IdempotencyScope.REGISTRATION_CREATE,
+                        COMMAND.actor().userId(),
+                        COMMAND.idempotencyKey()))
+                .thenReturn(Optional.of(record));
+    }
+
+    @Test
+    @DisplayName("a recorded Result is replayed without taking the lock or opening a transaction")
+    void completedKey_replaysWithoutLockOrTransaction() {
+        var stored = new StoredResult("SoldOut", "{}");
+        recorded(new IdempotencyRecord.Completed(COMMAND.requestFingerprint(), stored));
+        when(idempotency.decode(stored, ReserveSeatResult.class))
+                .thenReturn(new ReserveSeatResult.SoldOut());
+
+        assertThat(reserveSeat.reserve(COMMAND)).isEqualTo(new ReserveSeatResult.SoldOut());
+
+        verify(seatLock, never()).tryAcquire(any(), any(), any());
+        verify(transaction, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("the same key with another body is refused before any lock or transaction")
+    void differentFingerprint_isRefused() {
+        recorded(
+                new IdempotencyRecord.Completed("0".repeat(64), new StoredResult("SoldOut", "{}")));
+
+        assertThatThrownBy(() -> reserveSeat.reserve(COMMAND))
+                .isInstanceOf(IdempotencyKeyReusedException.class);
+
+        verify(seatLock, never()).tryAcquire(any(), any(), any());
+        verify(transaction, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("a key still being processed is IdempotencyKeyInUse, with no lock or transaction")
+    void inProgressKey_isInUse() {
+        recorded(new IdempotencyRecord.InProgress(COMMAND.requestFingerprint()));
+
+        assertThatThrownBy(() -> reserveSeat.reserve(COMMAND))
+                .isInstanceOf(IdempotencyKeyInUseException.class);
+
+        verify(seatLock, never()).tryAcquire(any(), any(), any());
     }
 }

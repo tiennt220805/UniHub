@@ -201,20 +201,34 @@ class JdbcIdempotencyStoreIT extends ReplicaIntegrationTestSupport {
                 (IdempotencyRecord.Completed)
                         store.find(REGISTRATION, actor, otherKey).orElseThrow();
 
-        // What IdempotentReplay (checklist 3.3) will do: pick the permitted subclass by simple
-        // name, then let the application's ObjectMapper rebuild it.
+        // What IdempotentReplay does: the adapter that serialized the Result rebuilds it.
         assertThat(replay(first.result(), SampleResult.class)).isEqualTo(reserved);
         assertThat(replay(second.result(), SampleResult.class))
                 .isEqualTo(new SampleResult.SoldOut());
     }
 
-    private <R> R replay(StoredResult stored, Class<R> sealedType) throws Exception {
-        for (Class<?> variant : sealedType.getPermittedSubclasses()) {
-            if (variant.getSimpleName().equals(stored.type())) {
-                return sealedType.cast(json.readValue(stored.body(), variant));
-            }
-        }
-        throw new IllegalStateException("unknown stored result type " + stored.type());
+    private <R> R replay(StoredResult stored, Class<R> sealedType) {
+        return store.decode(stored, sealedType);
+    }
+
+    @Test
+    @DisplayName("decode refuses a type that is not a variant of the sealed interface")
+    void decode_unknownType_isRefused() {
+        // The @Repository proxy wraps IllegalState/IllegalArgument into a Spring data-access
+        // exception, so assert on the message, which is what an operator reads.
+        assertThatThrownBy(() -> store.decode(new StoredResult("Nope", "{}"), SampleResult.class))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("Nope");
+        assertThatThrownBy(() -> store.decode(new StoredResult("SoldOut", "{}"), String.class))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("not a sealed type");
+        assertThatThrownBy(
+                        () ->
+                                store.decode(
+                                        new StoredResult("Reserved", "{\"id\":42,\"at\":[}"),
+                                        SampleResult.class))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("cannot be rebuilt");
     }
 
     @Test

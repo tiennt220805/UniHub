@@ -14,4 +14,10 @@ public final class IdempotencyKeyReusedException extends DomainException {
     public ProblemKind kind() {
         return ProblemKind.UNPROCESSABLE;
     }
+
+    @Override
+    public String problemType() {
+        // Same value as ProblemTypes.IDEMPOTENCY_KEY_REUSED, which application cannot import.
+        return "urn:unihub:problem:idempotency-key-reused";
+    }
 }

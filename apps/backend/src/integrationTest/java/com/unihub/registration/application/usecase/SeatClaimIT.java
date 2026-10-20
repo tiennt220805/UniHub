@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.reset;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.unihub.registration.RegistrationFixtures;
 import com.unihub.registration.application.command.ReserveSeatCommand;
 import com.unihub.registration.application.port.in.ReserveSeatUseCase;
@@ -18,6 +19,7 @@ import com.unihub.shared.domain.id.WorkshopId;
 import com.unihub.shared.infrastructure.IntegrationTestSupport;
 import com.unihub.shared.security.Actor;
 import com.unihub.shared.security.TestJwts;
+import com.unihub.shared.web.RequestFingerprint;
 import com.unihub.workshop.api.SeatInventory;
 import com.unihub.workshop.application.command.FieldChange;
 import com.unihub.workshop.application.command.UpdateWorkshopCommand;
@@ -28,6 +30,7 @@ import com.unihub.workshop.domain.model.Workshop;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -74,6 +77,7 @@ class SeatClaimIT extends IntegrationTestSupport {
     /** Spied so a test can make an organizer edit land between the read and the claim UPDATE. */
     @SpyBean private SeatCounter seatCounter;
 
+    private static final ObjectMapper JSON = new ObjectMapper();
     private final ExecutorService threads = Executors.newFixedThreadPool(16);
     private RegistrationFixtures fixtures;
 
@@ -96,7 +100,16 @@ class SeatClaimIT extends IntegrationTestSupport {
     }
 
     private ReserveSeatCommand commandFor(WorkshopId workshop, UserId student) {
-        return new ReserveSeatCommand(new Actor.UserActor(student, Set.of()), workshop);
+        return commandFor(workshop, student, UUID.randomUUID());
+    }
+
+    /** A fresh key per call: reusing one would make the second request a replay, not a retry. */
+    private ReserveSeatCommand commandFor(WorkshopId workshop, UserId student, UUID key) {
+        return new ReserveSeatCommand(
+                new Actor.UserActor(student, Set.of()),
+                workshop,
+                key.toString(),
+                RequestFingerprint.of(JSON, java.util.Map.of("workshopId", workshop.value())));
     }
 
     private ReserveSeatResult reserve(WorkshopId workshop) {
@@ -142,14 +155,16 @@ class SeatClaimIT extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("a full workshop is SoldOut, and nothing is written")
-    void full_isSoldOut() {
+    @DisplayName("a full workshop is SoldOut and recorded under the key; nothing else is written")
+    void full_isSoldOut_recorded() {
         var workshop = saved(aPublishedWorkshop().withCapacity(1).build());
         reserve(workshop);
+        var student = fixtures.aStudent();
 
-        var result = reserve(workshop);
+        var result = reserveSeat.reserve(commandFor(workshop, student, UUID.randomUUID()));
 
         assertThat(result).isEqualTo(new ReserveSeatResult.SoldOut());
+        assertThat(fixtures.recordedResultType(student)).isEqualTo("SoldOut");
         assertThat(fixtures.seatsTaken(workshop)).isEqualTo(1);
         assertThat(fixtures.registrationRows(workshop)).isEqualTo(1);
     }
@@ -218,11 +233,14 @@ class SeatClaimIT extends IntegrationTestSupport {
                 .when(seatCounter)
                 .tryClaim(any(), any());
 
-        assertThatThrownBy(() -> reserve(workshop))
+        var student = fixtures.aStudent();
+        assertThatThrownBy(
+                        () -> reserveSeat.reserve(commandFor(workshop, student, UUID.randomUUID())))
                 .isInstanceOf(SeatTemporarilyUnavailableException.class);
 
         assertThat(fixtures.seatsTaken(workshop)).isZero();
         assertThat(fixtures.registrationRows(workshop)).isZero();
+        assertThat(fixtures.idempotencyKeys(student)).isZero();
     }
 
     @Test

@@ -1,7 +1,9 @@
 package com.unihub.registration.application.usecase;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -16,6 +18,12 @@ import com.unihub.registration.domain.model.TicketType;
 import com.unihub.shared.application.port.out.AuditActions;
 import com.unihub.shared.application.port.out.AuditEntry;
 import com.unihub.shared.application.port.out.AuditTrail;
+import com.unihub.shared.application.port.out.IdempotencyKeyInUseException;
+import com.unihub.shared.application.port.out.IdempotencyKeyReusedException;
+import com.unihub.shared.application.port.out.IdempotencyRecord;
+import com.unihub.shared.application.port.out.IdempotencyScope;
+import com.unihub.shared.application.port.out.IdempotencyStore;
+import com.unihub.shared.application.port.out.StoredResult;
 import com.unihub.shared.domain.id.UserId;
 import com.unihub.shared.domain.id.WorkshopId;
 import com.unihub.shared.security.Actor;
@@ -25,11 +33,15 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
+import org.mockito.Mockito;
 
 class ReserveSeatTransactionTest {
     private static final Instant NOW = Instant.parse("2026-12-01T09:00:00Z");
@@ -37,17 +49,26 @@ class ReserveSeatTransactionTest {
     private static final RegistrationPolicy POLICY =
             new RegistrationPolicy(
                     Duration.ofMinutes(15), Duration.ofSeconds(2), Duration.ofSeconds(5), 3);
+    private static final String KEY = UUID.randomUUID().toString();
+    private static final String FINGERPRINT = "a".repeat(64);
     private static final WorkshopId WORKSHOP = WorkshopId.newId();
     private static final UserId STUDENT = UserId.newId();
     private static final ReserveSeatCommand COMMAND =
-            new ReserveSeatCommand(new Actor.UserActor(STUDENT, Set.of()), WORKSHOP);
+            new ReserveSeatCommand(
+                    new Actor.UserActor(STUDENT, Set.of()), WORKSHOP, KEY, FINGERPRINT);
 
+    private final IdempotencyStore idempotency = mock(IdempotencyStore.class);
     private final SeatInventory seats = mock(SeatInventory.class);
     private final RegistrationRepository registrations = mock(RegistrationRepository.class);
     private final AuditTrail auditTrail = mock(AuditTrail.class);
     private final ReserveSeatTransaction transaction =
             new ReserveSeatTransaction(
-                    seats, registrations, auditTrail, POLICY, Clock.fixed(NOW, ZoneOffset.UTC));
+                    idempotency,
+                    seats,
+                    registrations,
+                    auditTrail,
+                    POLICY,
+                    Clock.fixed(NOW, ZoneOffset.UTC));
 
     /** The repository returns the aggregate as stored: same state, plus the row's timestamps. */
     @BeforeEach
@@ -167,5 +188,103 @@ class ReserveSeatTransactionTest {
         transaction.execute(COMMAND);
 
         verify(auditTrail, never()).record(any());
+    }
+
+    // ---------- idempotency: begin first, complete last, every decided outcome recorded ----------
+
+    private static final IdempotencyScope SCOPE = IdempotencyScope.REGISTRATION_CREATE;
+
+    @Test
+    @DisplayName(
+            "the key is begun before anything else is written and completed last, with the Result")
+    void begin_first_complete_last() {
+        when(seats.claim(WORKSHOP)).thenReturn(new SeatClaimOutcome.Claimed(false));
+
+        var result = transaction.execute(COMMAND);
+
+        InOrder order = Mockito.inOrder(idempotency, registrations, seats);
+        order.verify(idempotency).begin(SCOPE, STUDENT, KEY, FINGERPRINT, null);
+        order.verify(registrations).existsActive(WORKSHOP, STUDENT);
+        order.verify(seats).claim(WORKSHOP);
+        order.verify(registrations).save(any());
+        order.verify(idempotency)
+                .complete(
+                        eq(SCOPE),
+                        eq(STUDENT),
+                        eq(KEY),
+                        eq(result),
+                        eq(((ReserveSeatResult.Confirmed) result).id().value()));
+    }
+
+    @Test
+    @DisplayName("a rejection is recorded too, so a retry replays it instead of re-deciding")
+    void rejections_areRecorded() {
+        when(seats.claim(WORKSHOP)).thenReturn(new SeatClaimOutcome.SoldOut());
+        var soldOut = transaction.execute(COMMAND);
+        verify(idempotency).complete(SCOPE, STUDENT, KEY, soldOut, null);
+
+        when(seats.claim(WORKSHOP)).thenReturn(new SeatClaimOutcome.NotOpenForRegistration());
+        var notOpen = transaction.execute(COMMAND);
+        verify(idempotency).complete(SCOPE, STUDENT, KEY, notOpen, null);
+
+        when(registrations.existsActive(WORKSHOP, STUDENT)).thenReturn(true);
+        var already = transaction.execute(COMMAND);
+        verify(idempotency).complete(SCOPE, STUDENT, KEY, already, null);
+    }
+
+    @Test
+    @DisplayName("a paid hold is recorded with its registration id as the resource")
+    void paid_isRecordedWithItsId() {
+        when(seats.claim(WORKSHOP)).thenReturn(new SeatClaimOutcome.Claimed(true));
+
+        var result = (ReserveSeatResult.Reserved) transaction.execute(COMMAND);
+
+        verify(idempotency).complete(SCOPE, STUDENT, KEY, result, result.id().value());
+    }
+
+    @Test
+    @DisplayName("a Result recorded meanwhile is replayed: nothing begun, claimed or saved")
+    void recheck_replaysWithoutAnyEffect() {
+        var stored = new StoredResult("SoldOut", "{}");
+        when(idempotency.find(SCOPE, STUDENT, KEY))
+                .thenReturn(Optional.of(new IdempotencyRecord.Completed(FINGERPRINT, stored)));
+        when(idempotency.decode(stored, ReserveSeatResult.class))
+                .thenReturn(new ReserveSeatResult.SoldOut());
+
+        assertThat(transaction.execute(COMMAND)).isEqualTo(new ReserveSeatResult.SoldOut());
+
+        verify(idempotency, never()).begin(any(), any(), any(), any(), any());
+        verify(seats, never()).claim(any());
+        verify(registrations, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("the recheck refuses the same key with another body and a key still in progress")
+    void recheck_refusals() {
+        when(idempotency.find(SCOPE, STUDENT, KEY))
+                .thenReturn(
+                        Optional.of(
+                                new IdempotencyRecord.Completed(
+                                        "0".repeat(64), new StoredResult("SoldOut", "{}"))));
+        assertThatThrownBy(() -> transaction.execute(COMMAND))
+                .isInstanceOf(IdempotencyKeyReusedException.class);
+
+        when(idempotency.find(SCOPE, STUDENT, KEY))
+                .thenReturn(Optional.of(new IdempotencyRecord.InProgress(FINGERPRINT)));
+        assertThatThrownBy(() -> transaction.execute(COMMAND))
+                .isInstanceOf(IdempotencyKeyInUseException.class);
+
+        verify(seats, never()).claim(any());
+    }
+
+    @Test
+    @DisplayName("a failure while deciding propagates; nothing is completed (the key rolls back)")
+    void failure_doesNotComplete() {
+        when(seats.claim(WORKSHOP)).thenThrow(new IllegalStateException("boom"));
+
+        assertThatThrownBy(() -> transaction.execute(COMMAND))
+                .isInstanceOf(IllegalStateException.class);
+
+        verify(idempotency, never()).complete(any(), any(), any(), any(), any());
     }
 }

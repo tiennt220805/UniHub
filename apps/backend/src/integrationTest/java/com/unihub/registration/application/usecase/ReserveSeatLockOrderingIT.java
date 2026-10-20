@@ -23,6 +23,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -99,7 +100,11 @@ class ReserveSeatLockOrderingIT extends IntegrationTestSupport {
     }
 
     private ReserveSeatCommand commandFor(WorkshopId workshop) {
-        return new ReserveSeatCommand(new Actor.UserActor(fixtures.aStudent(), Set.of()), workshop);
+        return new ReserveSeatCommand(
+                new Actor.UserActor(fixtures.aStudent(), Set.of()),
+                workshop,
+                UUID.randomUUID().toString(),
+                "f".repeat(64));
     }
 
     /**

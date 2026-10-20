@@ -14,8 +14,12 @@ public final class RegistrationWebMapper {
     private RegistrationWebMapper() {}
 
     public static ReserveSeatCommand toCommand(
-            CreateRegistrationRequest request, Actor.UserActor actor) {
-        return new ReserveSeatCommand(actor, WorkshopId.of(request.workshopId()));
+            CreateRegistrationRequest request,
+            String idempotencyKey,
+            String requestFingerprint,
+            Actor.UserActor actor) {
+        return new ReserveSeatCommand(
+                actor, WorkshopId.of(request.workshopId()), idempotencyKey, requestFingerprint);
     }
 
     /**

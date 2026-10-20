@@ -1094,6 +1094,10 @@ public interface IdempotencyStore {
     /** Consistency-sensitive: always reads the Master. Empty when no row exists. */
     Optional<IdempotencyRecord> find(IdempotencyScope scope, UserId actor, String key);
 
+    /** Rebuilds the Result a StoredResult was serialized from: the variant of the sealed `resultType` whose simple
+     *  name is `stored.type()`. The adapter that serialized it decodes it (application has no JSON library, §3). */
+    <R> R decode(StoredResult stored, Class<R> resultType);
+
     /** Inserts IN_PROGRESS. DuplicateKeyException → IdempotencyKeyInUseException (CONFLICT). */
     void begin(IdempotencyScope scope, UserId actor, String key, String requestFingerprint, UUID resourceId);
 
@@ -1112,7 +1116,7 @@ public sealed interface IdempotencyRecord {
     record Completed(String requestFingerprint, StoredResult result) implements IdempotencyRecord {}
 }
 // StoredResult(String type, String body): `type` = simple name of the sealed Result variant, `body` = its JSON.
-// shared cannot import a module's Result, so the caller (IdempotentReplay, §25.1) maps type -> variant.
+// shared cannot import a module's Result, so IdempotentReplay (§25.1) passes the sealed type to store.decode.
 // IdempotencyScope values: REGISTRATION_CREATE, PAYMENT_CHARGE (database-schema.md §8.1)
 ```
 
@@ -1183,7 +1187,7 @@ public interface ReserveSeatUseCase {
     ReserveSeatResult reserve(ReserveSeatCommand command);
 }
 // ReserveSeatCommand(Actor.UserActor actor, WorkshopId workshopId, String idempotencyKey, String requestFingerprint)
-// IdempotentReplay (shared.application.usecase): Completed + same fingerprint → result; different fingerprint →
+// IdempotentReplay.of(store, scope, actor, key, fingerprint, ResultType.class) (shared.application.usecase): Completed + same fingerprint → result; different fingerprint →
 // IdempotencyKeyReusedException; InProgress → IdempotencyKeyInUseException (§21 rule 4)
 ```
 
@@ -1204,9 +1208,8 @@ class ReserveSeat implements ReserveSeatUseCase {
     @Override
     public ReserveSeatResult reserve(ReserveSeatCommand command) {
         // Fast replay path: a retried request never needs Redis (registration.md §4: "do not re-run … at all")
-        var replay = IdempotentReplay.of(idempotency.find(IdempotencyScope.REGISTRATION_CREATE,
-                                         command.actor().userId(), command.idempotencyKey()),
-                                         command.requestFingerprint(), ReserveSeatResult.class);
+        var replay = IdempotentReplay.of(idempotency, IdempotencyScope.REGISTRATION_CREATE, command.actor().userId(),
+                                         command.idempotencyKey(), command.requestFingerprint(), ReserveSeatResult.class);
         if (replay.isPresent()) {                // Completed + same fingerprint; mismatch → 422, InProgress → 409 (§21)
             return replay.get();
         }
@@ -1270,9 +1273,8 @@ class ReserveSeatTransaction {
     @Transactional
     public ReserveSeatResult execute(ReserveSeatCommand command) {
         // Backstop re-check inside the transaction: a duplicate may have committed while we waited for the lock
-        var replay = IdempotentReplay.of(idempotency.find(IdempotencyScope.REGISTRATION_CREATE,
-                                         command.actor().userId(), command.idempotencyKey()),
-                                         command.requestFingerprint(), ReserveSeatResult.class);
+        var replay = IdempotentReplay.of(idempotency, IdempotencyScope.REGISTRATION_CREATE, command.actor().userId(),
+                                         command.idempotencyKey(), command.requestFingerprint(), ReserveSeatResult.class);
         if (replay.isPresent()) {
             return replay.get();
         }

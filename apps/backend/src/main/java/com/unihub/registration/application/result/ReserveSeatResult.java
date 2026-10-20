@@ -7,6 +7,11 @@ import java.time.Instant;
  * Every decided outcome of a seat reservation. Business rejections are variants, not exceptions, so
  * that idempotency can record and replay them (backend-coding-standards.md §21, §25). Transient
  * failures (lock busy, retries exhausted) are exceptions precisely because they are not recorded.
+ *
+ * <p>The shape of these records is part of the replay contract: a Result is stored as its variant's
+ * simple name plus JSON and rebuilt from that on a retry, so renaming a variant or changing its
+ * fields breaks the replay of every key still inside the retention window (a 500 on retry during a
+ * deploy). Change it only expand-then-contract, like a schema.
  */
 public sealed interface ReserveSeatResult {
 
