@@ -33,7 +33,7 @@ class DefaultRbacSeedIT extends RolledBackJdbcSupport {
     }
 
     @Test
-    @DisplayName("seeds the four default permission codes")
+    @DisplayName("seeds the four default permission codes (V2)")
     void seedsDefaultPermissions() {
         var codes = jdbc.queryForList("SELECT code FROM permissions", String.class);
 
@@ -62,8 +62,49 @@ class DefaultRbacSeedIT extends RolledBackJdbcSupport {
     }
 
     @Test
-    @DisplayName("Student holds no administrative permission")
-    void studentBundleIsEmpty() {
-        assertThat(permissionCodesOfRole("Student")).isEmpty();
+    @DisplayName("V4 seeds REGISTRATION_CREATE (D7)")
+    void seedsRegistrationCreate() {
+        assertThat(jdbc.queryForList("SELECT code FROM permissions", String.class))
+                .contains("REGISTRATION_CREATE");
+    }
+
+    @Test
+    @DisplayName("Student bundles only REGISTRATION_CREATE — no administrative permission")
+    void studentBundle() {
+        assertThat(permissionCodesOfRole("Student")).containsExactly("REGISTRATION_CREATE");
+    }
+
+    @Test
+    @DisplayName("no other role holds REGISTRATION_CREATE (AC7.2)")
+    void otherRolesLackRegistrationCreate() {
+        assertThat(permissionCodesOfRole("Organizer")).doesNotContain("REGISTRATION_CREATE");
+        assertThat(permissionCodesOfRole("Admin")).doesNotContain("REGISTRATION_CREATE");
+        assertThat(permissionCodesOfRole("Check-in Staff")).doesNotContain("REGISTRATION_CREATE");
+    }
+
+    @Test
+    @DisplayName("V4 is idempotent: running its statements again adds nothing")
+    void v4IsIdempotent() throws Exception {
+        var sql =
+                new String(
+                        getClass()
+                                .getResourceAsStream(
+                                        "/db/migration/V4__seed_registration_permission.sql")
+                                .readAllBytes());
+        var before = jdbc.queryForObject("SELECT count(*) FROM role_permissions", Long.class);
+
+        for (var statement : sql.replaceAll("(?m)^--.*$", "").split(";")) {
+            if (!statement.isBlank()) {
+                jdbc.execute(statement);
+            }
+        }
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM role_permissions", Long.class))
+                .isEqualTo(before);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM permissions WHERE code = 'REGISTRATION_CREATE'",
+                                Long.class))
+                .isEqualTo(1);
     }
 }

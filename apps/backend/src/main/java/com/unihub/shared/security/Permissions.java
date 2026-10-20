@@ -13,5 +13,8 @@ public final class Permissions {
     public static final String CHECKIN_SCAN = "CHECKIN_SCAN";
     public static final String REPORT_VIEW = "REPORT_VIEW";
 
+    /** Create a registration and pay for one's own (V4; Phase 2 checklist D7). */
+    public static final String REGISTRATION_CREATE = "REGISTRATION_CREATE";
+
     private Permissions() {}
 }

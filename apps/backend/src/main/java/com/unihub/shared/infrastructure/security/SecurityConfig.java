@@ -62,6 +62,9 @@ public class SecurityConfig {
                                         // lets the use case show a DRAFT to its managers.
                                         .requestMatchers(HttpMethod.GET, "/api/v1/workshops/*")
                                         .permitAll()
+                                        // Login is how a token is obtained: no token yet.
+                                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/login")
+                                        .permitAll()
                                         // generateOpenApiDocs / contract-diff read the live spec.
                                         .requestMatchers("/v3/api-docs", "/v3/api-docs/**")
                                         .permitAll()

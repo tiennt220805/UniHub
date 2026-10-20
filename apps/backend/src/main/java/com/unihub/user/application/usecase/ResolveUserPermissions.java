@@ -9,9 +9,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Resolves User → Role → Permission into the flat permission list a JWT will carry
- * (auth-and-identity.md §2). Deliberately has no driving adapter yet: token issuance arrives with
- * the real login endpoint. When it does, add {@code @ReadFromPrimary} (§20) so a permission change
- * is visible at issuance rather than lagging on a replica.
+ * (auth-and-identity.md §2). Has no driving adapter: {@code Login} reads {@code
+ * UserPermissionQueries} directly, on the Master, so a permission change is visible at the next
+ * login.
  */
 @Service
 class ResolveUserPermissions implements ResolveUserPermissionsUseCase {

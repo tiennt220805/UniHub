@@ -288,7 +288,8 @@ Every table, convention, and tuning parameter this document introduces, traced b
 |---|---|
 | Phase 2 test accounts | A dev/test-only seeder creates a few Student accounts with a password and the `Student` role. It runs only under the `dev` profile (tests create their own users through fixtures). It never lives in `src/main/resources/db/migration` — no production migration ever creates them |
 | The password | Read from an environment variable when the seeder runs and hashed with BCrypt there. Neither a plaintext password nor a fixed hash is committed; the Gitleaks gate (M-13) stays green. A missing variable stops the seeder with a clear message — there is no default password |
-| Idempotency | Re-running the seeder creates nothing new |
+| Idempotency | Re-running the seeder creates nothing new; an account that already exists (same email) is left untouched, including its password hash |
+| How it is wired | `DevStudentSeedRunner` (`@Profile("dev")`) → `SeedDevStudentsUseCase`. Password from `UNIHUB_DEV_SEED_STUDENT_PASSWORD` (`unihub.dev-seed.student-password`); with it unset or blank the runner logs a warning and seeds nothing. Accounts default to `student1..3@dev.unihub.local`, overridable via `unihub.dev-seed.students` |
 | Legacy-synced students | Cannot sign in until first-login setup exists; login treats them exactly like a wrong password (`../platform/auth-and-identity.md` §7) |
 | First-login setup | **Open item** — to be designed when an e-mail channel exists (Phase 4 or later); tracked in the Phase 2 checklist |
 

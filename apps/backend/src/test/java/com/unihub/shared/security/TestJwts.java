@@ -18,9 +18,9 @@ import java.util.UUID;
 
 /**
  * Test-only JWT forge (security-testing.md §3): builds valid tokens and the adversarial variants
- * S-1 to S-6 with nimbus-jose-jwt, the server's own JOSE library. There is no production issuer yet
- * — the login endpoint is deliberately out of scope for Mục 2.2 — so this is the only place a token
- * is signed.
+ * S-1 to S-6 with nimbus-jose-jwt, the server's own JOSE library. Production tokens come from the
+ * login endpoint; this forge exists for the tokens login never issues (expired, tampered, {@code
+ * alg} confused, extra claims).
  */
 public final class TestJwts {
 
