@@ -90,6 +90,15 @@ unihub:
       enabled: true
       interval: PT1M
       retention: PT1H
+  # Seat reservation (registration.md §2, Phase 2 checklist D3/D4). seat-hold is how long a paid
+  # registration keeps its seat; lock-wait/lock-lease are the per-workshop seat lock (the in-process
+  # adapter ignores the lease); seat-claim-attempts is how many transactions a claim may lose to a
+  # workshops.version race before it answers 503.
+  registration:
+    seat-hold: PT15M
+    lock-wait: PT2S
+    lock-lease: PT5S
+    seat-claim-attempts: 3
   # How long a publish waits for the broker's confirm before the message counts as not delivered.
   messaging:
     confirm-timeout: PT5S

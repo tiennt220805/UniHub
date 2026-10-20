@@ -5,15 +5,18 @@ import com.unihub.shared.application.port.out.AuditEntry;
 import com.unihub.shared.application.port.out.AuditTargets;
 import com.unihub.shared.application.port.out.AuditTrail;
 import com.unihub.shared.application.port.out.EventPublisher;
+import com.unihub.shared.domain.OptimisticConflictException;
 import com.unihub.shared.domain.id.WorkshopId;
 import com.unihub.workshop.application.command.UpdateWorkshopCommand;
 import com.unihub.workshop.application.event.WorkshopOutboxTranslator;
 import com.unihub.workshop.application.port.in.UpdateWorkshopUseCase;
 import com.unihub.workshop.application.port.out.WorkshopCache;
+import com.unihub.workshop.application.port.out.WorkshopMetrics;
 import com.unihub.workshop.application.port.out.WorkshopRepository;
 import com.unihub.workshop.application.result.WorkshopResult;
 import com.unihub.workshop.domain.event.WorkshopRescheduled;
 import com.unihub.workshop.domain.exception.WorkshopNotFoundException;
+import com.unihub.workshop.domain.model.Workshop;
 import java.time.Clock;
 import java.util.Map;
 import org.springframework.stereotype.Service;
@@ -25,6 +28,7 @@ class UpdateWorkshop implements UpdateWorkshopUseCase {
     private final EventPublisher eventPublisher;
     private final AuditTrail auditTrail;
     private final WorkshopCache cache;
+    private final WorkshopMetrics metrics;
     private final Clock clock;
 
     UpdateWorkshop(
@@ -32,11 +36,13 @@ class UpdateWorkshop implements UpdateWorkshopUseCase {
             EventPublisher eventPublisher,
             AuditTrail auditTrail,
             WorkshopCache cache,
+            WorkshopMetrics metrics,
             Clock clock) {
         this.workshops = workshops;
         this.eventPublisher = eventPublisher;
         this.auditTrail = auditTrail;
         this.cache = cache;
+        this.metrics = metrics;
         this.clock = clock;
     }
 
@@ -61,7 +67,15 @@ class UpdateWorkshop implements UpdateWorkshopUseCase {
                 command.startTime().applyTo(workshop.startTime()),
                 command.endTime().applyTo(workshop.endTime()),
                 now);
-        var saved = workshops.save(workshop);
+        Workshop saved;
+        try {
+            saved = workshops.save(workshop);
+        } catch (OptimisticConflictException refused) {
+            // A seat claim or another edit moved the version first (D3). Counted for the Phase 8
+            // review of the shared version; the caller still gets the 409.
+            metrics.editConflicted();
+            throw refused;
+        }
 
         // Same transaction as the edit: a reschedule event exists exactly when the new times do.
         var events = workshop.pullEvents();

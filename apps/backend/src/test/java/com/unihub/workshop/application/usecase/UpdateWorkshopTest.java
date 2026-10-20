@@ -26,6 +26,7 @@ import com.unihub.shared.security.Actor;
 import com.unihub.workshop.api.event.WorkshopRescheduledIntegrationEvent;
 import com.unihub.workshop.application.command.FieldChange;
 import com.unihub.workshop.application.command.UpdateWorkshopCommand;
+import com.unihub.workshop.application.port.out.WorkshopMetrics;
 import com.unihub.workshop.application.port.out.WorkshopRepository;
 import com.unihub.workshop.domain.exception.InvalidWorkshopException;
 import com.unihub.workshop.domain.exception.InvalidWorkshopStateException;
@@ -57,9 +58,15 @@ class UpdateWorkshopTest {
     private final EventPublisher eventPublisher = mock(EventPublisher.class);
     private final AuditTrail auditTrail = mock(AuditTrail.class);
     private final InMemoryWorkshopCache cache = new InMemoryWorkshopCache();
+    private final WorkshopMetrics metrics = mock(WorkshopMetrics.class);
     private final UpdateWorkshop useCase =
             new UpdateWorkshop(
-                    workshops, eventPublisher, auditTrail, cache, Clock.fixed(NOW, ZoneOffset.UTC));
+                    workshops,
+                    eventPublisher,
+                    auditTrail,
+                    cache,
+                    metrics,
+                    Clock.fixed(NOW, ZoneOffset.UTC));
 
     static Stream<WorkshopBuilder> terminal() {
         return Stream.of(aCancelledWorkshop(), aCompletedWorkshop());
@@ -204,6 +211,18 @@ class UpdateWorkshopTest {
 
         assertThatThrownBy(() -> useCase.update(patch(workshop.id().value()).build()))
                 .isInstanceOf(OptimisticConflictException.class);
+        verify(metrics).editConflicted();
+    }
+
+    @Test
+    @DisplayName("an edit that succeeds is not counted as a conflict")
+    void update_success_doesNotCountConflict() {
+        var workshop = aPublishedWorkshop().build();
+        stored(workshop);
+
+        useCase.update(patch(workshop.id().value()).build());
+
+        verify(metrics, never()).editConflicted();
     }
 
     @Test

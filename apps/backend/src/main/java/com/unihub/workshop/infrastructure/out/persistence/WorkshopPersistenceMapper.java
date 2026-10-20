@@ -34,11 +34,15 @@ class WorkshopPersistenceMapper {
     WorkshopJpaEntity toNewEntity(Workshop w) {
         var entity = new WorkshopJpaEntity();
         entity.id(w.id().value());
+        entity.seatsTaken(w.seatsTaken());
         copyState(w, entity);
         return entity;
     }
 
-    /** Copies every column the aggregate owns; never {@code version}, which Hibernate manages. */
+    /**
+     * Copies every column an update may write; never {@code version}, which Hibernate manages, and
+     * never {@code seats_taken}, which only the seat-claim SQL changes (D3/C15).
+     */
     void copyState(Workshop w, WorkshopJpaEntity e) {
         e.title(w.title());
         e.description(w.description());
@@ -49,7 +53,6 @@ class WorkshopPersistenceMapper {
         e.startTime(w.startTime());
         e.endTime(w.endTime());
         e.capacity(w.capacity());
-        e.seatsTaken(w.seatsTaken());
         e.paid(w.isPaid());
         e.price(w.price());
         e.brochureS3Key(w.brochureS3Key());

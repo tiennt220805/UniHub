@@ -569,19 +569,19 @@ Tên là đề xuất. Chốt tên thật khi viết test, rồi điền vào `t
 - [ ] `ConsumerRetryChainIT#nonRetryable_goesStraightToParkingLot_withOriginalRoutingKey` (AC2.5)
 
 **T-SEAT — seat claim (D3)** → M-18, M-19
-- [ ] `SeatClaimIT#versionConflictFromOrganizerEdit_retriesAndSucceeds` (AC3.1)
-- [ ] `SeatClaimIT#organizerEdit_neverWritesSeatsTaken` — claim + edit đồng thời, `seats_taken` cuối đúng (AC3.2, C15)
-- [ ] `SeatClaimIT#retriesExhausted_is503_notRecorded` (AC3.3)
-- [ ] `SeatClaimIT#full_isSoldOut_recorded` (AC3.4)
-- [ ] `SeatClaimMetricsTest#conflictAndExhaustion_counted` (AC3.6)
+- [x] `SeatClaimIT#versionConflictFromOrganizerEdit_retriesAndSucceeds` (AC3.1) — **(2026-10-20)** organizer edit chen vào giữa lúc đọc version và UPDATE (chạy ở thread khác, connection khác), đúng 1 lần retry
+- [x] `SeatClaimIT#organizerEdit_neverWritesSeatsTaken` — claim + edit đồng thời, `seats_taken` cuối đúng (AC3.2, C15) — **(2026-10-20)** tất định, xem 3.1; thêm `SeatClaimIT#concurrentClaimsAndEdits_keepSeatsConsistent` cho nhánh race thật
+- [ ] `SeatClaimIT#retriesExhausted_is503_notRecorded` (AC3.3) — **(2026-10-20)** **nửa đầu xong** (`SeatClaimIT#retriesExhausted_isUnavailable_andLeavesNoTrace`: `SeatTemporarilyUnavailableException`, không registration, `seats_taken` không đổi); nửa "không ghi idempotency" làm ở 3.3 nên chưa tick
+- [ ] `SeatClaimIT#full_isSoldOut_recorded` (AC3.4) — **(2026-10-20)** **nửa đầu xong** (`SeatClaimIT#full_isSoldOut`: `SoldOut`, không ghi gì); nửa "được ghi idempotency" làm ở 3.3 nên chưa tick
+- [x] `SeatClaimMetricsTest#conflictAndExhaustion_counted` (AC3.6) — **(2026-10-20)** tên thật: `MicrometerSeatClaimMetricsTest#conflictAndExhaustion_counted` (hai counter), `ReserveSeatTest#lostRace_retriesAndSucceeds`/`#retriesExhausted_isTemporarilyUnavailable` (use case gọi đúng port); counter thứ ba: `MicrometerWorkshopMetricsTest` + `UpdateWorkshopTest#update_lostRace_propagates` (AC3.6). Tên Micrometer dạng chấm: `unihub.seat.claim.version.conflicts`, `unihub.seat.claim.retries.exhausted`, `unihub.workshop.edit.conflicts`
 
 **T-LOCK — SeatLock (D4)** → tiền đề M-18, M-19 (bằng chứng đa instance là M-32/M-34, P3)
-- [ ] `InProcessSeatLockTest#sameWorkshop_mutuallyExclusive`, `#differentWorkshops_doNotContend` (AC4.1)
-- [ ] `InProcessSeatLockTest#waitTimeout_throwsSeatLockUnavailable` (AC4.2)
-- [ ] `InProcessSeatLockTest#entriesRemovedAfterRelease` (AC4.5)
-- [ ] `ReserveSeatLockOrderingIT#lockReleasedOnlyAfterCommit` — request 2 lấy được lock thì đã thấy row của request 1 (AC4.3)
-- [ ] `ReserveSeatLockOrderingIT#lockReleasedOnRollback` (AC4.4)
-- [ ] `ReserveSeatWebTest#lockUnavailable_is503_withRetryAfter` (AC4.2)
+- [x] `InProcessSeatLockTest#sameWorkshop_mutuallyExclusive`, `#differentWorkshops_doNotContend` (AC4.1)
+- [x] `InProcessSeatLockTest#waitTimeout_throwsSeatLockUnavailable` (AC4.2)
+- [x] `InProcessSeatLockTest#entriesRemovedAfterRelease` (AC4.5)
+- [x] `ReserveSeatLockOrderingIT#lockReleasedOnlyAfterCommit` — request 2 lấy được lock thì đã thấy row của request 1 (AC4.3) — **(2026-10-20)** quan sát từ connection khác tại thời điểm handle được đóng
+- [x] `ReserveSeatLockOrderingIT#lockReleasedOnRollback` (AC4.4)
+- [ ] `ReserveSeatWebTest#lockUnavailable_is503_withRetryAfter` (AC4.2) — **(2026-10-20)** controller chưa có (3.2); phần `Retry-After` của handler đã có test ở `GlobalProblemHandlerRetryAfterTest`
 
 ---
 
@@ -643,13 +643,13 @@ Tất cả code ở `com.unihub.shared` (rule 3, `backend-coding-standards.md` �
 Với mỗi mục: Red → Green → Refactor → IT nếu dòng yêu cầu → cập nhật `test-matrix.md` §2.2 trong **cùng commit** (`Not started` → `Drafted` → `Passing`, `Class#method` thật).
 
 ### 3.1 Domain model & seat claim (phụ thuộc Q3, Q11)
-- [ ] `[→ M-18, M-19]` `[M-33 · P3]` Aggregate `Registration` (Tier A): state machine `RESERVED`/`CONFIRMED`/`CANCELLED`/`EXPIRED` theo [ST §2] `registrations.status`, `Version`, invariant `RESERVED ⇔ hold_expires_at` (§9.2)
-- [ ] `[→ M-19, M-23]` Aggregate `Payment` (Tier A): `PENDING`→`SUCCEEDED`/`FAILED`/`CANCELLED` theo [ST §2] `payments.status`, terminal phải reject
-- [ ] `[→ M-18, M-19]` JPA entity riêng + repository adapter so version tường minh, ném `OptimisticConflictException`; conditional UPDATE `status = 'RESERVED'` theo D2 ràng buộc 1 (C8)
-- [ ] `[→ M-18, M-19]` **(D3, C15)** `WorkshopJpaEntity.seatsTaken` → `@Column(updatable = false)`; organizer edit không bao giờ ghi `seats_taken`; test `SeatClaimIT#organizerEdit_neverWritesSeatsTaken`
-- [ ] `[→ M-18, M-19]` `[M-30 · P3]` Workshop `api` port claim/release seat với `Propagation.MANDATORY` — SQL đổi `seats_taken` chỉ nằm trong module Workshop (§7 type 2, §19.5); IT: gọi ngoài transaction bị từ chối
-- [ ] `[→ M-18, M-19]` `[M-28, M-34 · P3]` `SeatLock` port + adapter theo Q11; `ReserveSeat` (entry, không `@Transactional`) + `ReserveSeatTransaction` đúng §25 (two-bean, không gọi qua `this.`)
-- [ ] `[M-12]` `[M-15]` ArchUnit vẫn 18 rule xanh (thêm rule mới nếu cần, không nới rule cũ); JaCoCo phủ package `registration`/`payment` mới
+- [x] `[→ M-18, M-19]` `[M-33 · P3]` Aggregate `Registration` (Tier A): state machine `RESERVED`/`CONFIRMED`/`CANCELLED`/`EXPIRED` theo [ST §2] `registrations.status`, `Version`, invariant `RESERVED ⇔ hold_expires_at` (§9.2) — **(2026-10-20)** `Registration` + `RegistrationStatus`/`TicketType` (`registration.domain.model`), hold khớp trạng thái ở cả domain lẫn CHECK; `RegistrationTest` (chuyển trạng thái hợp lệ + bảng must-reject của `test-design-techniques.md` §2). `ID` dùng chung `RegistrationId`/`PaymentId` nằm ở `shared.domain.id`
+- [x] `[→ M-19, M-23]` Aggregate `Payment` (Tier A): `PENDING`→`SUCCEEDED`/`FAILED`/`CANCELLED` theo [ST §2] `payments.status`, terminal phải reject — **(2026-10-20)** `Payment` + `PaymentStatus` đủ 6 giá trị của CHECK `V3` (restore đọc được mọi hàng hợp lệ); chỉ cài các transition ra khỏi `PENDING`, transition refund để cho nhánh bù trừ (3.5/M-75); `PaymentTest`
+- [x] `[→ M-18, M-19]` JPA entity riêng + repository adapter so version tường minh, ném `OptimisticConflictException`; conditional UPDATE `status = 'RESERVED'` theo D2 ràng buộc 1 (C8) — **(2026-10-20)** Registration: `JpaRegistrationRepository` (`save` so version tường minh; `transition(registration, from)` = `UPDATE … WHERE id AND version AND status = :from`, 0 hàng → `OptimisticConflictException`; unique `uq_registrations_active_per_user` vi phạm → `AlreadyRegisteredException` (409), không 500); `existsActive`. Payment: `JpaPaymentRepository` (`findById`/`save`). IT: `JpaRegistrationRepositoryIT` (gồm race confirm↔expire đúng một bên thắng), `JpaPaymentRepositoryIT`. Việc dịch vi phạm `uq_payments_live_per_registration` thành `409` thuộc use case charge (3.5)
+- [x] `[→ M-18, M-19]` **(D3, C15)** `WorkshopJpaEntity.seatsTaken` → `@Column(updatable = false)`; organizer edit không bao giờ ghi `seats_taken`; test `SeatClaimIT#organizerEdit_neverWritesSeatsTaken` — **(2026-10-20)** `seats_taken` là `updatable = false`, mapper chỉ ghi nó lúc insert. Test là `SeatClaimIT#organizerEdit_neverWritesSeatsTaken`, viết **tất định** (không phải race): cộng `seats_taken` bằng JDBC không đổi version rồi `save` aggregate cũ; đã chạy đỏ trên code cũ (mong 1, được 0) trước khi sửa
+- [x] `[→ M-18, M-19]` `[M-30 · P3]` Workshop `api` port claim/release seat với `Propagation.MANDATORY` — SQL đổi `seats_taken` chỉ nằm trong module Workshop (§7 type 2, §19.5); IT: gọi ngoài transaction bị từ chối — **(2026-10-20)** `workshop.api.SeatInventory`/`SeatClaimOutcome`, `WorkshopSeatInventory` (`MANDATORY`), `SeatCounter` + `JdbcSeatCounter` (SQL D3 có `AND seats_taken < capacity`; 0 hàng → đọc lại: đầy → `SoldOut`, đóng → `NotOpen`, còn chỗ → `OptimisticConflictException` để retry). Claim/release gọi `WorkshopCache.invalidateSeats` (xóa sau commit) ngay trong Workshop, nên `WorkshopCacheInvalidation#seatsChanged` ở 1.5 chưa có caller và có thể bỏ khi 3.x xong. IT `SeatClaimIT#seatInventory_outsideTransaction_isRefused` (`IllegalTransactionStateException`), `#claim_rolledBackWithTheCaller`, `#release_returnsTheSeat`; unit `WorkshopSeatInventoryTest`
+- [x] `[→ M-18, M-19]` `[M-28, M-34 · P3]` `SeatLock` port + adapter theo Q11; `ReserveSeat` (entry, không `@Transactional`) + `ReserveSeatTransaction` đúng §25 (two-bean, không gọi qua `this.`) — **(2026-10-20)** `SeatLock`/`SeatLockHandle`, `InProcessSeatLock` (khóa riêng mỗi workshop, đếm tham chiếu trong `compute` nên entry bị dọn mà không phá loại trừ lẫn nhau, đóng handle idempotent), `ReserveSeat` (entry, không `@Transactional`, retry tối đa 3 lần mỗi lần một transaction mới) + `ReserveSeatTransaction`. `RegistrationPolicy` từ `unihub.registration.*`. Ngoại lệ `SeatLockUnavailableException`/`SeatTemporarilyUnavailableException` đều `UNAVAILABLE` + `RetryableUnavailable`; `GlobalProblemHandler` giờ trả `Retry-After`. Chưa có idempotency (3.3), outbox (3.4), audit và controller (3.2). Dòng §4.5 của `test-matrix.md` đã thêm cùng commit (AC4.6)
+- [x] `[M-12]` `[M-15]` ArchUnit vẫn 18 rule xanh (thêm rule mới nếu cần, không nới rule cũ); JaCoCo phủ package `registration`/`payment` mới — **(2026-10-20)** `ArchitectureTest` xanh không đổi rule nào; `jacocoTestCoverageVerification` xanh với các package mới (`registration.application.usecase`, `registration.domain.model`, `payment.domain.model`, `workshop.application.usecase`). Không đổi `Status` của M-12/M-15 (vốn đã `Passing`)
 
 ### 3.2 Đăng ký miễn phí
 - [ ] **`[M-18]`** Workshop free: `createRegistration` → `CONFIRMED` ngay, `seats_taken + 1` cùng transaction, **không** chạm gateway ([PW §5] row 1: `is_paid=false` × mọi trạng thái breaker); đã đăng ký → `409`; hết ghế → `409`; workshop không `PUBLISHED` → theo contract. `ticket_code`/`qr_payload` để `NULL` tới Phase 5 (`[M-42 · P5]`)

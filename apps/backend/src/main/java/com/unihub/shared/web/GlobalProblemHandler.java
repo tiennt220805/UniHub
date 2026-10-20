@@ -1,10 +1,12 @@
 package com.unihub.shared.web;
 
 import com.unihub.shared.domain.DomainException;
+import com.unihub.shared.domain.RetryableUnavailable;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -25,9 +27,9 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  * the cause, and the cause is logged — without this, Spring Boot's {@code /error} page would answer
  * with its own {@code {timestamp, status, error, path}} JSON instead of the contract's shape.
  *
- * <p>Not yet here: {@code Retry-After} for {@code UNAVAILABLE} (no {@code RetryableUnavailable}
- * exists yet) and the {@code correlationId} property (no correlation-ID filter exists yet — see
- * {@code package-info}).
+ * <p>An {@code UNAVAILABLE} exception that is a {@link RetryableUnavailable} also answers with a
+ * {@code Retry-After} header. Not yet here: the {@code correlationId} property (no correlation-ID
+ * filter exists yet — see {@code package-info}).
  */
 @RestControllerAdvice
 class GlobalProblemHandler extends ResponseEntityExceptionHandler {
@@ -48,7 +50,13 @@ class GlobalProblemHandler extends ResponseEntityExceptionHandler {
                 };
         var body = ProblemDetail.forStatusAndDetail(status, ex.getMessage());
         body.setInstance(URI.create(request.getRequestURI()));
-        return ResponseEntity.status(status).body(body);
+        var response = ResponseEntity.status(status);
+        if (ex instanceof RetryableUnavailable retryable) {
+            response.header(
+                    HttpHeaders.RETRY_AFTER,
+                    String.valueOf(Math.max(1, retryable.retryAfter().toSeconds())));
+        }
+        return response.body(body);
     }
 
     /**

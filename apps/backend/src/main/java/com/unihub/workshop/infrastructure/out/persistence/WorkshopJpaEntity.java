@@ -49,7 +49,10 @@ class WorkshopJpaEntity {
     @Column(nullable = false)
     private int capacity;
 
-    @Column(name = "seats_taken", nullable = false)
+    // Written on insert only. After that the column moves solely through the seat-claim/release SQL
+    // (JdbcSeatCounter, Phase 2 checklist D3/C15): an organizer edit must never carry a stale
+    // count.
+    @Column(name = "seats_taken", nullable = false, updatable = false)
     private int seatsTaken;
 
     @Column(name = "is_paid", nullable = false)
