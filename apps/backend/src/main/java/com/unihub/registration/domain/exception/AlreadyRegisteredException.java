@@ -20,4 +20,10 @@ public class AlreadyRegisteredException extends DomainException {
     public ProblemKind kind() {
         return ProblemKind.CONFLICT;
     }
+
+    @Override
+    public String problemType() {
+        // Same value as ProblemTypes.ALREADY_REGISTERED, which the domain cannot import.
+        return "urn:unihub:problem:already-registered";
+    }
 }

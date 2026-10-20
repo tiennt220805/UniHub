@@ -543,12 +543,12 @@ Tên là đề xuất. Chốt tên thật khi viết test, rồi điền vào `t
 - [ ] `ArchitectureTest` hoặc IT: không có publish nào tới `unihub.system.audit.created` ở Phase 2 (AC6.4)
 
 **T-RBAC — permission `REGISTRATION_CREATE` (D7)** → M-18, M-19, M-01, M-03
-- [ ] `RegistrationAuthorizationIT#withoutRegistrationCreate_is403_noKeyRecorded`, `ChargeAuthorizationIT#withoutRegistrationCreate_is403` (AC7.1)
+- [ ] `RegistrationAuthorizationIT#withoutRegistrationCreate_is403_noKeyRecorded`, `ChargeAuthorizationIT#withoutRegistrationCreate_is403` (AC7.1) — **(2026-10-20)** **nửa đầu xong**: `RegistrationAuthorizationIT#withoutRegistrationCreate_isRefused_noEffect` (401/403, không có registration, `seats_taken` không đổi) và `ReserveSeatWebTest#withoutRegistrationCreate_is403`; nửa "không ghi key" làm ở 3.3 nên chưa tick
 - [ ] `DefaultRbacSeedIT#studentBundle_hasRegistrationCreate_othersDoNot` (AC7.2)
 - [ ] `ChargeAuthorizationIT#otherUsersRegistration_is403` (AC7.3)
 
 **T-PROB — `type` URI của lỗi (D8)** → M-17, M-18, M-19, M-20
-- [ ] `ProblemTypeCatalogTest#everyBranchingReason_hasItsType` + `RegistrationResultHttpMappingTest`/`PaymentResultHttpMappingTest` khẳng định `type` (AC8.1)
+- [ ] `ProblemTypeCatalogTest#everyBranchingReason_hasItsType` + `RegistrationResultHttpMappingTest`/`PaymentResultHttpMappingTest` khẳng định `type` (AC8.1) — **(2026-10-20)** **một phần**: 3 `type` của `createRegistration` đã có hằng (`ProblemTypes`) và test (`ProblemTypesTest`, `ReserveSeatWebTest`, `RegistrationControllerIT`); 4 `type` còn lại thêm cùng use case của chúng (3.3, 3.5), replay giữ `type` ở 3.3
 - [ ] `ProblemShapeIT` mở rộng: replay idempotency giữ nguyên `type` (AC8.1)
 
 **T-AUTH — seed dev/test (D9)** → tiền đề M-18, M-19
@@ -581,7 +581,7 @@ Tên là đề xuất. Chốt tên thật khi viết test, rồi điền vào `t
 - [x] `InProcessSeatLockTest#entriesRemovedAfterRelease` (AC4.5)
 - [x] `ReserveSeatLockOrderingIT#lockReleasedOnlyAfterCommit` — request 2 lấy được lock thì đã thấy row của request 1 (AC4.3) — **(2026-10-20)** quan sát từ connection khác tại thời điểm handle được đóng
 - [x] `ReserveSeatLockOrderingIT#lockReleasedOnRollback` (AC4.4)
-- [ ] `ReserveSeatWebTest#lockUnavailable_is503_withRetryAfter` (AC4.2) — **(2026-10-20)** controller chưa có (3.2); phần `Retry-After` của handler đã có test ở `GlobalProblemHandlerRetryAfterTest`
+- [x] `ReserveSeatWebTest#lockUnavailable_is503_withRetryAfter` (AC4.2) — **(2026-10-20)** `ReserveSeatWebTest#lockUnavailable_is503_withRetryAfter` (+ `#retriesExhausted_is503_withRetryAfter`, mỗi Result variant, 400/401/403); handler có `GlobalProblemHandlerRetryAfterTest`
 
 ---
 
@@ -652,7 +652,7 @@ Với mỗi mục: Red → Green → Refactor → IT nếu dòng yêu cầu → 
 - [x] `[M-12]` `[M-15]` ArchUnit vẫn 18 rule xanh (thêm rule mới nếu cần, không nới rule cũ); JaCoCo phủ package `registration`/`payment` mới — **(2026-10-20)** `ArchitectureTest` xanh không đổi rule nào; `jacocoTestCoverageVerification` xanh với các package mới (`registration.application.usecase`, `registration.domain.model`, `payment.domain.model`, `workshop.application.usecase`). Không đổi `Status` của M-12/M-15 (vốn đã `Passing`)
 
 ### 3.2 Đăng ký miễn phí
-- [ ] **`[M-18]`** Workshop free: `createRegistration` → `CONFIRMED` ngay, `seats_taken + 1` cùng transaction, **không** chạm gateway ([PW §5] row 1: `is_paid=false` × mọi trạng thái breaker); đã đăng ký → `409`; hết ghế → `409`; workshop không `PUBLISHED` → theo contract. `ticket_code`/`qr_payload` để `NULL` tới Phase 5 (`[M-42 · P5]`)
+- [ ] **`[M-18]`** Workshop free: `createRegistration` → `CONFIRMED` ngay, `seats_taken + 1` cùng transaction, **không** chạm gateway ([PW §5] row 1: `is_paid=false` × mọi trạng thái breaker); đã đăng ký → `409`; hết ghế → `409`; workshop không `PUBLISHED` → theo contract. `ticket_code`/`qr_payload` để `NULL` tới Phase 5 (`[M-42 · P5]`) — **(2026-10-20)** `POST /api/v1/registrations` (`RegistrationController`, `REGISTRATION_CREATE`) trả `201` `Registration` (CONFIRMED/FREE cho workshop free, RESERVED/PAID cho workshop có phí); `SoldOut`/`AlreadyRegistered`/`NotOpenForRegistration` là `409` với `type` D8 (`sold-out`, `already-registered`, `registration-not-open`) qua `Problems` + `ProblemTypes`; `404` workshop lạ và `503` + `Retry-After` do `GlobalProblemHandler`. `DomainException#problemType()` cho ngoại lệ dự phòng `AlreadyRegisteredException` cùng `type`. Audit `REGISTRATION_CREATED` ghi trong transaction (có hiệu lực sau commit). `Idempotency-Key` bắt buộc + kiểm UUID nhưng **chưa dùng** (3.3): retry sau khi mất `201` tạm thời nhận `409 already-registered` thay vì replay `201`. Workshop `DRAFT` cũng là `409 registration-not-open` theo contract (khác `getWorkshop` trả `404`). `contract-diff` xanh với `createRegistration`. **Chưa tick** vì dòng yêu cầu "mọi trạng thái breaker" mà breaker chưa tồn tại: mọi phần khác đã xong và có test; nửa breaker đóng cùng M-24 ở 3.7. M-18 ở `Drafted`
 
 ### 3.3 Idempotency trên registration — INV-02
 - [ ] **`[M-20]`** Cùng `Idempotency-Key` chạy đúng một lần; retry trả lại *đúng* Result gốc (kể cả `409` sold-out); hai request cùng key song song → một thắng, một nhận `IdempotencyKeyInUseException`; lỗi tạm thời (`503`, mất race version) **không** được ghi; key row commit cùng transaction với registration (rollback cả hai)

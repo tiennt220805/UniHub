@@ -121,4 +121,12 @@ class RegistrationJpaEntity {
     long version() {
         return version;
     }
+
+    Instant createdAt() {
+        return createdAt;
+    }
+
+    Instant updatedAt() {
+        return updatedAt;
+    }
 }

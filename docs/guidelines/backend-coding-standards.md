@@ -620,6 +620,8 @@ public abstract class DomainException extends RuntimeException {
     protected DomainException(String message) { super(message); }
     protected DomainException(String message, Throwable cause) { super(message, cause); }
     public abstract ProblemKind kind();
+    /** The problem `type` URI when a client must branch on this reason (§17); null keeps `about:blank`. */
+    public String problemType() { return null; }
 }
 public enum ProblemKind { INVALID_REQUEST, NOT_FOUND, CONFLICT, UNPROCESSABLE, UNAVAILABLE }
 
@@ -757,10 +759,11 @@ public final class CorrelationIds {
     public static String current() { ... }
 }
 public final class Problems {
-    /** A ProblemDetail response for a sealed-Result variant (§17, §25.3); fills instance and correlationId. */
-    public static ResponseEntity<ProblemDetail> of(HttpStatus status, String detail, HttpServletRequest request) { ... }
-    public static ResponseEntity<ProblemDetail> conflict(HttpServletRequest request, String detail) {
-        return of(HttpStatus.CONFLICT, detail, request);
+    /** A ProblemDetail response for a sealed-Result variant (§17, §25.3); fills instance and correlationId.
+     *  `type` is one of `ProblemTypes` (§17), or `about:blank` when the client need not branch. */
+    public static ResponseEntity<ProblemDetail> of(HttpStatus status, URI type, String detail, HttpServletRequest request) { ... }
+    public static ResponseEntity<ProblemDetail> conflict(HttpServletRequest request, URI type, String detail) {
+        return of(HttpStatus.CONFLICT, type, detail, request);
     }
 }
 ```
@@ -1331,8 +1334,8 @@ ResponseEntity<?> create(@Valid @RequestBody CreateRegistrationRequest request,
     return switch (result) {
         case ReserveSeatResult.Reserved r  -> ResponseEntity.status(201).body(RegistrationWebMapper.toResponse(r));
         case ReserveSeatResult.Confirmed c -> ResponseEntity.status(201).body(RegistrationWebMapper.toResponse(c));
-        case ReserveSeatResult.SoldOut s   -> Problems.conflict(http, "Workshop is sold out.");
-        case ReserveSeatResult.NotOpenForRegistration n -> Problems.conflict(http, "Workshop is not open for registration.");
+        case ReserveSeatResult.SoldOut s   -> Problems.conflict(http, ProblemTypes.SOLD_OUT, "Workshop is sold out.");
+        case ReserveSeatResult.NotOpenForRegistration n -> Problems.conflict(http, ProblemTypes.REGISTRATION_NOT_OPEN, "Workshop is not open for registration.");
     };
 }
 ```

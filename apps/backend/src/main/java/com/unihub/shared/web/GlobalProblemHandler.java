@@ -49,6 +49,9 @@ class GlobalProblemHandler extends ResponseEntityExceptionHandler {
                     case UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
                 };
         var body = ProblemDetail.forStatusAndDetail(status, ex.getMessage());
+        if (ex.problemType() != null) {
+            body.setType(URI.create(ex.problemType()));
+        }
         body.setInstance(URI.create(request.getRequestURI()));
         var response = ResponseEntity.status(status);
         if (ex instanceof RetryableUnavailable retryable) {

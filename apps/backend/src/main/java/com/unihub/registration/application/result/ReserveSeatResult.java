@@ -11,10 +11,12 @@ import java.time.Instant;
 public sealed interface ReserveSeatResult {
 
     /** A paid workshop: the seat is held until {@code holdExpiresAt}. */
-    record Reserved(RegistrationId id, Instant holdExpiresAt) implements ReserveSeatResult {}
+    record Reserved(RegistrationId id, Instant holdExpiresAt, Instant createdAt, Instant updatedAt)
+            implements ReserveSeatResult {}
 
     /** A free workshop: confirmed at once. */
-    record Confirmed(RegistrationId id) implements ReserveSeatResult {}
+    record Confirmed(RegistrationId id, Instant createdAt, Instant updatedAt)
+            implements ReserveSeatResult {}
 
     record SoldOut() implements ReserveSeatResult {}
 

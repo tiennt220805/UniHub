@@ -13,6 +13,9 @@ import com.unihub.registration.application.result.ReserveSeatResult;
 import com.unihub.registration.domain.model.Registration;
 import com.unihub.registration.domain.model.RegistrationStatus;
 import com.unihub.registration.domain.model.TicketType;
+import com.unihub.shared.application.port.out.AuditActions;
+import com.unihub.shared.application.port.out.AuditEntry;
+import com.unihub.shared.application.port.out.AuditTrail;
 import com.unihub.shared.domain.id.UserId;
 import com.unihub.shared.domain.id.WorkshopId;
 import com.unihub.shared.security.Actor;
@@ -23,12 +26,14 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Set;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 class ReserveSeatTransactionTest {
     private static final Instant NOW = Instant.parse("2026-12-01T09:00:00Z");
+    private static final Instant STORED_AT = Instant.parse("2026-12-01T09:00:00.123Z");
     private static final RegistrationPolicy POLICY =
             new RegistrationPolicy(
                     Duration.ofMinutes(15), Duration.ofSeconds(2), Duration.ofSeconds(5), 3);
@@ -39,9 +44,32 @@ class ReserveSeatTransactionTest {
 
     private final SeatInventory seats = mock(SeatInventory.class);
     private final RegistrationRepository registrations = mock(RegistrationRepository.class);
+    private final AuditTrail auditTrail = mock(AuditTrail.class);
     private final ReserveSeatTransaction transaction =
             new ReserveSeatTransaction(
-                    seats, registrations, POLICY, Clock.fixed(NOW, ZoneOffset.UTC));
+                    seats, registrations, auditTrail, POLICY, Clock.fixed(NOW, ZoneOffset.UTC));
+
+    /** The repository returns the aggregate as stored: same state, plus the row's timestamps. */
+    @BeforeEach
+    void saveStampsTimestamps() {
+        when(registrations.save(any()))
+                .thenAnswer(
+                        invocation -> {
+                            Registration r = invocation.getArgument(0);
+                            return Registration.restore(
+                                    r.id(),
+                                    r.workshopId(),
+                                    r.userId(),
+                                    r.ticketType(),
+                                    r.status(),
+                                    r.holdExpiresAt(),
+                                    r.ticketCode(),
+                                    r.qrPayload(),
+                                    r.version(),
+                                    STORED_AT,
+                                    STORED_AT);
+                        });
+    }
 
     private Registration savedRegistration() {
         var captor = ArgumentCaptor.forClass(Registration.class);
@@ -63,7 +91,9 @@ class ReserveSeatTransactionTest {
         assertThat(saved.workshopId()).isEqualTo(WORKSHOP);
         assertThat(saved.holdExpiresAt()).isEqualTo(NOW.plus(Duration.ofMinutes(15)));
         assertThat(result)
-                .isEqualTo(new ReserveSeatResult.Reserved(saved.id(), saved.holdExpiresAt()));
+                .isEqualTo(
+                        new ReserveSeatResult.Reserved(
+                                saved.id(), saved.holdExpiresAt(), STORED_AT, STORED_AT));
     }
 
     @Test
@@ -77,7 +107,8 @@ class ReserveSeatTransactionTest {
         assertThat(saved.status()).isEqualTo(RegistrationStatus.CONFIRMED);
         assertThat(saved.ticketType()).isEqualTo(TicketType.FREE);
         assertThat(saved.holdExpiresAt()).isNull();
-        assertThat(result).isEqualTo(new ReserveSeatResult.Confirmed(saved.id()));
+        assertThat(result)
+                .isEqualTo(new ReserveSeatResult.Confirmed(saved.id(), STORED_AT, STORED_AT));
     }
 
     @Test
@@ -111,5 +142,30 @@ class ReserveSeatTransactionTest {
 
         verify(seats, never()).claim(any());
         verify(registrations, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("a created registration is audited with the caller as actor, once")
+    void created_isAudited() {
+        when(seats.claim(WORKSHOP)).thenReturn(new SeatClaimOutcome.Claimed(false));
+
+        transaction.execute(COMMAND);
+
+        var entry = ArgumentCaptor.forClass(AuditEntry.class);
+        verify(auditTrail).record(entry.capture());
+        assertThat(entry.getValue().action()).isEqualTo(AuditActions.REGISTRATION_CREATED);
+        assertThat(entry.getValue().actor()).isEqualTo(COMMAND.actor());
+        assertThat(entry.getValue().targetId()).isEqualTo(savedRegistration().id().value());
+        assertThat(entry.getValue().occurredAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    @DisplayName("a refusal creates nothing, so nothing is audited")
+    void refusal_isNotAudited() {
+        when(seats.claim(WORKSHOP)).thenReturn(new SeatClaimOutcome.SoldOut());
+
+        transaction.execute(COMMAND);
+
+        verify(auditTrail, never()).record(any());
     }
 }

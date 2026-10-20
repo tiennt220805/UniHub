@@ -12,4 +12,12 @@ public abstract class DomainException extends RuntimeException {
     }
 
     public abstract ProblemKind kind();
+
+    /**
+     * The problem {@code type} URI when a client must branch on this reason (§17, D8); {@code null}
+     * keeps {@code about:blank}. A plain string, so the domain stays free of web types.
+     */
+    public String problemType() {
+        return null;
+    }
 }

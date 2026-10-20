@@ -22,6 +22,7 @@ import com.unihub.shared.domain.id.UserId;
 import com.unihub.shared.domain.id.WorkshopId;
 import com.unihub.shared.security.Actor;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -54,7 +55,8 @@ class ReserveSeatTest {
     }
 
     private static ReserveSeatResult.Confirmed confirmed() {
-        return new ReserveSeatResult.Confirmed(RegistrationId.newId());
+        var now = Instant.parse("2026-12-01T09:00:00Z");
+        return new ReserveSeatResult.Confirmed(RegistrationId.newId(), now, now);
     }
 
     @Test

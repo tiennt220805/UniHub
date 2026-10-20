@@ -12,5 +12,7 @@ public final class AuditActions {
     public static final String WORKSHOP_RESCHEDULED = "WORKSHOP_RESCHEDULED";
     public static final String WORKSHOP_CANCELLED = "WORKSHOP_CANCELLED";
 
+    public static final String REGISTRATION_CREATED = "REGISTRATION_CREATED";
+
     private AuditActions() {}
 }

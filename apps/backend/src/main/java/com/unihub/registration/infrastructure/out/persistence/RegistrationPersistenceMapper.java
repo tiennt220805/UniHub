@@ -22,7 +22,9 @@ class RegistrationPersistenceMapper {
                 e.holdExpiresAt(),
                 e.ticketCode(),
                 e.qrPayload(),
-                new Version(e.version()));
+                new Version(e.version()),
+                e.createdAt(),
+                e.updatedAt());
     }
 
     RegistrationJpaEntity toNewEntity(Registration r) {

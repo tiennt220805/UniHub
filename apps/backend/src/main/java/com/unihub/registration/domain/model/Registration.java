@@ -31,6 +31,10 @@ public final class Registration {
     private final String ticketCode;
     private final String qrPayload;
     private final Version version;
+    // Persistence metadata (registrations.created_at/updated_at): read-only, null until first
+    // saved.
+    private final Instant createdAt;
+    private final Instant updatedAt;
 
     private Registration(
             RegistrationId id,
@@ -41,7 +45,9 @@ public final class Registration {
             Instant holdExpiresAt,
             String ticketCode,
             String qrPayload,
-            Version version) {
+            Version version,
+            Instant createdAt,
+            Instant updatedAt) {
         this.id = Objects.requireNonNull(id);
         this.workshopId = Objects.requireNonNull(workshopId);
         this.userId = Objects.requireNonNull(userId);
@@ -51,6 +57,8 @@ public final class Registration {
         this.ticketCode = ticketCode;
         this.qrPayload = qrPayload;
         this.version = Objects.requireNonNull(version);
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
         requireHoldMatchesStatus(status, holdExpiresAt);
         if (status == RegistrationStatus.RESERVED && ticketType != TicketType.PAID) {
             throw new InvalidRegistrationStateException("only a paid ticket can be RESERVED");
@@ -77,7 +85,9 @@ public final class Registration {
                 now.plus(holdDuration),
                 null,
                 null,
-                Version.initial());
+                Version.initial(),
+                null,
+                null);
     }
 
     /** A free registration: confirmed at once, there is nothing to wait for. */
@@ -92,7 +102,9 @@ public final class Registration {
                 null,
                 null,
                 null,
-                Version.initial());
+                Version.initial(),
+                null,
+                null);
     }
 
     /** Rebuilds a persisted registration; validates like the factories. */
@@ -106,6 +118,33 @@ public final class Registration {
             String ticketCode,
             String qrPayload,
             Version version) {
+        return restore(
+                id,
+                workshopId,
+                userId,
+                ticketType,
+                status,
+                holdExpiresAt,
+                ticketCode,
+                qrPayload,
+                version,
+                null,
+                null);
+    }
+
+    /** As above, carrying the row's audit timestamps. */
+    public static Registration restore(
+            RegistrationId id,
+            WorkshopId workshopId,
+            UserId userId,
+            TicketType ticketType,
+            RegistrationStatus status,
+            Instant holdExpiresAt,
+            String ticketCode,
+            String qrPayload,
+            Version version,
+            Instant createdAt,
+            Instant updatedAt) {
         return new Registration(
                 id,
                 workshopId,
@@ -115,7 +154,9 @@ public final class Registration {
                 holdExpiresAt,
                 ticketCode,
                 qrPayload,
-                version);
+                version,
+                createdAt,
+                updatedAt);
     }
 
     /** Payment completed while the hold was still ours. */
@@ -193,5 +234,15 @@ public final class Registration {
 
     public Version version() {
         return version;
+    }
+
+    /** When the row was first saved; {@code null} for a registration not yet persisted. */
+    public Instant createdAt() {
+        return createdAt;
+    }
+
+    /** When the row was last written; {@code null} for a registration not yet persisted. */
+    public Instant updatedAt() {
+        return updatedAt;
     }
 }
