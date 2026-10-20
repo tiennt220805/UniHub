@@ -5,6 +5,7 @@ import com.unihub.shared.web.dto.PageMeta;
 import com.unihub.workshop.application.command.CancelWorkshopCommand;
 import com.unihub.workshop.application.command.CreateWorkshopCommand;
 import com.unihub.workshop.application.command.FieldChange;
+import com.unihub.workshop.application.command.PublishWorkshopCommand;
 import com.unihub.workshop.application.command.SearchWorkshopsCriteria;
 import com.unihub.workshop.application.command.UpdateWorkshopCommand;
 import com.unihub.workshop.application.result.SearchWorkshopsResult;
@@ -81,6 +82,10 @@ public final class WorkshopWebMapper {
                 change(r.hasEndTime(), r::getEndTime),
                 change(r.hasCapacity(), r::getCapacity),
                 change(r.hasPrice(), r::getPrice));
+    }
+
+    public static PublishWorkshopCommand toPublishCommand(UUID id, Actor actor) {
+        return new PublishWorkshopCommand(actor, id);
     }
 
     public static CancelWorkshopCommand toCancelCommand(UUID id, Actor actor) {

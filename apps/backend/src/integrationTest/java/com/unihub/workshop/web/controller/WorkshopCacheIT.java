@@ -216,6 +216,25 @@ class WorkshopCacheIT extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName(
+            "a publish is visible to the public on the very next read, though a DRAFT was cached")
+    void publish_refreshesTheCache() throws Exception {
+        var id = insert(aDraftWorkshop().build());
+        // A manager's read caches the DRAFT; the public 404 is applied after the cache.
+        var managerRead = send(HttpMethod.GET, BASE + "/" + id, editor(), null);
+        assertThat(managerRead.getStatusCode().value()).isEqualTo(200);
+        assertThat(cached("detail", id)).isTrue();
+        assertThat(send(HttpMethod.GET, BASE + "/" + id, null, null).getStatusCode().value())
+                .isEqualTo(404);
+
+        var publish = send(HttpMethod.POST, BASE + "/" + id + "/publish", editor(), null);
+
+        assertThat(publish.getStatusCode().value()).isEqualTo(200);
+        assertThat(cached("detail", id)).as("dropped after the commit").isFalse();
+        assertThat(get(id).get("status").asText()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
     @DisplayName("a rejected edit leaves the cache as it was")
     void rejectedEdit_keepsTheCache() throws Exception {
         var id = insert(aPublishedWorkshop().withCapacity(50).withSeatsTaken(20).build());

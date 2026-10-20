@@ -7,6 +7,7 @@ package com.unihub.shared.application.port.out;
 public final class AuditActions {
 
     public static final String WORKSHOP_CREATED = "WORKSHOP_CREATED";
+    public static final String WORKSHOP_PUBLISHED = "WORKSHOP_PUBLISHED";
     public static final String WORKSHOP_UPDATED = "WORKSHOP_UPDATED";
     public static final String WORKSHOP_RESCHEDULED = "WORKSHOP_RESCHEDULED";
     public static final String WORKSHOP_CANCELLED = "WORKSHOP_CANCELLED";

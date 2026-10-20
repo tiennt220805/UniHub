@@ -17,10 +17,12 @@ import com.unihub.shared.infrastructure.security.SecurityConfig;
 import com.unihub.shared.security.TestJwts;
 import com.unihub.workshop.application.command.CancelWorkshopCommand;
 import com.unihub.workshop.application.command.CreateWorkshopCommand;
+import com.unihub.workshop.application.command.PublishWorkshopCommand;
 import com.unihub.workshop.application.command.UpdateWorkshopCommand;
 import com.unihub.workshop.application.port.in.CancelWorkshopUseCase;
 import com.unihub.workshop.application.port.in.CreateWorkshopUseCase;
 import com.unihub.workshop.application.port.in.GetWorkshopUseCase;
+import com.unihub.workshop.application.port.in.PublishWorkshopUseCase;
 import com.unihub.workshop.application.port.in.SearchWorkshopsUseCase;
 import com.unihub.workshop.application.port.in.UpdateWorkshopUseCase;
 import com.unihub.workshop.application.result.WorkshopResult;
@@ -74,6 +76,7 @@ class WorkshopWriteControllerWebTest {
     @MockBean private SearchWorkshopsUseCase searchWorkshops;
     @MockBean private CreateWorkshopUseCase createWorkshop;
     @MockBean private UpdateWorkshopUseCase updateWorkshop;
+    @MockBean private PublishWorkshopUseCase publishWorkshop;
     @MockBean private CancelWorkshopUseCase cancelWorkshop;
     @MockBean private GetWorkshopUseCase getWorkshop;
 
@@ -149,6 +152,17 @@ class WorkshopWriteControllerWebTest {
                 .andExpect(status().isForbidden());
 
         verifyNoInteractions(cancelWorkshop);
+    }
+
+    @Test
+    @DisplayName("POST /workshops/{id}/publish needs WORKSHOP_EDIT; no token is 401, wrong is 403")
+    void publish_authorization() throws Exception {
+        mockMvc.perform(post("/api/v1/workshops/" + ID + "/publish"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(as(post("/api/v1/workshops/" + ID + "/publish"), "WORKSHOP_CREATE", ""))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(publishWorkshop);
     }
 
     // ---------- create ----------
@@ -366,6 +380,35 @@ class WorkshopWriteControllerWebTest {
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(updateWorkshop);
+    }
+
+    // ---------- publish ----------
+
+    @Test
+    @DisplayName("POST /workshops/{id}/publish is 200 with the published workshop")
+    void publish_200() throws Exception {
+        when(publishWorkshop.publish(any())).thenReturn(result("PUBLISHED"));
+
+        mockMvc.perform(as(post("/api/v1/workshops/" + ID + "/publish"), "WORKSHOP_EDIT", ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PUBLISHED"));
+
+        var command = ArgumentCaptor.forClass(PublishWorkshopCommand.class);
+        verify(publishWorkshop).publish(command.capture());
+        assertThat(command.getValue().workshopId()).isEqualTo(ID);
+    }
+
+    @Test
+    @DisplayName("publishing a workshop that is not a DRAFT is 409 problem+json")
+    void publish_notDraft_409() throws Exception {
+        when(publishWorkshop.publish(any()))
+                .thenThrow(
+                        new InvalidWorkshopStateException(
+                                WorkshopId.of(ID), WorkshopStatus.PUBLISHED, "publish"));
+
+        mockMvc.perform(as(post("/api/v1/workshops/" + ID + "/publish"), "WORKSHOP_EDIT", ""))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"));
     }
 
     // ---------- cancel ----------

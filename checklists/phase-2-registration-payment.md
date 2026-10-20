@@ -634,7 +634,7 @@ Tất cả code ở `com.unihub.shared` (rule 3, `backend-coding-standards.md` �
 - [ ] `[M-61 · P7]` Rate limit cho login **không** làm ở đây (INV-17) — chỉ ghi chú
 
 ### 2.2 Publish workshop
-- [ ] `[→ M-18, M-19]` `[— không dòng]` `POST /api/v1/workshops/{id}/publish` (`DRAFT`→`PUBLISHED`, `WORKSHOP_EDIT`) — không có workshop `PUBLISHED` thì không đăng ký được. Contract đánh dấu endpoint này là suy luận và M-04 loại trừ rõ nên không có dòng matrix. Vẫn viết unit + IT + contract-diff (M-17); quyết định có thêm dòng mới hay không
+- [x] `[→ M-18, M-19]` `[— không dòng]` **(2026-10-20)** `Workshop.publish()` (chỉ `DRAFT`; `PUBLISHED`/`CANCELLED`/`COMPLETED` → `InvalidWorkshopStateException` → `409`, không coi publish lại là no-op), `PublishWorkshop` (lưu, `cache.invalidate` sau commit, audit `WORKSHOP_PUBLISHED`), controller `POST /{id}/publish` (`WORKSHOP_EDIT`). **Không** phát outbox: `messaging.md` §2 không có routing key cho publish và không module nào phản ứng. Test: `WorkshopLifecycleTest` (domain), `PublishWorkshopTest`, `WorkshopWriteControllerWebTest` (401/403/200/409), `WorkshopLifecycleIT` (HTTP end-to-end, 404/401/403/409), `WorkshopCacheIT#publish_refreshesTheCache` (DRAFT đã cache → công chúng thấy `200` ngay sau publish); `contract-diff.sh` OK. **Còn chờ người dùng quyết:** có thêm dòng matrix mới hay không — `POST /api/v1/workshops/{id}/publish` (`DRAFT`→`PUBLISHED`, `WORKSHOP_EDIT`) — không có workshop `PUBLISHED` thì không đăng ký được. Contract đánh dấu endpoint này là suy luận và M-04 loại trừ rõ nên không có dòng matrix. Vẫn viết unit + IT + contract-diff (M-17); quyết định có thêm dòng mới hay không
 
 ---
 

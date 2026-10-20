@@ -8,6 +8,7 @@ import com.unihub.workshop.application.command.GetWorkshopQuery;
 import com.unihub.workshop.application.port.in.CancelWorkshopUseCase;
 import com.unihub.workshop.application.port.in.CreateWorkshopUseCase;
 import com.unihub.workshop.application.port.in.GetWorkshopUseCase;
+import com.unihub.workshop.application.port.in.PublishWorkshopUseCase;
 import com.unihub.workshop.application.port.in.SearchWorkshopsUseCase;
 import com.unihub.workshop.application.port.in.UpdateWorkshopUseCase;
 import com.unihub.workshop.web.dto.CreateWorkshopRequest;
@@ -59,6 +60,7 @@ class WorkshopController {
     private final GetWorkshopUseCase getWorkshop;
     private final CreateWorkshopUseCase createWorkshop;
     private final UpdateWorkshopUseCase updateWorkshop;
+    private final PublishWorkshopUseCase publishWorkshop;
     private final CancelWorkshopUseCase cancelWorkshop;
 
     WorkshopController(
@@ -66,11 +68,13 @@ class WorkshopController {
             GetWorkshopUseCase getWorkshop,
             CreateWorkshopUseCase createWorkshop,
             UpdateWorkshopUseCase updateWorkshop,
+            PublishWorkshopUseCase publishWorkshop,
             CancelWorkshopUseCase cancelWorkshop) {
         this.searchWorkshops = searchWorkshops;
         this.getWorkshop = getWorkshop;
         this.createWorkshop = createWorkshop;
         this.updateWorkshop = updateWorkshop;
+        this.publishWorkshop = publishWorkshop;
         this.cancelWorkshop = cancelWorkshop;
     }
 
@@ -295,6 +299,59 @@ class WorkshopController {
         var result =
                 updateWorkshop.update(
                         WorkshopWebMapper.toCommand(id, request, CurrentActor.from(jwt)));
+        return WorkshopWebMapper.toResponse(result);
+    }
+
+    @Operation(
+            operationId = "publishWorkshop",
+            extensions =
+                    @Extension(
+                            properties =
+                                    @ExtensionProperty(
+                                            name = "x-required-permission",
+                                            value = Permissions.WORKSHOP_EDIT)),
+            tags = {"Workshop"},
+            parameters = {
+                @Parameter(
+                        name = "id",
+                        in = ParameterIn.PATH,
+                        required = true,
+                        schema =
+                                @Schema(
+                                        types = {"string"},
+                                        format = "uuid")),
+                @Parameter(
+                        name = "X-Correlation-Id",
+                        in = ParameterIn.HEADER,
+                        required = false,
+                        schema =
+                                @Schema(
+                                        types = {"string"},
+                                        pattern = CORRELATION_ID_PATTERN))
+            })
+    @ApiResponse(
+            responseCode = "200",
+            headers =
+                    @Header(
+                            name = "X-Correlation-Id",
+                            schema =
+                                    @Schema(
+                                            types = {"string"},
+                                            pattern = CORRELATION_ID_PATTERN)),
+            content =
+                    @Content(
+                            mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = Workshop.class)))
+    @ApiProblems.Unauthorized
+    @ApiProblems.Forbidden
+    @ApiProblems.NotFound
+    @ApiProblems.Conflict
+    @PostMapping(path = "/{id}/publish", produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority(T(com.unihub.shared.security.Permissions).WORKSHOP_EDIT)")
+    Workshop publish(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) {
+        var result =
+                publishWorkshop.publish(
+                        WorkshopWebMapper.toPublishCommand(id, CurrentActor.from(jwt)));
         return WorkshopWebMapper.toResponse(result);
     }
 

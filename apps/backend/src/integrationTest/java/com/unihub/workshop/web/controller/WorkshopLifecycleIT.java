@@ -287,6 +287,63 @@ class WorkshopLifecycleIT extends IntegrationTestSupport {
         assertThat(row(id).get("version")).isEqualTo(0);
     }
 
+    // ---------- publish ----------
+
+    @Test
+    @DisplayName("POST /publish moves a DRAFT to PUBLISHED; publishing again is 409")
+    void publish_thenPublishAgain() throws Exception {
+        var id = createDraft();
+
+        var first = send(HttpMethod.POST, BASE + "/" + id + "/publish", editor(), null);
+        var second = send(HttpMethod.POST, BASE + "/" + id + "/publish", editor(), null);
+
+        assertThat(first.getStatusCode().value()).isEqualTo(200);
+        assertThat(json(first).get("status").asText()).isEqualTo("PUBLISHED");
+        assertThat(row(id).get("status")).isEqualTo("PUBLISHED");
+        assertProblem(second, 409);
+        assertThat(row(id).get("status")).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    @DisplayName("a DRAFT is 404 to the public until it is published, then 200 (no cache here)")
+    void publish_makesTheWorkshopPublic() throws Exception {
+        var id = createDraft();
+        assertThat(send(HttpMethod.GET, BASE + "/" + id, null, null).getStatusCode().value())
+                .isEqualTo(404);
+
+        send(HttpMethod.POST, BASE + "/" + id + "/publish", editor(), null);
+
+        assertThat(send(HttpMethod.GET, BASE + "/" + id, null, null).getStatusCode().value())
+                .isEqualTo(200);
+    }
+
+    @ParameterizedTest
+    @MethodSource("terminalWorkshops")
+    @DisplayName("a CANCELLED or COMPLETED workshop cannot be published: 409, row untouched")
+    void publish_terminal_409(WorkshopBuilder builder) throws Exception {
+        var workshop = builder.build();
+        var id = insertDirectly(workshop);
+        var before = row(id);
+
+        var response = send(HttpMethod.POST, BASE + "/" + id + "/publish", editor(), null);
+
+        assertProblem(response, 409);
+        assertThat(row(id)).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("publish: unknown id is 404, no token is 401, WORKSHOP_CREATE alone is 403")
+    void publish_failures() throws Exception {
+        var id = createDraft();
+
+        assertProblem(
+                send(HttpMethod.POST, BASE + "/" + UUID.randomUUID() + "/publish", editor(), null),
+                404);
+        assertProblem(send(HttpMethod.POST, BASE + "/" + id + "/publish", null, null), 401);
+        assertProblem(send(HttpMethod.POST, BASE + "/" + id + "/publish", creator(), null), 403);
+        assertThat(row(id).get("status")).isEqualTo("DRAFT");
+    }
+
     // ---------- cancel ----------
 
     @Test

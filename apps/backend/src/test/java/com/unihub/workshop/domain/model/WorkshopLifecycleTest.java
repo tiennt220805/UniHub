@@ -38,6 +38,35 @@ class WorkshopLifecycleTest {
         return Stream.of(aCancelledWorkshop(), aCompletedWorkshop());
     }
 
+    // ---------- publish ----------
+
+    @Test
+    @DisplayName("publish moves a DRAFT to PUBLISHED and records no event")
+    void publish_fromDraft() {
+        var workshop = aDraftWorkshop().build();
+
+        workshop.publish();
+
+        assertThat(workshop.status()).isEqualTo(WorkshopStatus.PUBLISHED);
+        assertThat(workshop.pullEvents()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = WorkshopStatus.class,
+            names = {"PUBLISHED", "CANCELLED", "COMPLETED"})
+    @DisplayName("publish rejects anything but a DRAFT, leaving it untouched with no event")
+    void publish_rejectsNonDraft(WorkshopStatus from) {
+        var workshop = aDraftWorkshop().withStatus(from).build();
+
+        assertThatThrownBy(workshop::publish)
+                .isInstanceOf(InvalidWorkshopStateException.class)
+                .hasMessageContaining("publish");
+
+        assertThat(workshop.status()).isEqualTo(from);
+        assertThat(workshop.pullEvents()).isEmpty();
+    }
+
     // ---------- cancel ----------
 
     @ParameterizedTest

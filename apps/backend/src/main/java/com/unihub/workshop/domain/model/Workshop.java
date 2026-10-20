@@ -232,6 +232,18 @@ public final class Workshop {
     }
 
     /**
+     * Makes a DRAFT visible to students. Only a DRAFT can be published: publishing a workshop that
+     * is already PUBLISHED, CANCELLED or COMPLETED is rejected, not treated as a no-op. Records no
+     * event: nothing downstream reacts to a publish.
+     */
+    public void publish() {
+        if (status != WorkshopStatus.DRAFT) {
+            throw new InvalidWorkshopStateException(id, status, "publish");
+        }
+        this.status = WorkshopStatus.PUBLISHED;
+    }
+
+    /**
      * Cancels a DRAFT or PUBLISHED workshop. Seats are not released here: that is Registration's
      * reaction to the {@link WorkshopCancelled} event, not this aggregate's concern.
      */

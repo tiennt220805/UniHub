@@ -18,6 +18,7 @@ import com.unihub.workshop.application.command.SearchWorkshopsCriteria;
 import com.unihub.workshop.application.port.in.CancelWorkshopUseCase;
 import com.unihub.workshop.application.port.in.CreateWorkshopUseCase;
 import com.unihub.workshop.application.port.in.GetWorkshopUseCase;
+import com.unihub.workshop.application.port.in.PublishWorkshopUseCase;
 import com.unihub.workshop.application.port.in.SearchWorkshopsUseCase;
 import com.unihub.workshop.application.port.in.UpdateWorkshopUseCase;
 import com.unihub.workshop.application.result.SearchWorkshopsResult;
@@ -53,6 +54,7 @@ class WorkshopControllerWebTest {
     // The controller also serves the write endpoints; this class only exercises the search one.
     @MockBean private CreateWorkshopUseCase createWorkshop;
     @MockBean private UpdateWorkshopUseCase updateWorkshop;
+    @MockBean private PublishWorkshopUseCase publishWorkshop;
     @MockBean private CancelWorkshopUseCase cancelWorkshop;
     @MockBean private GetWorkshopUseCase getWorkshop;
 
