@@ -166,7 +166,7 @@ class JpaRegistrationRepositoryIT extends IntegrationTestSupport {
                 tx.execute(
                         s -> {
                             var loaded = registrations.findById(saved.id()).orElseThrow();
-                            loaded.confirm();
+                            loaded.confirm(java.time.Instant.now());
                             return registrations.transition(loaded, RegistrationStatus.RESERVED);
                         });
 
@@ -184,7 +184,7 @@ class JpaRegistrationRepositoryIT extends IntegrationTestSupport {
         jdbc.update(
                 "UPDATE registrations SET status = 'EXPIRED', hold_expires_at = NULL WHERE id = ?",
                 saved.id().value());
-        loaded.confirm();
+        loaded.confirm(java.time.Instant.now());
 
         assertThatThrownBy(
                         () ->
@@ -223,7 +223,7 @@ class JpaRegistrationRepositoryIT extends IntegrationTestSupport {
                                 var loaded = registrations.findById(saved.id()).orElseThrow();
                                 await(barrier);
                                 if (confirm) {
-                                    loaded.confirm();
+                                    loaded.confirm(java.time.Instant.now());
                                 } else {
                                     loaded.expire();
                                 }

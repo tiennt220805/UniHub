@@ -7,6 +7,7 @@ import static com.unihub.registration.domain.model.RegistrationBuilder.anExpired
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.unihub.registration.domain.event.RegistrationConfirmed;
 import com.unihub.registration.domain.exception.InvalidRegistrationStateException;
 import com.unihub.shared.domain.Version;
 import com.unihub.shared.domain.id.RegistrationId;
@@ -70,7 +71,7 @@ class RegistrationTest {
     void confirmFree_isConfirmedWithoutHold() {
         var registration =
                 Registration.confirmFree(
-                        RegistrationId.newId(), WorkshopId.newId(), UserId.newId());
+                        RegistrationId.newId(), WorkshopId.newId(), UserId.newId(), NOW);
 
         assertThat(registration.status()).isEqualTo(RegistrationStatus.CONFIRMED);
         assertThat(registration.isConfirmed()).isTrue();
@@ -79,14 +80,67 @@ class RegistrationTest {
     }
 
     @Test
+    @DisplayName("a free registration records RegistrationConfirmed, once, when it is created")
+    void confirmFree_recordsTheConfirmation() {
+        var id = RegistrationId.newId();
+        var workshop = WorkshopId.newId();
+        var user = UserId.newId();
+        var registration = Registration.confirmFree(id, workshop, user, NOW);
+
+        assertThat(registration.pullEvents())
+                .containsExactly(new RegistrationConfirmed(id, workshop, user, NOW));
+        assertThat(registration.pullEvents()).as("pulling clears them").isEmpty();
+    }
+
+    @Test
+    @DisplayName("a reservation records nothing yet: the seat is held, not confirmed")
+    void reserve_recordsNoConfirmation() {
+        var registration = aReservedRegistration().build();
+
+        assertThat(registration.pullEvents()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a persisted registration is rebuilt without events")
+    void restore_hasNoEvents() {
+        assertThat(aConfirmedRegistration().build().pullEvents()).isEmpty();
+    }
+
+    @Test
     @DisplayName("RESERVED → CONFIRMED clears the hold")
     void confirm_fromReserved() {
         var registration = aReservedRegistration().build();
 
-        registration.confirm();
+        registration.confirm(NOW);
 
         assertThat(registration.status()).isEqualTo(RegistrationStatus.CONFIRMED);
         assertThat(registration.holdExpiresAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("RESERVED → CONFIRMED records RegistrationConfirmed at the given instant")
+    void confirm_recordsTheConfirmation() {
+        var registration = aReservedRegistration().build();
+
+        registration.confirm(NOW);
+
+        assertThat(registration.pullEvents())
+                .containsExactly(
+                        new RegistrationConfirmed(
+                                registration.id(),
+                                registration.workshopId(),
+                                registration.userId(),
+                                NOW));
+    }
+
+    @Test
+    @DisplayName("a refused confirmation records nothing")
+    void confirm_refused_recordsNothing() {
+        var registration = anExpiredRegistration().build();
+
+        assertThatThrownBy(() -> registration.confirm(NOW))
+                .isInstanceOf(InvalidRegistrationStateException.class);
+        assertThat(registration.pullEvents()).isEmpty();
     }
 
     @Test
@@ -115,7 +169,7 @@ class RegistrationTest {
     }
 
     static Stream<Arguments> mustReject() {
-        Consumer<Registration> confirm = Registration::confirm;
+        Consumer<Registration> confirm = r -> r.confirm(NOW);
         Consumer<Registration> expire = Registration::expire;
         Consumer<Registration> cancel = Registration::cancel;
         return Stream.of(

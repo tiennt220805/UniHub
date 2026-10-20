@@ -71,9 +71,30 @@ public final class RegistrationFixtures {
                 id.value());
     }
 
+    /** {@code event_publications} rows announcing this registration (INV-10). */
+    public int outboxRows(UUID registrationId) {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM event_publications WHERE aggregate_id = ?",
+                Integer.class,
+                registrationId);
+    }
+
+    /** {@code event_publications} rows for the workshop's registrations, whatever their state. */
+    public int outboxRowsForWorkshop(WorkshopId id) {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM event_publications WHERE aggregate_id IN"
+                        + " (SELECT id FROM registrations WHERE workshop_id = ?)",
+                Integer.class,
+                id.value());
+    }
+
     public void cleanUp() {
         users.forEach(
                 user -> {
+                    jdbc.update(
+                            "DELETE FROM event_publications WHERE aggregate_id IN "
+                                    + "(SELECT id FROM registrations WHERE user_id = ?)",
+                            user);
                     jdbc.update("DELETE FROM idempotency_keys WHERE actor_user_id = ?", user);
                     jdbc.update(
                             "DELETE FROM payments WHERE registration_id IN "

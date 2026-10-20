@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.unihub.registration.api.event.RegistrationConfirmedIntegrationEvent;
 import com.unihub.registration.application.command.ReserveSeatCommand;
 import com.unihub.registration.application.port.out.RegistrationRepository;
 import com.unihub.registration.application.result.ReserveSeatResult;
@@ -18,6 +19,7 @@ import com.unihub.registration.domain.model.TicketType;
 import com.unihub.shared.application.port.out.AuditActions;
 import com.unihub.shared.application.port.out.AuditEntry;
 import com.unihub.shared.application.port.out.AuditTrail;
+import com.unihub.shared.application.port.out.EventPublisher;
 import com.unihub.shared.application.port.out.IdempotencyKeyInUseException;
 import com.unihub.shared.application.port.out.IdempotencyKeyReusedException;
 import com.unihub.shared.application.port.out.IdempotencyRecord;
@@ -26,6 +28,7 @@ import com.unihub.shared.application.port.out.IdempotencyStore;
 import com.unihub.shared.application.port.out.StoredResult;
 import com.unihub.shared.domain.id.UserId;
 import com.unihub.shared.domain.id.WorkshopId;
+import com.unihub.shared.event.OutboxMessage;
 import com.unihub.shared.security.Actor;
 import com.unihub.workshop.api.SeatClaimOutcome;
 import com.unihub.workshop.api.SeatInventory;
@@ -61,12 +64,14 @@ class ReserveSeatTransactionTest {
     private final SeatInventory seats = mock(SeatInventory.class);
     private final RegistrationRepository registrations = mock(RegistrationRepository.class);
     private final AuditTrail auditTrail = mock(AuditTrail.class);
+    private final EventPublisher events = mock(EventPublisher.class);
     private final ReserveSeatTransaction transaction =
             new ReserveSeatTransaction(
                     idempotency,
                     seats,
                     registrations,
                     auditTrail,
+                    events,
                     POLICY,
                     Clock.fixed(NOW, ZoneOffset.UTC));
 
@@ -188,6 +193,63 @@ class ReserveSeatTransactionTest {
         transaction.execute(COMMAND);
 
         verify(auditTrail, never()).record(any());
+    }
+
+    // ---------- outbox: the ticket.confirmed row is written by this transaction (INV-10)
+    // ----------
+
+    @Test
+    @DisplayName("a free claim publishes exactly one ticket.confirmed message for the saved row")
+    void freeClaim_publishesTicketConfirmed() {
+        when(seats.claim(WORKSHOP)).thenReturn(new SeatClaimOutcome.Claimed(false));
+
+        transaction.execute(COMMAND);
+
+        var message = ArgumentCaptor.forClass(OutboxMessage.class);
+        verify(events).publish(message.capture());
+        assertThat(message.getValue())
+                .isEqualTo(
+                        new RegistrationConfirmedIntegrationEvent(
+                                savedRegistration().id().value(),
+                                WORKSHOP.value(),
+                                STUDENT.value(),
+                                NOW));
+    }
+
+    @Test
+    @DisplayName("the message is written after the registration and before the key completes")
+    void publish_afterSave_beforeComplete() {
+        when(seats.claim(WORKSHOP)).thenReturn(new SeatClaimOutcome.Claimed(false));
+
+        transaction.execute(COMMAND);
+
+        InOrder order = Mockito.inOrder(registrations, events, idempotency);
+        order.verify(registrations).save(any());
+        order.verify(events).publish(any());
+        order.verify(idempotency).complete(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a paid hold is not a confirmation: nothing is published for it")
+    void paidClaim_publishesNothing() {
+        when(seats.claim(WORKSHOP)).thenReturn(new SeatClaimOutcome.Claimed(true));
+
+        transaction.execute(COMMAND);
+
+        verify(events, never()).publish(any());
+    }
+
+    @Test
+    @DisplayName("a refusal publishes nothing")
+    void refusals_publishNothing() {
+        when(seats.claim(WORKSHOP)).thenReturn(new SeatClaimOutcome.SoldOut());
+        transaction.execute(COMMAND);
+        when(seats.claim(WORKSHOP)).thenReturn(new SeatClaimOutcome.NotOpenForRegistration());
+        transaction.execute(COMMAND);
+        when(registrations.existsActive(WORKSHOP, STUDENT)).thenReturn(true);
+        transaction.execute(COMMAND);
+
+        verify(events, never()).publish(any());
     }
 
     // ---------- idempotency: begin first, complete last, every decided outcome recorded ----------

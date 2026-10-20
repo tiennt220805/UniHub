@@ -1,6 +1,7 @@
 package com.unihub.registration.application.usecase;
 
 import com.unihub.registration.application.command.ReserveSeatCommand;
+import com.unihub.registration.application.event.RegistrationOutboxTranslator;
 import com.unihub.registration.application.port.out.RegistrationRepository;
 import com.unihub.registration.application.result.ReserveSeatResult;
 import com.unihub.registration.domain.model.Registration;
@@ -8,6 +9,7 @@ import com.unihub.shared.application.port.out.AuditActions;
 import com.unihub.shared.application.port.out.AuditEntry;
 import com.unihub.shared.application.port.out.AuditTargets;
 import com.unihub.shared.application.port.out.AuditTrail;
+import com.unihub.shared.application.port.out.EventPublisher;
 import com.unihub.shared.application.port.out.IdempotencyScope;
 import com.unihub.shared.application.port.out.IdempotencyStore;
 import com.unihub.shared.application.usecase.IdempotentReplay;
@@ -23,8 +25,9 @@ import org.springframework.transaction.annotation.Transactional;
  * One attempt at the seat reservation, in one transaction: the seat claim (Workshop, {@code
  * MANDATORY}) and the {@code registrations} insert commit together or not at all
  * (database-schema.md §4.1), the audit entry is recorded here (it takes effect after commit) and so
- * is the idempotency key, begun first and completed last. The outbox row joins this transaction
- * with its own checklist item (3.4).
+ * is the idempotency key, begun first and completed last. A confirmation also writes its {@code
+ * ticket.confirmed} outbox row here (INV-10): the row commits with the registration or not at all,
+ * and the relay publishes it later.
  */
 @Service
 class ReserveSeatTransaction {
@@ -32,6 +35,7 @@ class ReserveSeatTransaction {
     private final SeatInventory seatInventory;
     private final RegistrationRepository registrations;
     private final AuditTrail auditTrail;
+    private final EventPublisher events;
     private final RegistrationPolicy policy;
     private final Clock clock;
 
@@ -40,12 +44,14 @@ class ReserveSeatTransaction {
             SeatInventory seatInventory,
             RegistrationRepository registrations,
             AuditTrail auditTrail,
+            EventPublisher events,
             RegistrationPolicy policy,
             Clock clock) {
         this.idempotency = idempotency;
         this.seatInventory = seatInventory;
         this.registrations = registrations;
         this.auditTrail = auditTrail;
+        this.events = events;
         this.policy = policy;
         this.clock = clock;
     }
@@ -102,9 +108,14 @@ class ReserveSeatTransaction {
                         claimed.paid()
                                 ? Registration.reserve(
                                         id, workshopId, userId, now, policy.seatHoldDuration())
-                                : Registration.confirmFree(id, workshopId, userId);
+                                : Registration.confirmFree(id, workshopId, userId, now);
                 // The saved aggregate carries the row's timestamps, which the response needs.
                 var saved = registrations.save(registration);
+                // In this transaction (EventPublisher is MANDATORY): the intent to publish commits
+                // or rolls back with the registration, never alone (§8, INV-10).
+                registration.pullEvents().stream()
+                        .flatMap(event -> RegistrationOutboxTranslator.translate(event).stream())
+                        .forEach(events::publish);
                 // Deferred to after commit and fail-open (AuditTrail): never blocks the claim.
                 auditTrail.record(
                         AuditEntry.of(

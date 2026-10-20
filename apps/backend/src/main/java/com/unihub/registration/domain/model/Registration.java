@@ -1,5 +1,7 @@
 package com.unihub.registration.domain.model;
 
+import com.unihub.registration.domain.event.RegistrationConfirmed;
+import com.unihub.registration.domain.event.RegistrationDomainEvent;
 import com.unihub.registration.domain.exception.InvalidRegistrationStateException;
 import com.unihub.shared.domain.Version;
 import com.unihub.shared.domain.id.RegistrationId;
@@ -7,6 +9,8 @@ import com.unihub.shared.domain.id.UserId;
 import com.unihub.shared.domain.id.WorkshopId;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -35,6 +39,7 @@ public final class Registration {
     // saved.
     private final Instant createdAt;
     private final Instant updatedAt;
+    private final List<RegistrationDomainEvent> events = new ArrayList<>();
 
     private Registration(
             RegistrationId id,
@@ -90,21 +95,28 @@ public final class Registration {
                 null);
     }
 
-    /** A free registration: confirmed at once, there is nothing to wait for. */
+    /**
+     * A free registration: confirmed at once, there is nothing to wait for. Records {@link
+     * RegistrationConfirmed}, so the confirmation is announced the same way as a paid one.
+     */
     public static Registration confirmFree(
-            RegistrationId id, WorkshopId workshopId, UserId userId) {
-        return new Registration(
-                id,
-                workshopId,
-                userId,
-                TicketType.FREE,
-                RegistrationStatus.CONFIRMED,
-                null,
-                null,
-                null,
-                Version.initial(),
-                null,
-                null);
+            RegistrationId id, WorkshopId workshopId, UserId userId, Instant now) {
+        Objects.requireNonNull(now);
+        var registration =
+                new Registration(
+                        id,
+                        workshopId,
+                        userId,
+                        TicketType.FREE,
+                        RegistrationStatus.CONFIRMED,
+                        null,
+                        null,
+                        null,
+                        Version.initial(),
+                        null,
+                        null);
+        registration.events.add(new RegistrationConfirmed(id, workshopId, userId, now));
+        return registration;
     }
 
     /** Rebuilds a persisted registration; validates like the factories. */
@@ -159,11 +171,13 @@ public final class Registration {
                 updatedAt);
     }
 
-    /** Payment completed while the hold was still ours. */
-    public void confirm() {
+    /** Payment completed while the hold was still ours. Records {@link RegistrationConfirmed}. */
+    public void confirm(Instant now) {
+        Objects.requireNonNull(now);
         requireStatus(RegistrationStatus.RESERVED, "be confirmed");
         this.status = RegistrationStatus.CONFIRMED;
         this.holdExpiresAt = null;
+        events.add(new RegistrationConfirmed(id, workshopId, userId, now));
     }
 
     /** Cancels a held or confirmed registration. */
@@ -193,6 +207,13 @@ public final class Registration {
             throw new InvalidRegistrationStateException(
                     "hold_expires_at must be set exactly when the registration is RESERVED");
         }
+    }
+
+    /** Returns and clears the events recorded since the aggregate was loaded or last pulled. */
+    public List<RegistrationDomainEvent> pullEvents() {
+        var pulled = List.copyOf(events);
+        events.clear();
+        return pulled;
     }
 
     public RegistrationId id() {
