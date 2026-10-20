@@ -91,10 +91,13 @@ public final class RegistrationFixtures {
     public void cleanUp() {
         users.forEach(
                 user -> {
+                    // By the payload's userId, not through registrations: a test may already have
+                    // deleted the registration row, and its outbox row would stay PENDING for the
+                    // next relay (any later IT with the relay on would publish it to the broker).
                     jdbc.update(
-                            "DELETE FROM event_publications WHERE aggregate_id IN "
-                                    + "(SELECT id FROM registrations WHERE user_id = ?)",
-                            user);
+                            "DELETE FROM event_publications WHERE aggregate_type = 'REGISTRATION'"
+                                    + " AND payload ->> 'userId' = ?",
+                            user.toString());
                     jdbc.update("DELETE FROM idempotency_keys WHERE actor_user_id = ?", user);
                     jdbc.update(
                             "DELETE FROM payments WHERE registration_id IN "
