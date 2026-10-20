@@ -151,8 +151,8 @@ jobs:
   # INV-18 / M-13 — deployment-and-cicd.md §5 (Security Scan Jobs ADR), copied from its model. Runs in
   # parallel with the gate chain (`needs:` nothing) and is blocking: no `continue-on-error`, so a finding
   # fails the run. Full history (`fetch-depth: 0`): a secret committed and later deleted is still leaked.
-  # A justified false positive goes in a committed, reviewed `.gitleaks.toml` allowlist — none exists
-  # because none is needed yet. `build-and-push` must `needs:` this job once it exists (Phase 7). The
+  # A justified false positive goes in a committed, reviewed allowlist: `.gitleaksignore` lists exact
+  # findings (commit:file:rule:line), so no rule is switched off. `build-and-push` must `needs:` this job once it exists (Phase 7). The
   # image is `latest`, the ADR's accepted risk; pin it the first time an upgrade fails a run.
   secret-scan-gitleaks:
     runs-on: ubuntu-latest

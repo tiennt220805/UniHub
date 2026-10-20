@@ -15,6 +15,7 @@ import com.unihub.shared.application.port.out.IdempotencyStore;
 import com.unihub.shared.application.port.out.StoredResult;
 import com.unihub.shared.domain.id.UserId;
 import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -22,7 +23,7 @@ import org.junit.jupiter.api.Test;
 class IdempotentReplayTest {
     private static final IdempotencyScope SCOPE = IdempotencyScope.REGISTRATION_CREATE;
     private static final UserId ACTOR = UserId.newId();
-    private static final String KEY = "6c1f7e2a-0b3d-4a9e-9b1a-2f6e6b8c9d10";
+    private static final String KEY = UUID.randomUUID().toString();
     private static final String SAME = "a".repeat(64);
     private static final String OTHER = "b".repeat(64);
 

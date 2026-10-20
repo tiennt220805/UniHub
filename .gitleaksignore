@@ -1,0 +1,4 @@
+# Reviewed false positive, one exact finding (commit:file:rule:line). The "secret" is a hard-coded
+# UUID used as an Idempotency-Key in a unit test; the line was replaced by UUID.randomUUID() in the
+# next commit. CI scans full history, so the original commit stays flagged without this entry.
+eb4728414c64beba3fef26c84768888e1cb92e44:apps/backend/src/test/java/com/unihub/shared/application/usecase/IdempotentReplayTest.java:generic-api-key:25
