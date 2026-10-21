@@ -158,6 +158,19 @@ public final class Payment {
         this.status = PaymentStatus.REFUND_REQUIRED;
     }
 
+    /**
+     * The payment succeeded but its registration can no longer be confirmed (hold ended or
+     * cancelled): the money is to be returned (payment.md §9, checklist D2). Only a {@code
+     * SUCCEEDED} payment qualifies; the refund call itself is Phase 3.
+     */
+    public void requireRefund(Instant now) {
+        Objects.requireNonNull(now);
+        if (status != PaymentStatus.SUCCEEDED) {
+            throw new InvalidPaymentStateException(id, status, "require a refund");
+        }
+        this.status = PaymentStatus.REFUND_REQUIRED;
+    }
+
     private void resolve(PaymentStatus target, Instant now, String attempted) {
         Objects.requireNonNull(now);
         if (status != PaymentStatus.PENDING) {

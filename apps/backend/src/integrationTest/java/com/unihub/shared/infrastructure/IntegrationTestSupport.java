@@ -74,5 +74,12 @@ public abstract class IntegrationTestSupport {
         // calls the use case directly.
         System.setProperty("unihub.jobs.outbox-relay.enabled", "false");
         System.setProperty("unihub.jobs.event-publication-cleanup.enabled", "false");
+
+        // The same for consumers. Spring caches contexts across test classes, so a listener
+        // container in any cached context would take messages that another test publishes and
+        // counts (RabbitTopologyIT counts the messages waiting on every business queue). A test
+        // that
+        // exercises a consumer starts them for its own context and closes it afterwards.
+        System.setProperty("spring.rabbitmq.listener.simple.auto-startup", "false");
     }
 }

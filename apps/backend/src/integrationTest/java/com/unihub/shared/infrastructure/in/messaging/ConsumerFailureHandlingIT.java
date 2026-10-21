@@ -35,6 +35,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -45,6 +46,9 @@ import org.springframework.test.context.DynamicPropertySource;
  * once; nothing is ever dropped. The test queue gets the production retry chain shape with
  * sub-second stage delays, so the whole walk takes about a second instead of 5m35s.
  */
+// Its listeners are running, so the context is closed when the class ends (see
+// IntegrationTestSupport).
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest
 @Import(ConsumerFailureHandlingIT.Probe.class)
 class ConsumerFailureHandlingIT extends IntegrationTestSupport {
@@ -62,6 +66,7 @@ class ConsumerFailureHandlingIT extends IntegrationTestSupport {
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("unihub.security.jwt.secret", () -> "i".repeat(48));
+        registry.add("spring.rabbitmq.listener.simple.auto-startup", () -> "true");
     }
 
     /**
