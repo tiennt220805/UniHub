@@ -65,6 +65,12 @@ public class SecurityConfig {
                                         // Login is how a token is obtained: no token yet.
                                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login")
                                         .permitAll()
+                                        // The gateway's webhook is called by the gateway, with
+                                        // no UniHub session: trust is the signature over the raw
+                                        // body, verified by the use case before anything is read.
+                                        .requestMatchers(
+                                                HttpMethod.POST, "/api/v1/webhooks/payment-gateway")
+                                        .permitAll()
                                         // generateOpenApiDocs / contract-diff read the live spec.
                                         .requestMatchers("/v3/api-docs", "/v3/api-docs/**")
                                         .permitAll()

@@ -144,6 +144,20 @@ public final class Payment {
         resolve(PaymentStatus.CANCELLED, now, "be cancelled");
     }
 
+    /**
+     * The gateway reports success for a payment this side already closed as {@code FAILED} or
+     * {@code CANCELLED}: the money moved, so it goes straight to {@code REFUND_REQUIRED} and never
+     * through {@code SUCCEEDED}, which would confirm a registration (payment.md §6, §9, checklist
+     * D5 constraint 5). Records no event for the same reason.
+     */
+    public void lateSuccess(Instant now) {
+        Objects.requireNonNull(now);
+        if (status != PaymentStatus.FAILED && status != PaymentStatus.CANCELLED) {
+            throw new InvalidPaymentStateException(id, status, "take a late success");
+        }
+        this.status = PaymentStatus.REFUND_REQUIRED;
+    }
+
     private void resolve(PaymentStatus target, Instant now, String attempted) {
         Objects.requireNonNull(now);
         if (status != PaymentStatus.PENDING) {

@@ -102,6 +102,39 @@ class PaymentTest {
         assertThat(resolved.pullEvents()).isEmpty();
     }
 
+    @ParameterizedTest
+    @EnumSource(
+            value = PaymentStatus.class,
+            names = {"FAILED", "CANCELLED"})
+    @DisplayName(
+            "a late success for a FAILED or CANCELLED payment goes straight to REFUND_REQUIRED")
+    void lateSuccess_goesStraightToRefundRequired(PaymentStatus closed) {
+        var payment = aResolvedPayment(closed).build();
+
+        payment.lateSuccess(NOW);
+
+        assertThat(payment.status()).isEqualTo(PaymentStatus.REFUND_REQUIRED);
+        assertThat(payment.resolvedAt()).as("it was resolved before, and still is").isNotNull();
+        assertThat(payment.pullEvents())
+                .as("never through SUCCEEDED, so it can never confirm a registration")
+                .isEmpty();
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = PaymentStatus.class,
+            names = {"PENDING", "SUCCEEDED", "REFUND_REQUIRED", "REFUNDED"})
+    @DisplayName("a late success applies only to a closed payment: every other status refuses it")
+    void lateSuccess_refusedElsewhere(PaymentStatus status) {
+        var payment =
+                status == PaymentStatus.PENDING
+                        ? aPendingPayment().build()
+                        : aResolvedPayment(status).build();
+
+        assertThatThrownBy(() -> payment.lateSuccess(NOW))
+                .isInstanceOf(InvalidPaymentStateException.class);
+    }
+
     @Test
     @DisplayName("PENDING → SUCCEEDED / FAILED / CANCELLED each stamp resolved_at")
     void pending_resolvesToAnyTerminal() {

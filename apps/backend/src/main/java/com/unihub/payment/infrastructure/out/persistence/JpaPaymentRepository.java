@@ -38,6 +38,11 @@ class JpaPaymentRepository implements PaymentRepository {
     }
 
     @Override
+    public Optional<Payment> findByGatewayTransactionId(String gatewayTransactionId) {
+        return springData.findByGatewayTransactionId(gatewayTransactionId).map(mapper::toDomain);
+    }
+
+    @Override
     public boolean existsLiveFor(RegistrationId registrationId) {
         return springData.existsByRegistrationIdAndStatusIn(registrationId.value(), LIVE_STATUSES);
     }

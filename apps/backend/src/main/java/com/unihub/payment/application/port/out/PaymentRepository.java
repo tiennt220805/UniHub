@@ -10,6 +10,9 @@ public interface PaymentRepository {
     /** Absent is an empty Optional; the use case decides what that means. */
     Optional<Payment> findById(PaymentId id);
 
+    /** The payment the gateway knows under this transaction id (webhook, reconciliation). */
+    Optional<Payment> findByGatewayTransactionId(String gatewayTransactionId);
+
     /** Whether the registration has a live payment ({@code PENDING} or {@code SUCCEEDED}). */
     boolean existsLiveFor(RegistrationId registrationId);
 
