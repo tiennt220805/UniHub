@@ -62,7 +62,7 @@ payments:
             $ref: '../schemas/payment.yaml#/CreatePaymentChargeRequest'
     responses:
       '201':
-        description: Charge processed — the body carries the payment's status when the charge step completed (`SUCCEEDED`, `FAILED` or `PENDING`). While `PENDING`, poll `getPayment`.
+        description: Charge processed — the body carries the payment's status when the charge step completed (`SUCCEEDED`, `FAILED` or `PENDING`). A declined card, and a payment method token the gateway refuses, are both `FAILED`. While `PENDING`, poll `getPayment`.
         headers:
           X-Correlation-Id:
             $ref: '../common/headers.yaml#/CorrelationIdResponse'

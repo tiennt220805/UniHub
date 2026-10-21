@@ -972,9 +972,10 @@ ChargePayment (no transaction)
 
 | What happened | Next step | Response |
 |---|---|---|
-| Any failure in `create` — including a read timeout — or in `attach` | `abandon`: no money can have moved (nothing was confirmed) | `503`, nothing recorded; a same-key retry executes for real |
+| `create` refused the payment method token itself (`PaymentMethodRejectedException`) | `complete` with `FAILED`: nothing was charged and the same token can never succeed | `201` with `FAILED`; a same-key retry replays it, a new attempt needs a new key and token (checklist D16 amendment 2026-10-21) |
+| Any other failure in `create` — including a read timeout — or in `attach` | `abandon`: no money can have moved (nothing was confirmed) | `503`, nothing recorded; a same-key retry executes for real |
 | `confirm` never left UniHub — breaker refusal, connect timeout, connection refused, DNS failure | `abandon` | `503`, same |
-| `confirm` sent, outcome unknown — read timeout, reset after sending, gateway `5xx` — on **any** attempt of the retry chain | `complete` with the Result "initiated": payment stays `PENDING`, key `COMPLETED` | `201` with `PENDING`; a same-key retry replays it, confirm is never sent again; webhook/reconciliation decide |
+| `confirm` sent, outcome unknown — read timeout, reset after sending, gateway `5xx`, **any error answer that is not a decline** (`400`, `401`, `409`, `429`), a status nobody expects — on **any** attempt of the retry chain | `complete` with the Result "initiated": payment stays `PENDING`, key `COMPLETED` | `201` with `PENDING`; a same-key retry replays it, confirm is never sent again; webhook/reconciliation decide |
 | `confirm` answered — `succeeded`, or declined (`requires_payment_method`) | `complete` with `SUCCEEDED` (+ outbox `unihub.payment.charge.succeeded` **in the same transaction**, `payment.md` §9) or `FAILED` | `201` with that status |
 | `confirm` answered `processing` | `complete` with "initiated" (`PENDING`) | `201` with `PENDING` |
 

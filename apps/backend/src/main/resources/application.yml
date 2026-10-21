@@ -99,6 +99,9 @@ unihub:
     lock-wait: PT2S
     lock-lease: PT5S
     seat-claim-attempts: 3
+  # Payment Gateway (payment.md §3). The Stripe sandbox secret key is never set here: it comes from
+  # the environment (UNIHUB_PAYMENT_STRIPE_SECRET_KEY), and with none there is no gateway bean.
+  # api-base, connect-timeout and read-timeout exist for tests; the timeouts may not exceed 3s.
   # How long a publish waits for the broker's confirm before the message counts as not delivered.
   messaging:
     confirm-timeout: PT5S

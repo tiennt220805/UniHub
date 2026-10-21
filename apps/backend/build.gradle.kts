@@ -133,6 +133,11 @@ dependencies {
     // client is configured from unihub.redis.* in RedisConfig, and created only when an address is set, so
     // the app still boots with no Redis (contract-diff boots it without any dependency).
     implementation("org.redisson:redisson:3.45.1")
+    // Stripe Java SDK (payment.md §3, checklist D16): used only inside payment.infrastructure.out.client.
+    // 33.4.2 is the newest stable release older than two weeks when it was chosen. The client is built
+    // per instance with an explicit HTTP client, timeouts and zero SDK retries, never through the static
+    // Stripe.apiKey.
+    implementation("com.stripe:stripe-java:33.4.2")
     // Runtime JDBC driver for the application itself. The buildscript{} block above declares the same
     // artifact separately for the Flyway Gradle plugin's own classloader (see that block's comment) —
     // the two are independent dependency graphs, so this is not a duplicate.
@@ -150,6 +155,9 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // ArchUnit 1.x (latest stable) — powers com.unihub.ArchitectureTest, the first test of Phase 1 (M-12).
     testImplementation("com.tngtech.archunit:archunit-junit5:1.4.0")
+    // The Payment Gateway stand-in for integration tests (mocking-guidelines.md §2): the standalone jar
+    // shades Jetty, so it cannot clash with Spring Boot's own. Latest stable 3.x (4.x is still beta).
+    testImplementation("org.wiremock:wiremock-standalone:3.13.2")
 
     // Pinned explicitly. 2.0.5 is the latest stable as of this writing (Java 21 / Gradle 8.14 compatible;
     // requires JUnit 5, which this project already uses exclusively). Testcontainers 2.x renamed every
