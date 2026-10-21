@@ -12,6 +12,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.unihub.registration.application.command.ReserveSeatCommand;
+import com.unihub.registration.application.port.in.GetRegistrationUseCase;
+import com.unihub.registration.application.port.in.ListMyRegistrationsUseCase;
 import com.unihub.registration.application.port.in.ReserveSeatUseCase;
 import com.unihub.registration.application.result.ReserveSeatResult;
 import com.unihub.registration.domain.exception.SeatLockUnavailableException;
@@ -57,6 +59,8 @@ class ReserveSeatWebTest {
     @Autowired private MockMvc mockMvc;
 
     @MockBean private ReserveSeatUseCase reserveSeat;
+    @MockBean private GetRegistrationUseCase getRegistration;
+    @MockBean private ListMyRegistrationsUseCase listMyRegistrations;
 
     private static MockHttpServletRequestBuilder request(String token, String key, String json) {
         var builder = post("/api/v1/registrations").contentType(MediaType.APPLICATION_JSON);

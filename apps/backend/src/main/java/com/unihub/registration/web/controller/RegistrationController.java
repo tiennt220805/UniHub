@@ -1,10 +1,14 @@
 package com.unihub.registration.web.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.unihub.registration.application.port.in.GetRegistrationUseCase;
+import com.unihub.registration.application.port.in.ListMyRegistrationsUseCase;
 import com.unihub.registration.application.port.in.ReserveSeatUseCase;
 import com.unihub.registration.application.result.ReserveSeatResult;
 import com.unihub.registration.web.dto.CreateRegistrationRequest;
 import com.unihub.registration.web.dto.Registration;
+import com.unihub.registration.web.dto.RegistrationListResponse;
+import com.unihub.registration.web.dto.RegistrationStatus;
 import com.unihub.registration.web.mapper.RegistrationWebMapper;
 import com.unihub.shared.security.Permissions;
 import com.unihub.shared.web.ApiProblems;
@@ -24,6 +28,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -31,10 +37,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -59,10 +68,18 @@ class RegistrationController {
     private static final String CORRELATION_ID_PATTERN = "^[0-9a-f]{32}$";
 
     private final ReserveSeatUseCase reserveSeat;
+    private final GetRegistrationUseCase getRegistration;
+    private final ListMyRegistrationsUseCase listMyRegistrations;
     private final ObjectMapper json;
 
-    RegistrationController(ReserveSeatUseCase reserveSeat, ObjectMapper json) {
+    RegistrationController(
+            ReserveSeatUseCase reserveSeat,
+            GetRegistrationUseCase getRegistration,
+            ListMyRegistrationsUseCase listMyRegistrations,
+            ObjectMapper json) {
         this.reserveSeat = reserveSeat;
+        this.getRegistration = getRegistration;
+        this.listMyRegistrations = listMyRegistrations;
         this.json = json;
     }
 
@@ -174,5 +191,88 @@ class RegistrationController {
                             ProblemTypes.REGISTRATION_NOT_OPEN,
                             "Workshop is not open for registration.");
         };
+    }
+
+    // Ownership-checked, not permission-checked (contract: no x-required-permission): any
+    // authenticated caller may ask, and only the registration's owner is answered.
+    @Operation(
+            operationId = "listMyRegistrations",
+            tags = {"Registration"},
+            parameters = {
+                @Parameter(
+                        name = "X-Correlation-Id",
+                        in = ParameterIn.HEADER,
+                        required = false,
+                        schema =
+                                @Schema(
+                                        types = {"string"},
+                                        pattern = CORRELATION_ID_PATTERN))
+            })
+    @ApiResponse(
+            responseCode = "200",
+            headers =
+                    @Header(
+                            name = "X-Correlation-Id",
+                            schema =
+                                    @Schema(
+                                            types = {"string"},
+                                            pattern = CORRELATION_ID_PATTERN)),
+            content =
+                    @Content(
+                            mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = RegistrationListResponse.class)))
+    @ApiProblems.Unauthorized
+    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    RegistrationListResponse listMine(
+            @RequestParam(required = false) RegistrationStatus status,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
+            @AuthenticationPrincipal Jwt jwt) {
+        return RegistrationWebMapper.toResponse(
+                listMyRegistrations.list(
+                        RegistrationWebMapper.toQuery(status, page, size, CurrentActor.from(jwt))));
+    }
+
+    @Operation(
+            operationId = "getRegistration",
+            tags = {"Registration"},
+            parameters = {
+                @Parameter(
+                        name = "id",
+                        in = ParameterIn.PATH,
+                        required = true,
+                        schema =
+                                @Schema(
+                                        types = {"string"},
+                                        format = "uuid")),
+                @Parameter(
+                        name = "X-Correlation-Id",
+                        in = ParameterIn.HEADER,
+                        required = false,
+                        schema =
+                                @Schema(
+                                        types = {"string"},
+                                        pattern = CORRELATION_ID_PATTERN))
+            })
+    @ApiResponse(
+            responseCode = "200",
+            headers =
+                    @Header(
+                            name = "X-Correlation-Id",
+                            schema =
+                                    @Schema(
+                                            types = {"string"},
+                                            pattern = CORRELATION_ID_PATTERN)),
+            content =
+                    @Content(
+                            mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = Registration.class)))
+    @ApiProblems.Unauthorized
+    @ApiProblems.Forbidden
+    @ApiProblems.NotFound
+    @GetMapping(path = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+    Registration getMine(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) {
+        return RegistrationWebMapper.toResponse(
+                getRegistration.get(RegistrationWebMapper.toQuery(id, CurrentActor.from(jwt))));
     }
 }

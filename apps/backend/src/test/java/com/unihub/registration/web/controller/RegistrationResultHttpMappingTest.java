@@ -6,6 +6,8 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
+import com.unihub.registration.application.port.in.GetRegistrationUseCase;
+import com.unihub.registration.application.port.in.ListMyRegistrationsUseCase;
 import com.unihub.registration.application.port.in.ReserveSeatUseCase;
 import com.unihub.registration.application.result.ReserveSeatResult;
 import com.unihub.shared.application.port.out.IdempotencyKeyInUseException;
@@ -77,6 +79,8 @@ class RegistrationResultHttpMappingTest {
     @Autowired private MockMvc mockMvc;
 
     @MockBean private ReserveSeatUseCase reserveSeat;
+    @MockBean private GetRegistrationUseCase getRegistration;
+    @MockBean private ListMyRegistrationsUseCase listMyRegistrations;
 
     private org.springframework.test.web.servlet.MvcResult send() throws Exception {
         return mockMvc.perform(

@@ -1,5 +1,6 @@
 package com.unihub.registration.infrastructure.out.persistence;
 
+import com.unihub.registration.application.port.out.RegistrationPage;
 import com.unihub.registration.application.port.out.RegistrationRepository;
 import com.unihub.registration.domain.exception.AlreadyRegisteredException;
 import com.unihub.registration.domain.model.Registration;
@@ -11,6 +12,8 @@ import com.unihub.shared.domain.id.WorkshopId;
 import java.time.Clock;
 import java.util.Optional;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Repository;
 
@@ -35,6 +38,25 @@ class JpaRegistrationRepository implements RegistrationRepository {
     @Override
     public Optional<Registration> findById(RegistrationId id) {
         return springData.findById(id.value()).map(mapper::toDomain);
+    }
+
+    @Override
+    public RegistrationPage findByUser(
+            UserId userId, RegistrationStatus status, int page, int size) {
+        // newest first; the id breaks ties so a page boundary is stable
+        var paging =
+                PageRequest.of(
+                        page, size, Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by("id")));
+        var found =
+                status == null
+                        ? springData.findByUserId(userId.value(), paging)
+                        : springData.findByUserIdAndStatus(userId.value(), status.name(), paging);
+        return new RegistrationPage(
+                found.getContent().stream().map(mapper::toDomain).toList(),
+                found.getNumber(),
+                found.getSize(),
+                found.getTotalElements(),
+                found.getTotalPages());
     }
 
     @Override

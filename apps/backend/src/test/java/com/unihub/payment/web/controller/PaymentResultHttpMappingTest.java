@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.unihub.payment.application.port.in.ChargePaymentUseCase;
+import com.unihub.payment.application.port.in.GetPaymentUseCase;
 import com.unihub.payment.application.result.ChargePaymentResult;
 import com.unihub.payment.domain.exception.LivePaymentExistsException;
 import com.unihub.payment.domain.exception.NotRegistrationOwnerException;
@@ -83,6 +84,7 @@ class PaymentResultHttpMappingTest {
     @Autowired private MockMvc mockMvc;
 
     @MockBean private ChargePaymentUseCase chargePayment;
+    @MockBean private GetPaymentUseCase getPayment;
 
     private org.springframework.test.web.servlet.MvcResult send() throws Exception {
         return mockMvc.perform(

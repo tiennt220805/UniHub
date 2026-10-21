@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.unihub.payment.application.command.ChargePaymentCommand;
 import com.unihub.payment.application.port.in.ChargePaymentUseCase;
+import com.unihub.payment.application.port.in.GetPaymentUseCase;
 import com.unihub.payment.application.result.ChargePaymentResult;
 import com.unihub.shared.infrastructure.security.SecurityConfig;
 import com.unihub.shared.security.TestJwts;
@@ -48,6 +49,7 @@ class ChargePaymentWebTest {
     @Autowired private MockMvc mockMvc;
 
     @MockBean private ChargePaymentUseCase chargePayment;
+    @MockBean private GetPaymentUseCase getPayment;
 
     private static MockHttpServletRequestBuilder request(String token, String key, String json) {
         var builder = post("/api/v1/payments/charge").contentType(MediaType.APPLICATION_JSON);

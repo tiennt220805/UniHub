@@ -2,6 +2,7 @@ package com.unihub.payment.web.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.unihub.payment.application.port.in.ChargePaymentUseCase;
+import com.unihub.payment.application.port.in.GetPaymentUseCase;
 import com.unihub.payment.application.result.ChargePaymentResult;
 import com.unihub.payment.web.dto.CreatePaymentChargeRequest;
 import com.unihub.payment.web.dto.Payment;
@@ -31,6 +32,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -56,10 +59,13 @@ class PaymentController {
     private static final String CORRELATION_ID_PATTERN = "^[0-9a-f]{32}$";
 
     private final ChargePaymentUseCase chargePayment;
+    private final GetPaymentUseCase getPayment;
     private final ObjectMapper json;
 
-    PaymentController(ChargePaymentUseCase chargePayment, ObjectMapper json) {
+    PaymentController(
+            ChargePaymentUseCase chargePayment, GetPaymentUseCase getPayment, ObjectMapper json) {
         this.chargePayment = chargePayment;
+        this.getPayment = getPayment;
         this.json = json;
     }
 
@@ -160,5 +166,49 @@ class PaymentController {
                             ProblemTypes.PAYMENT_IN_PROGRESS,
                             "The registration already has a payment in progress or paid.");
         };
+    }
+
+    // Ownership-checked, not permission-checked (contract: no x-required-permission).
+    @Operation(
+            operationId = "getPayment",
+            tags = {"Payment"},
+            parameters = {
+                @Parameter(
+                        name = "id",
+                        in = ParameterIn.PATH,
+                        required = true,
+                        schema =
+                                @Schema(
+                                        types = {"string"},
+                                        format = "uuid")),
+                @Parameter(
+                        name = "X-Correlation-Id",
+                        in = ParameterIn.HEADER,
+                        required = false,
+                        schema =
+                                @Schema(
+                                        types = {"string"},
+                                        pattern = CORRELATION_ID_PATTERN))
+            })
+    @ApiResponse(
+            responseCode = "200",
+            headers =
+                    @Header(
+                            name = "X-Correlation-Id",
+                            schema =
+                                    @Schema(
+                                            types = {"string"},
+                                            pattern = CORRELATION_ID_PATTERN)),
+            content =
+                    @Content(
+                            mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = Payment.class)))
+    @ApiProblems.Unauthorized
+    @ApiProblems.Forbidden
+    @ApiProblems.NotFound
+    @GetMapping(path = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+    Payment getMine(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) {
+        return PaymentWebMapper.toResponse(
+                getPayment.get(PaymentWebMapper.toQuery(id, CurrentActor.from(jwt))));
     }
 }

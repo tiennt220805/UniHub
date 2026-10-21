@@ -1,13 +1,22 @@
 package com.unihub.registration.web.mapper;
 
 import com.unihub.registration.application.command.ReserveSeatCommand;
+import com.unihub.registration.application.query.GetRegistrationQuery;
+import com.unihub.registration.application.query.ListMyRegistrationsQuery;
+import com.unihub.registration.application.result.MyRegistrationsResult;
+import com.unihub.registration.application.result.RegistrationResult;
 import com.unihub.registration.application.result.ReserveSeatResult;
 import com.unihub.registration.web.dto.CreateRegistrationRequest;
 import com.unihub.registration.web.dto.Registration;
+import com.unihub.registration.web.dto.RegistrationListResponse;
 import com.unihub.registration.web.dto.RegistrationStatus;
+import com.unihub.registration.web.dto.RegistrationSummary;
 import com.unihub.registration.web.dto.TicketType;
+import com.unihub.shared.domain.id.RegistrationId;
 import com.unihub.shared.domain.id.WorkshopId;
 import com.unihub.shared.security.Actor;
+import com.unihub.shared.web.dto.PageMeta;
+import java.util.UUID;
 
 public final class RegistrationWebMapper {
 
@@ -55,5 +64,47 @@ public final class RegistrationWebMapper {
                 null,
                 confirmed.createdAt(),
                 confirmed.updatedAt());
+    }
+
+    /** The owner's view of one registration (the same body as the 201 of createRegistration). */
+    public static Registration toResponse(RegistrationResult r) {
+        return new Registration(
+                r.id(),
+                r.workshopId(),
+                r.userId(),
+                TicketType.valueOf(r.ticketType()),
+                RegistrationStatus.valueOf(r.status()),
+                r.holdExpiresAt(),
+                r.ticketCode(),
+                r.qrPayload(),
+                r.createdAt(),
+                r.updatedAt());
+    }
+
+    public static RegistrationListResponse toResponse(MyRegistrationsResult result) {
+        return new RegistrationListResponse(
+                result.items().stream()
+                        .map(
+                                item ->
+                                        new RegistrationSummary(
+                                                item.id(),
+                                                item.workshopId(),
+                                                item.userId(),
+                                                TicketType.valueOf(item.ticketType()),
+                                                RegistrationStatus.valueOf(item.status()),
+                                                item.createdAt()))
+                        .toList(),
+                new PageMeta(
+                        result.page(), result.size(), result.totalElements(), result.totalPages()));
+    }
+
+    public static GetRegistrationQuery toQuery(UUID id, Actor.UserActor caller) {
+        return new GetRegistrationQuery(caller.userId(), RegistrationId.of(id));
+    }
+
+    public static ListMyRegistrationsQuery toQuery(
+            RegistrationStatus status, int page, int size, Actor.UserActor caller) {
+        return new ListMyRegistrationsQuery(
+                caller.userId(), status == null ? null : status.name(), page, size);
     }
 }

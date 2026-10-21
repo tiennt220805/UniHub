@@ -12,6 +12,14 @@ public interface RegistrationRepository {
     /** Absent is an empty Optional; the use case decides what that means. */
     Optional<Registration> findById(RegistrationId id);
 
+    /**
+     * The student's own registrations, newest first. Read at the Master by the use cases that call
+     * it: a student looks at the list right after registering.
+     *
+     * @param status only this status, or null for all
+     */
+    RegistrationPage findByUser(UserId userId, RegistrationStatus status, int page, int size);
+
     /** Whether the student holds a {@code RESERVED} or {@code CONFIRMED} registration here. */
     boolean existsActive(WorkshopId workshopId, UserId userId);
 
