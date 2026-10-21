@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.unihub.registration.api.event.RegistrationConfirmedIntegrationEvent;
 import com.unihub.registration.domain.event.RegistrationConfirmed;
 import com.unihub.registration.domain.event.RegistrationDomainEvent;
+import com.unihub.registration.domain.event.SeatReserved;
 import com.unihub.shared.domain.id.RegistrationId;
 import com.unihub.shared.domain.id.UserId;
 import com.unihub.shared.domain.id.WorkshopId;
@@ -40,12 +41,34 @@ class RegistrationOutboxTranslatorTest {
     }
 
     @Test
+    @DisplayName("SeatReserved becomes one hold-expiry job on the delay queue's routing key")
+    void seatReserved() {
+        var holdEnds = AT.plusSeconds(900);
+
+        var messages =
+                RegistrationOutboxTranslator.translate(
+                        new SeatReserved(REGISTRATION, WORKSHOP, USER, holdEnds, AT));
+
+        assertThat(messages).hasSize(1);
+        var message = messages.getFirst();
+        assertThat(message)
+                .isEqualTo(
+                        new SeatHoldExpiryRequested(
+                                REGISTRATION.value(), WORKSHOP.value(), holdEnds, AT));
+        assertThat(message.routingKey()).isEqualTo("unihub.registration.hold.reserved");
+        assertThat(message.aggregateType()).isEqualTo("REGISTRATION");
+        assertThat(message.aggregateId()).isEqualTo(REGISTRATION.value());
+        assertThat(message.schemaVersion()).isEqualTo(1);
+        assertThat(message.occurredAt()).isEqualTo(AT);
+    }
+
+    @Test
     @DisplayName("every permitted domain event has a translation (the switch is exhaustive)")
     void everyPermittedEvent_isCovered() {
         for (var permitted : RegistrationDomainEvent.class.getPermittedSubclasses()) {
             assertThat(permitted)
                     .as("a new Registration event needs a case in the translator and a test here")
-                    .isIn(RegistrationConfirmed.class);
+                    .isIn(RegistrationConfirmed.class, SeatReserved.class);
         }
     }
 }

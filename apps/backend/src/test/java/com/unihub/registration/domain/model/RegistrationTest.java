@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.unihub.registration.domain.event.RegistrationConfirmed;
+import com.unihub.registration.domain.event.SeatReserved;
 import com.unihub.registration.domain.exception.InvalidRegistrationStateException;
 import com.unihub.shared.domain.Version;
 import com.unihub.shared.domain.id.RegistrationId;
@@ -93,11 +94,17 @@ class RegistrationTest {
     }
 
     @Test
-    @DisplayName("a reservation records nothing yet: the seat is held, not confirmed")
-    void reserve_recordsNoConfirmation() {
-        var registration = aReservedRegistration().build();
+    @DisplayName("a reservation records SeatReserved, and no confirmation: the seat is held only")
+    void reserve_recordsTheHold() {
+        var id = RegistrationId.newId();
+        var workshop = WorkshopId.newId();
+        var user = UserId.newId();
+        var registration = Registration.reserve(id, workshop, user, NOW, Duration.ofMinutes(15));
 
-        assertThat(registration.pullEvents()).isEmpty();
+        assertThat(registration.pullEvents())
+                .containsExactly(
+                        new SeatReserved(
+                                id, workshop, user, NOW.plus(Duration.ofMinutes(15)), NOW));
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.unihub.registration.domain.model;
 
 import com.unihub.registration.domain.event.RegistrationConfirmed;
 import com.unihub.registration.domain.event.RegistrationDomainEvent;
+import com.unihub.registration.domain.event.SeatReserved;
 import com.unihub.registration.domain.exception.InvalidRegistrationStateException;
 import com.unihub.shared.domain.Version;
 import com.unihub.shared.domain.id.RegistrationId;
@@ -70,7 +71,10 @@ public final class Registration {
         }
     }
 
-    /** A paid registration: the seat is held until {@code now + holdDuration}. */
+    /**
+     * A paid registration: the seat is held until {@code now + holdDuration}. Records {@link
+     * SeatReserved}, which becomes the hold-expiry job.
+     */
     public static Registration reserve(
             RegistrationId id,
             WorkshopId workshopId,
@@ -81,18 +85,22 @@ public final class Registration {
         if (holdDuration == null || holdDuration.isNegative() || holdDuration.isZero()) {
             throw new InvalidRegistrationStateException("the seat hold must last a positive time");
         }
-        return new Registration(
-                id,
-                workshopId,
-                userId,
-                TicketType.PAID,
-                RegistrationStatus.RESERVED,
-                now.plus(holdDuration),
-                null,
-                null,
-                Version.initial(),
-                null,
-                null);
+        var registration =
+                new Registration(
+                        id,
+                        workshopId,
+                        userId,
+                        TicketType.PAID,
+                        RegistrationStatus.RESERVED,
+                        now.plus(holdDuration),
+                        null,
+                        null,
+                        Version.initial(),
+                        null,
+                        null);
+        registration.events.add(
+                new SeatReserved(id, workshopId, userId, registration.holdExpiresAt, now));
+        return registration;
     }
 
     /**

@@ -3,6 +3,7 @@ package com.unihub.registration.application.event;
 import com.unihub.registration.api.event.RegistrationConfirmedIntegrationEvent;
 import com.unihub.registration.domain.event.RegistrationConfirmed;
 import com.unihub.registration.domain.event.RegistrationDomainEvent;
+import com.unihub.registration.domain.event.SeatReserved;
 import com.unihub.shared.event.OutboxMessage;
 import java.util.List;
 
@@ -24,6 +25,13 @@ public final class RegistrationOutboxTranslator {
                                     e.registrationId().value(),
                                     e.workshopId().value(),
                                     e.userId().value(),
+                                    e.occurredAt()));
+            case SeatReserved e ->
+                    List.of(
+                            new SeatHoldExpiryRequested(
+                                    e.registrationId().value(),
+                                    e.workshopId().value(),
+                                    e.holdExpiresAt(),
                                     e.occurredAt()));
         };
     }

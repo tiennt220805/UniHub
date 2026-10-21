@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.unihub.registration.api.event.RegistrationConfirmedIntegrationEvent;
 import com.unihub.registration.application.command.ReserveSeatCommand;
+import com.unihub.registration.application.event.SeatHoldExpiryRequested;
 import com.unihub.registration.application.port.out.RegistrationRepository;
 import com.unihub.registration.application.result.ReserveSeatResult;
 import com.unihub.registration.domain.model.Registration;
@@ -230,13 +231,21 @@ class ReserveSeatTransactionTest {
     }
 
     @Test
-    @DisplayName("a paid hold is not a confirmation: nothing is published for it")
-    void paidClaim_publishesNothing() {
+    @DisplayName("a paid hold publishes the hold-expiry job, and no confirmation")
+    void paidClaim_publishesTheHoldExpiryJob() {
         when(seats.claim(WORKSHOP)).thenReturn(new SeatClaimOutcome.Claimed(true));
 
         transaction.execute(COMMAND);
 
-        verify(events, never()).publish(any());
+        var message = ArgumentCaptor.forClass(OutboxMessage.class);
+        verify(events).publish(message.capture());
+        assertThat(message.getValue())
+                .isEqualTo(
+                        new SeatHoldExpiryRequested(
+                                savedRegistration().id().value(),
+                                WORKSHOP.value(),
+                                NOW.plus(Duration.ofMinutes(15)),
+                                NOW));
     }
 
     @Test

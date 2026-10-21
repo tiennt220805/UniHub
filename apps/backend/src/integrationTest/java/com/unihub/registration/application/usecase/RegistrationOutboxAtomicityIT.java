@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.unihub.registration.RegistrationFixtures;
 import com.unihub.registration.api.event.RegistrationConfirmedIntegrationEvent;
 import com.unihub.registration.application.command.ReserveSeatCommand;
+import com.unihub.registration.application.event.SeatHoldExpiryRequested;
 import com.unihub.registration.application.port.in.ReserveSeatUseCase;
 import com.unihub.registration.application.result.ReserveSeatResult;
 import com.unihub.shared.application.port.out.EventPublisher;
@@ -216,8 +217,8 @@ class RegistrationOutboxAtomicityIT extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("a paid hold is not a confirmation: it writes no ticket.confirmed row")
-    void paidHold_writesNoRow() {
+    @DisplayName("a paid hold writes the hold-expiry job and no ticket.confirmed row")
+    void paidHold_writesTheHoldExpiryJob() {
         var workshop = saved(aPaidWorkshop().withCapacity(5).build());
         var student = fixtures.aStudent();
 
@@ -225,7 +226,23 @@ class RegistrationOutboxAtomicityIT extends IntegrationTestSupport {
 
         assertThat(result).isInstanceOf(ReserveSeatResult.Reserved.class);
         assertThat(fixtures.registrationRows(workshop)).isEqualTo(1);
+        assertThat(fixtures.outboxRoutingKeysForWorkshop(workshop))
+                .containsExactly(SeatHoldExpiryRequested.ROUTING_KEY);
+    }
+
+    @Test
+    @DisplayName("a failure after the hold-expiry insert leaves neither the hold nor the job")
+    void paidHold_failureAfterTheInsert_leavesNeither() {
+        var workshop = saved(aPaidWorkshop().withCapacity(5).build());
+        var student = fixtures.aStudent();
+        failTheKeyCompletion();
+
+        assertThatThrownBy(() -> reserveSeat.reserve(command(student, workshop, UUID.randomUUID())))
+                .isInstanceOf(AfterTheOutboxInsert.class);
+
+        assertThat(fixtures.registrationRows(workshop)).isZero();
         assertThat(fixtures.outboxRowsForWorkshop(workshop)).isZero();
+        assertThat(fixtures.seatsTaken(workshop)).isZero();
     }
 
     @Test

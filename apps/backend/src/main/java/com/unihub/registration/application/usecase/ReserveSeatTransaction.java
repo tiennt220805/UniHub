@@ -25,9 +25,10 @@ import org.springframework.transaction.annotation.Transactional;
  * One attempt at the seat reservation, in one transaction: the seat claim (Workshop, {@code
  * MANDATORY}) and the {@code registrations} insert commit together or not at all
  * (database-schema.md §4.1), the audit entry is recorded here (it takes effect after commit) and so
- * is the idempotency key, begun first and completed last. A confirmation also writes its {@code
- * ticket.confirmed} outbox row here (INV-10): the row commits with the registration or not at all,
- * and the relay publishes it later.
+ * is the idempotency key, begun first and completed last. What the registration records also
+ * becomes outbox rows here (INV-10): {@code ticket.confirmed} for a free ticket, the hold-expiry
+ * job for a paid hold. A row commits with the registration or not at all, and the relay publishes
+ * it later.
  */
 @Service
 class ReserveSeatTransaction {

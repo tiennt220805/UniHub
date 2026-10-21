@@ -82,10 +82,19 @@ public final class RegistrationFixtures {
     /** {@code event_publications} rows for the workshop's registrations, whatever their state. */
     public int outboxRowsForWorkshop(WorkshopId id) {
         return jdbc.queryForObject(
-                "SELECT count(*) FROM event_publications WHERE aggregate_id IN"
-                        + " (SELECT id FROM registrations WHERE workshop_id = ?)",
+                "SELECT count(*) FROM event_publications WHERE aggregate_type = 'REGISTRATION'"
+                        + " AND payload ->> 'workshopId' = ?",
                 Integer.class,
-                id.value());
+                id.value().toString());
+    }
+
+    /** The routing keys of those rows. */
+    public List<String> outboxRoutingKeysForWorkshop(WorkshopId id) {
+        return jdbc.queryForList(
+                "SELECT routing_key FROM event_publications WHERE aggregate_type = 'REGISTRATION'"
+                        + " AND payload ->> 'workshopId' = ?",
+                String.class,
+                id.value().toString());
     }
 
     public void cleanUp() {
@@ -105,6 +114,14 @@ public final class RegistrationFixtures {
                             user);
                     jdbc.update("DELETE FROM registrations WHERE user_id = ?", user);
                 });
+        // By the workshop too: a hold-expiry job carries no userId (backend-coding-standards.md
+        // §8.4), and either row must go before a later IT relays it onto the shared broker.
+        workshops.forEach(
+                id ->
+                        jdbc.update(
+                                "DELETE FROM event_publications WHERE aggregate_type ="
+                                        + " 'REGISTRATION' AND payload ->> 'workshopId' = ?",
+                                id.toString()));
         workshops.forEach(id -> jdbc.update("DELETE FROM workshops WHERE id = ?", id));
         users.forEach(user -> jdbc.update("DELETE FROM users WHERE id = ?", user));
         users.clear();
