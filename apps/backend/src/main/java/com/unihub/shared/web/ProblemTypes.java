@@ -16,6 +16,10 @@ public final class ProblemTypes {
     public static final URI ALREADY_REGISTERED = URI.create(PREFIX + "already-registered");
     public static final URI REGISTRATION_NOT_OPEN = URI.create(PREFIX + "registration-not-open");
 
+    public static final URI REGISTRATION_NOT_RESERVED =
+            URI.create(PREFIX + "registration-not-reserved");
+    public static final URI PAYMENT_IN_PROGRESS = URI.create(PREFIX + "payment-in-progress");
+
     public static final URI IDEMPOTENCY_KEY_IN_USE = URI.create(PREFIX + "idempotency-key-in-use");
     public static final URI IDEMPOTENCY_KEY_REUSED = URI.create(PREFIX + "idempotency-key-reused");
 

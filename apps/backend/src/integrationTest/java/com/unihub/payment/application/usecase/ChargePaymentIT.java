@@ -21,7 +21,6 @@ import com.unihub.payment.application.port.out.PaymentGateway;
 import com.unihub.payment.application.port.out.PaymentRepository;
 import com.unihub.payment.application.result.ChargePaymentResult;
 import com.unihub.payment.domain.exception.PaymentGatewayUnavailableException;
-import com.unihub.payment.domain.model.PaymentStatus;
 import com.unihub.registration.RegistrationFixtures;
 import com.unihub.registration.application.command.ReserveSeatCommand;
 import com.unihub.registration.application.port.in.ReserveSeatUseCase;
@@ -162,7 +161,7 @@ class ChargePaymentIT extends IntegrationTestSupport {
 
         var result = processed(chargePayment.charge(command(r, UUID.randomUUID())));
 
-        assertThat(result.status()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(result.status()).isEqualTo(ChargePaymentResult.Status.SUCCEEDED);
         assertThat(result.gatewayTransactionId()).startsWith("pi_");
         assertThat(result.resolvedAt()).isNotNull();
         assertThat(fixtures.paymentStatuses(r.registration().value())).containsExactly("SUCCEEDED");
@@ -205,7 +204,7 @@ class ChargePaymentIT extends IntegrationTestSupport {
         var first = processed(chargePayment.charge(command(r, key)));
         var replay = processed(chargePayment.charge(command(r, key)));
 
-        assertThat(first.status()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(first.status()).isEqualTo(ChargePaymentResult.Status.FAILED);
         assertThat(replay).isEqualTo(first);
         assertThat(fixtures.paymentOutboxRows(r.registration().value())).isZero();
         verify(gateway, times(1)).create(any(), any(), any(), any());
@@ -225,8 +224,8 @@ class ChargePaymentIT extends IntegrationTestSupport {
         var first = processed(chargePayment.charge(command(r, UUID.randomUUID())));
         var second = processed(chargePayment.charge(command(r, UUID.randomUUID())));
 
-        assertThat(first.status()).isEqualTo(PaymentStatus.FAILED);
-        assertThat(second.status()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(first.status()).isEqualTo(ChargePaymentResult.Status.FAILED);
+        assertThat(second.status()).isEqualTo(ChargePaymentResult.Status.SUCCEEDED);
         assertThat(fixtures.paymentStatuses(r.registration().value()))
                 .containsExactly("FAILED", "SUCCEEDED");
     }
@@ -248,7 +247,7 @@ class ChargePaymentIT extends IntegrationTestSupport {
 
         var retry = processed(chargePayment.charge(command(r, key)));
 
-        assertThat(retry.status()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(retry.status()).isEqualTo(ChargePaymentResult.Status.SUCCEEDED);
         assertThat(fixtures.paymentStatuses(r.registration().value()))
                 .containsExactly("CANCELLED", "SUCCEEDED");
     }
@@ -265,7 +264,7 @@ class ChargePaymentIT extends IntegrationTestSupport {
         var second = chargePayment.charge(command(r, otherKey));
         var replayOfSecond = chargePayment.charge(command(r, otherKey));
 
-        assertThat(first.status()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(first.status()).isEqualTo(ChargePaymentResult.Status.PENDING);
         assertThat(second).isEqualTo(new ChargePaymentResult.PaymentInProgress());
         assertThat(replayOfSecond).isEqualTo(second);
         verify(gateway, times(1)).create(any(), any(), any(), any());

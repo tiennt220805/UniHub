@@ -229,7 +229,7 @@ class ChargePaymentStepsTest {
         var result = steps.resolve(COMMAND, payment.id(), Resolution.SUCCEEDED);
 
         assertThat(((ChargePaymentResult.Processed) result).status())
-                .isEqualTo(PaymentStatus.SUCCEEDED);
+                .isEqualTo(ChargePaymentResult.Status.SUCCEEDED);
         var order = inOrder(payments, events, idempotency);
         order.verify(payments).save(payment);
         var message = ArgumentCaptor.forClass(OutboxMessage.class);
@@ -252,7 +252,7 @@ class ChargePaymentStepsTest {
                 (ChargePaymentResult.Processed)
                         steps.resolve(COMMAND, payment.id(), Resolution.FAILED);
 
-        assertThat(result.status()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(result.status()).isEqualTo(ChargePaymentResult.Status.FAILED);
         assertThat(result.resolvedAt()).isEqualTo(NOW);
         verifyNoInteractions(events);
         verify(idempotency).complete(SCOPE, STUDENT, KEY, result, null);
@@ -269,7 +269,7 @@ class ChargePaymentStepsTest {
                 (ChargePaymentResult.Processed)
                         steps.resolve(COMMAND, payment.id(), Resolution.INITIATED);
 
-        assertThat(result.status()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(result.status()).isEqualTo(ChargePaymentResult.Status.PENDING);
         assertThat(result.gatewayTransactionId()).isEqualTo("pi_1");
         assertThat(result.resolvedAt()).isNull();
         verify(payments, never()).save(any());
@@ -290,7 +290,7 @@ class ChargePaymentStepsTest {
 
         assertThat(result.status())
                 .as("a late success never rewrites a closed payment")
-                .isEqualTo(PaymentStatus.FAILED);
+                .isEqualTo(ChargePaymentResult.Status.FAILED);
         verify(payments, never()).save(any());
         verifyNoInteractions(events);
     }

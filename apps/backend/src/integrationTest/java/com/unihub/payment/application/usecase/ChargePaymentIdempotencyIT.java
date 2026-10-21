@@ -26,7 +26,6 @@ import com.unihub.payment.application.result.ChargePaymentResult;
 import com.unihub.payment.domain.exception.NotRegistrationOwnerException;
 import com.unihub.payment.domain.exception.PayableRegistrationNotFoundException;
 import com.unihub.payment.domain.exception.PaymentGatewayUnavailableException;
-import com.unihub.payment.domain.model.PaymentStatus;
 import com.unihub.registration.RegistrationFixtures;
 import com.unihub.registration.application.command.ReserveSeatCommand;
 import com.unihub.registration.application.port.in.ReserveSeatUseCase;
@@ -239,7 +238,7 @@ class ChargePaymentIdempotencyIT extends IntegrationTestSupport {
         releaseConfirm.countDown();
 
         assertThat(processed(first.get(30, TimeUnit.SECONDS)).status())
-                .isEqualTo(PaymentStatus.SUCCEEDED);
+                .isEqualTo(ChargePaymentResult.Status.SUCCEEDED);
         verify(gateway, times(1)).confirm(any(), any());
         assertThat(chargePayment.charge(command(r, key))).isEqualTo(first.get());
     }
@@ -277,7 +276,7 @@ class ChargePaymentIdempotencyIT extends IntegrationTestSupport {
 
         var retry = processed(chargePayment.charge(command(r, key)));
 
-        assertThat(retry.status()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(retry.status()).isEqualTo(ChargePaymentResult.Status.SUCCEEDED);
         verify(gateway, times(2)).confirm(any(), any());
         assertThat(fixtures.chargeKeyStatus(r.student())).isEqualTo("COMPLETED");
     }
@@ -312,7 +311,7 @@ class ChargePaymentIdempotencyIT extends IntegrationTestSupport {
         var first = processed(chargePayment.charge(command(r, key)));
         var retry = chargePayment.charge(command(r, key));
 
-        assertThat(first.status()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(first.status()).isEqualTo(ChargePaymentResult.Status.PENDING);
         assertThat(first.gatewayTransactionId())
                 .as("the id was stored before the confirm")
                 .isNotNull();
@@ -364,7 +363,7 @@ class ChargePaymentIdempotencyIT extends IntegrationTestSupport {
         var first = processed(chargePayment.charge(command(r, key)));
         var replay = chargePayment.charge(command(r, key));
 
-        assertThat(first.status()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(first.status()).isEqualTo(ChargePaymentResult.Status.FAILED);
         assertThat(first.gatewayTransactionId()).isNull();
         assertThat(replay).isEqualTo(first);
         assertThat(fixtures.chargeKeyStatus(r.student())).isEqualTo("COMPLETED");

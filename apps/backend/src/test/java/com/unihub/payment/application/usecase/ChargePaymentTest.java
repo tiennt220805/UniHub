@@ -26,7 +26,6 @@ import com.unihub.payment.application.usecase.ChargePaymentSteps.Resolution;
 import com.unihub.payment.application.usecase.ChargePaymentSteps.Started;
 import com.unihub.payment.domain.exception.LivePaymentExistsException;
 import com.unihub.payment.domain.exception.PaymentGatewayUnavailableException;
-import com.unihub.payment.domain.model.PaymentStatus;
 import com.unihub.shared.application.port.out.IdempotencyKeyInUseException;
 import com.unihub.shared.application.port.out.IdempotencyRecord;
 import com.unihub.shared.application.port.out.IdempotencyScope;
@@ -69,7 +68,7 @@ class ChargePaymentTest {
                     "VND",
                     "STRIPE",
                     "pi_1",
-                    PaymentStatus.SUCCEEDED,
+                    ChargePaymentResult.Status.SUCCEEDED,
                     Instant.parse("2026-12-01T09:00:00Z"),
                     Instant.parse("2026-12-01T09:00:02Z"));
 

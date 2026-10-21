@@ -2,10 +2,13 @@ package com.unihub.shared.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.unihub.payment.domain.exception.LivePaymentExistsException;
+import com.unihub.payment.domain.exception.NotRegistrationOwnerException;
 import com.unihub.registration.domain.exception.AlreadyRegisteredException;
 import com.unihub.shared.application.port.out.IdempotencyKeyInUseException;
 import com.unihub.shared.application.port.out.IdempotencyKeyReusedException;
 import com.unihub.shared.application.port.out.IdempotencyScope;
+import com.unihub.shared.domain.id.RegistrationId;
 import com.unihub.shared.domain.id.UserId;
 import com.unihub.shared.domain.id.WorkshopId;
 import org.junit.jupiter.api.DisplayName;
@@ -26,6 +29,34 @@ class ProblemTypesTest {
                 .hasToString("urn:unihub:problem:idempotency-key-in-use");
         assertThat(ProblemTypes.IDEMPOTENCY_KEY_REUSED)
                 .hasToString("urn:unihub:problem:idempotency-key-reused");
+        assertThat(ProblemTypes.REGISTRATION_NOT_RESERVED)
+                .hasToString("urn:unihub:problem:registration-not-reserved");
+        assertThat(ProblemTypes.PAYMENT_IN_PROGRESS)
+                .hasToString("urn:unihub:problem:payment-in-progress");
+    }
+
+    @Test
+    @DisplayName(
+            "LivePaymentExistsException (the backstop) carries the same type as the Result path")
+    void livePaymentBackstop_carriesTheSameType() {
+        var exception =
+                new LivePaymentExistsException(
+                        RegistrationId.newId(), new RuntimeException("index"));
+
+        assertThat(exception.problemType()).isEqualTo(ProblemTypes.PAYMENT_IN_PROGRESS.toString());
+        assertThat(exception.kind()).isEqualTo(com.unihub.shared.domain.ProblemKind.CONFLICT);
+    }
+
+    @Test
+    @DisplayName("a caller who does not own the registration is a 403 with no type")
+    void notTheOwner_is403() {
+        var response =
+                new GlobalProblemHandler()
+                        .handleDomain(
+                                new NotRegistrationOwnerException(RegistrationId.newId()),
+                                new MockHttpServletRequest("POST", "/api/v1/payments/charge"));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(403);
     }
 
     @Test

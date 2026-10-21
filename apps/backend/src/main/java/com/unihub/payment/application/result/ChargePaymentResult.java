@@ -1,7 +1,6 @@
 package com.unihub.payment.application.result;
 
 import com.unihub.payment.domain.model.Payment;
-import com.unihub.payment.domain.model.PaymentStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
@@ -28,7 +27,7 @@ public sealed interface ChargePaymentResult {
             String currency,
             String gateway,
             String gatewayTransactionId,
-            PaymentStatus status,
+            Status status,
             Instant initiatedAt,
             Instant resolvedAt)
             implements ChargePaymentResult {
@@ -41,10 +40,24 @@ public sealed interface ChargePaymentResult {
                     payment.currency(),
                     payment.gateway(),
                     payment.gatewayTransactionId(),
-                    payment.status(),
+                    Status.valueOf(payment.status().name()),
                     payment.initiatedAt(),
                     payment.resolvedAt());
         }
+    }
+
+    /**
+     * The payment's status when the snapshot was taken. Mirrors the domain's, so that {@code web}
+     * can name it without touching {@code domain}; it is stored in the replayed Result, so its
+     * names are as fixed as the variants'.
+     */
+    enum Status {
+        PENDING,
+        SUCCEEDED,
+        FAILED,
+        CANCELLED,
+        REFUND_REQUIRED,
+        REFUNDED
     }
 
     /** The registration is not {@code RESERVED}, or its hold has ended. */
