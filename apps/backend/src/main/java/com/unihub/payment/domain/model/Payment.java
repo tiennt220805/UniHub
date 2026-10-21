@@ -1,11 +1,15 @@
 package com.unihub.payment.domain.model;
 
+import com.unihub.payment.domain.event.PaymentDomainEvent;
+import com.unihub.payment.domain.event.PaymentSucceeded;
 import com.unihub.payment.domain.exception.InvalidPaymentStateException;
 import com.unihub.shared.domain.Version;
 import com.unihub.shared.domain.id.PaymentId;
 import com.unihub.shared.domain.id.RegistrationId;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -18,6 +22,9 @@ import java.util.Objects;
  * are added with it.
  */
 public final class Payment {
+    /** {@code payments.currency} defaults to VND (database-schema.md §5.1). */
+    public static final String DEFAULT_CURRENCY = "VND";
+
     private static final String DEFAULT_GATEWAY = "STRIPE";
     private static final int AMOUNT_MAX_SCALE = 2;
     private static final int AMOUNT_MAX_INTEGER_DIGITS = 10;
@@ -27,7 +34,8 @@ public final class Payment {
     private final BigDecimal amount;
     private final String currency;
     private final String gateway;
-    private final String gatewayTransactionId;
+    private String gatewayTransactionId;
+    private final List<PaymentDomainEvent> events = new ArrayList<>();
     private PaymentStatus status;
     private final Instant initiatedAt;
     private Instant resolvedAt;
@@ -104,8 +112,28 @@ public final class Payment {
                 version);
     }
 
+    /**
+     * Stores the gateway's id for this payment, once (payment.md §1). The confirm is only ever sent
+     * after this, which is why a {@code PENDING} payment without an id provably moved no money.
+     */
+    public void attachGatewayTransactionId(String gatewayId) {
+        if (gatewayId == null || gatewayId.isBlank()) {
+            throw new InvalidPaymentStateException("a gateway transaction id cannot be blank");
+        }
+        if (status != PaymentStatus.PENDING) {
+            throw new InvalidPaymentStateException(id, status, "take a gateway transaction id");
+        }
+        if (gatewayTransactionId != null) {
+            throw new InvalidPaymentStateException(
+                    "payment " + id.value() + " already has a gateway transaction id");
+        }
+        this.gatewayTransactionId = gatewayId;
+    }
+
+    /** Records {@link PaymentSucceeded}: the registration may now be confirmed. */
     public void succeed(Instant now) {
         resolve(PaymentStatus.SUCCEEDED, now, "succeed");
+        events.add(new PaymentSucceeded(id, registrationId, now));
     }
 
     public void fail(Instant now) {
@@ -143,6 +171,13 @@ public final class Payment {
             throw new InvalidPaymentStateException("currency must be a 3-letter code");
         }
         return currency;
+    }
+
+    /** Returns and clears the events recorded since the aggregate was loaded or last pulled. */
+    public List<PaymentDomainEvent> pullEvents() {
+        var pulled = List.copyOf(events);
+        events.clear();
+        return pulled;
     }
 
     public PaymentId id() {

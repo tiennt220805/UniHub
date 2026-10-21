@@ -88,6 +88,51 @@ public final class RegistrationFixtures {
                 id.value().toString());
     }
 
+    /** Statuses of the registration's payments, oldest first. */
+    public List<String> paymentStatuses(UUID registrationId) {
+        return jdbc.queryForList(
+                "SELECT status FROM payments WHERE registration_id = ? ORDER BY initiated_at, id",
+                String.class,
+                registrationId);
+    }
+
+    /** {@code event_publications} rows announcing these payments. */
+    public int paymentOutboxRows(UUID registrationId) {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM event_publications WHERE aggregate_type = 'PAYMENT'"
+                        + " AND payload ->> 'registrationId' = ?",
+                Integer.class,
+                registrationId.toString());
+    }
+
+    /** Charge keys the user holds, of any status. */
+    public int chargeKeys(UserId user) {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM idempotency_keys WHERE actor_user_id = ?"
+                        + " AND scope = 'PAYMENT_CHARGE'",
+                Integer.class,
+                user.value());
+    }
+
+    /** Status of the user's only charge key ({@code IN_PROGRESS}/{@code COMPLETED}), or null. */
+    public String chargeKeyStatus(UserId user) {
+        var statuses =
+                jdbc.queryForList(
+                        "SELECT status FROM idempotency_keys WHERE actor_user_id = ?"
+                                + " AND scope = 'PAYMENT_CHARGE'",
+                        String.class,
+                        user.value());
+        return statuses.isEmpty() ? null : statuses.get(0);
+    }
+
+    /** Ends the registration's hold in the past, as the clock would. */
+    public void expireTheHold(UUID registrationId) {
+        jdbc.update(
+                "UPDATE registrations SET hold_expires_at = now() - interval '1 minute'"
+                        + " WHERE id = ?",
+                registrationId);
+    }
+
     /** The routing keys of those rows. */
     public List<String> outboxRoutingKeysForWorkshop(WorkshopId id) {
         return jdbc.queryForList(
@@ -100,6 +145,13 @@ public final class RegistrationFixtures {
     public void cleanUp() {
         users.forEach(
                 user -> {
+                    // A payment's outbox rows are found through the registration, which still
+                    // exists here (nothing deletes it earlier); they must go before it does.
+                    jdbc.update(
+                            "DELETE FROM event_publications WHERE aggregate_type = 'PAYMENT'"
+                                    + " AND payload ->> 'registrationId' IN"
+                                    + " (SELECT id::text FROM registrations WHERE user_id = ?)",
+                            user);
                     // By the payload's userId, not through registrations: a test may already have
                     // deleted the registration row, and its outbox row would stay PENDING for the
                     // next relay (any later IT with the relay on would publish it to the broker).

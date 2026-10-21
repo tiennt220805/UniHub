@@ -623,7 +623,7 @@ public abstract class DomainException extends RuntimeException {
     /** The problem `type` URI when a client must branch on this reason (§17); null keeps `about:blank`. */
     public String problemType() { return null; }
 }
-public enum ProblemKind { INVALID_REQUEST, NOT_FOUND, CONFLICT, UNPROCESSABLE, UNAVAILABLE }
+public enum ProblemKind { INVALID_REQUEST, FORBIDDEN, NOT_FOUND, CONFLICT, UNPROCESSABLE, UNAVAILABLE }
 
 /** Implemented by an UNAVAILABLE DomainException that should carry a Retry-After header. */
 public interface RetryableUnavailable { Duration retryAfter(); }
@@ -847,7 +847,7 @@ public abstract class DomainException extends RuntimeException {
 }
 
 // shared/domain/ProblemKind.java — the only mapping from business semantics to HTTP lives in shared.web
-public enum ProblemKind { INVALID_REQUEST, NOT_FOUND, CONFLICT, UNPROCESSABLE, UNAVAILABLE }
+public enum ProblemKind { INVALID_REQUEST, FORBIDDEN, NOT_FOUND, CONFLICT, UNPROCESSABLE, UNAVAILABLE }
 ```
 
 ```java
@@ -859,6 +859,7 @@ class GlobalProblemHandler extends ResponseEntityExceptionHandler {   // also tu
     ResponseEntity<ProblemDetail> handle(DomainException ex, HttpServletRequest request) {
         var status = switch (ex.kind()) {
             case INVALID_REQUEST -> HttpStatus.BAD_REQUEST;
+            case FORBIDDEN -> HttpStatus.FORBIDDEN;
             case NOT_FOUND       -> HttpStatus.NOT_FOUND;
             case CONFLICT        -> HttpStatus.CONFLICT;
             case UNPROCESSABLE   -> HttpStatus.UNPROCESSABLE_ENTITY;
@@ -894,7 +895,7 @@ class GlobalProblemHandler extends ResponseEntityExceptionHandler {   // also tu
   Slugs name a **business condition**, never an HTTP status, and a slug once used is **never reused** for another meaning. Clients must handle an unknown `type` by falling back to the HTTP status, which is what keeps adding a `type` non-breaking.
 
   The constants live in `shared.web` next to the advice; a Result variant maps to its `type` in the controller, a `DomainException` declares it alongside its `ProblemKind`. A replayed Result carries the same `type`.
-- Status semantics: `400` malformed request; `401` missing/invalid/expired token; `403` valid token without the permission; `404` not found, or hidden from this caller; `409` conflict with current state (including an `Idempotency-Key` still being processed); `422` an `Idempotency-Key` reused with a different request body (§21 rule 4); `503` + `Retry-After` for transient contention or an unavailable dependency. `UNPROCESSABLE` is added to the shared-kernel enum with the first Phase 2 code (Phase 2 checklist C26); `INVALID_REQUEST` already exists in code.
+- Status semantics: `400` malformed request; `401` missing/invalid/expired token; `403` valid token without the permission; `404` not found, or hidden from this caller; `409` conflict with current state (including an `Idempotency-Key` still being processed); `422` an `Idempotency-Key` reused with a different request body (§21 rule 4); `503` + `Retry-After` for transient contention or an unavailable dependency. `UNPROCESSABLE` is added to the shared-kernel enum with the first Phase 2 code (Phase 2 checklist C26); `INVALID_REQUEST` already exists in code. `FORBIDDEN` (`403`) is for a caller who holds the permission but not the resource, e.g. paying for another student's registration (Phase 2 checklist 3.5); a missing permission stays a `403` from the security layer.
 
 ---
 

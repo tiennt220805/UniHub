@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.unihub.payment.application.port.out.PaymentRepository;
+import com.unihub.payment.domain.exception.LivePaymentExistsException;
 import com.unihub.payment.domain.model.Payment;
 import com.unihub.payment.domain.model.PaymentStatus;
 import com.unihub.registration.RegistrationFixtures;
@@ -33,8 +34,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The Tier A payment adapter against real Postgres (backend-coding-standards.md §9.2): round trip,
- * explicit version check, and the resolution of a {@code PENDING} payment. Translating the
- * live-payment unique index into a business outcome belongs to the charge use case.
+ * explicit version check, the resolution of a {@code PENDING} payment, the gateway id, and the "one
+ * live payment per registration" index, whose violation the adapter turns into a domain failure
+ * (checklist D5) so it can never surface as a 500.
  */
 @SpringBootTest
 class JpaPaymentRepositoryIT extends IntegrationTestSupport {
@@ -143,5 +145,56 @@ class JpaPaymentRepositoryIT extends IntegrationTestSupport {
         assertThatThrownBy(() -> tx.execute(s -> payments.save(stale)))
                 .isInstanceOf(OptimisticConflictException.class);
         assertThat(find(saved.id()).status()).isEqualTo(PaymentStatus.CANCELLED);
+    }
+
+    @Test
+    @DisplayName("the gateway's id is stored with the payment and survives a reload")
+    void attachedGatewayId_isPersisted() {
+        var payment = saveNew(pending());
+        payment.attachGatewayTransactionId("pi_123");
+        tx.executeWithoutResult(s -> payments.save(payment));
+
+        assertThat(find(payment.id()).gatewayTransactionId()).isEqualTo("pi_123");
+    }
+
+    @Test
+    @DisplayName(
+            "PENDING and SUCCEEDED count as live; every other status leaves the registration free")
+    void existsLiveFor_byStatus() {
+        assertThat(payments.existsLiveFor(registration)).isFalse();
+
+        var payment = saveNew(pending());
+        assertThat(payments.existsLiveFor(registration)).isTrue();
+
+        payment.succeed(NOW);
+        tx.executeWithoutResult(s -> payments.save(payment));
+        assertThat(payments.existsLiveFor(registration)).isTrue();
+
+        for (var status : new String[] {"FAILED", "CANCELLED", "REFUND_REQUIRED", "REFUNDED"}) {
+            jdbc.update(
+                    "UPDATE payments SET status = ? WHERE id = ?", status, payment.id().value());
+            assertThat(payments.existsLiveFor(registration)).as(status).isFalse();
+        }
+    }
+
+    @Test
+    @DisplayName(
+            "a second live payment for the registration is a domain failure, not a data-access error")
+    void secondLivePayment_isLivePaymentExists() {
+        saveNew(pending());
+
+        assertThatThrownBy(() -> saveNew(pending())).isInstanceOf(LivePaymentExistsException.class);
+    }
+
+    @Test
+    @DisplayName("a closed payment does not block a new one for the same registration")
+    void afterFailed_aNewPaymentIsAccepted() {
+        var first = saveNew(pending());
+        first.fail(NOW);
+        tx.executeWithoutResult(s -> payments.save(first));
+
+        var second = saveNew(pending());
+
+        assertThat(second.status()).isEqualTo(PaymentStatus.PENDING);
     }
 }

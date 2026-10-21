@@ -4,6 +4,8 @@ package com.unihub.shared.domain;
 public enum ProblemKind {
     /** The request itself is malformed or self-contradictory (HTTP 400), not a state clash. */
     INVALID_REQUEST,
+    /** The caller is authenticated but may not touch this resource (HTTP 403). */
+    FORBIDDEN,
     NOT_FOUND,
     CONFLICT,
     /**

@@ -43,6 +43,7 @@ class GlobalProblemHandler extends ResponseEntityExceptionHandler {
         var status =
                 switch (ex.kind()) {
                     case INVALID_REQUEST -> HttpStatus.BAD_REQUEST;
+                    case FORBIDDEN -> HttpStatus.FORBIDDEN;
                     case NOT_FOUND -> HttpStatus.NOT_FOUND;
                     case CONFLICT -> HttpStatus.CONFLICT;
                     case UNPROCESSABLE -> HttpStatus.UNPROCESSABLE_ENTITY;

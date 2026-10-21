@@ -6,6 +6,7 @@ import static com.unihub.payment.domain.model.PaymentBuilder.aResolvedPayment;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.unihub.payment.domain.event.PaymentSucceeded;
 import com.unihub.payment.domain.exception.InvalidPaymentStateException;
 import com.unihub.shared.domain.Version;
 import com.unihub.shared.domain.id.PaymentId;
@@ -42,6 +43,63 @@ class PaymentTest {
         assertThat(payment.resolvedAt()).isNull();
         assertThat(payment.gatewayTransactionId()).isNull();
         assertThat(payment.version()).isEqualTo(Version.initial());
+    }
+
+    @Test
+    @DisplayName("the gateway's id is stored once, while the payment is still PENDING")
+    void attachGatewayTransactionId_once() {
+        var payment = aPendingPayment().build();
+
+        payment.attachGatewayTransactionId("pi_123");
+
+        assertThat(payment.gatewayTransactionId()).isEqualTo("pi_123");
+        assertThatThrownBy(() -> payment.attachGatewayTransactionId("pi_other"))
+                .as("a second id would orphan the first PaymentIntent")
+                .isInstanceOf(InvalidPaymentStateException.class);
+        assertThat(payment.gatewayTransactionId()).isEqualTo("pi_123");
+    }
+
+    @Test
+    @DisplayName("a resolved payment takes no gateway id, and a blank id is refused")
+    void attachGatewayTransactionId_rules() {
+        var resolved = aResolvedPayment(PaymentStatus.FAILED).build();
+        var pending = aPendingPayment().build();
+
+        assertThatThrownBy(() -> resolved.attachGatewayTransactionId("pi_1"))
+                .isInstanceOf(InvalidPaymentStateException.class);
+        assertThatThrownBy(() -> pending.attachGatewayTransactionId(" "))
+                .isInstanceOf(InvalidPaymentStateException.class);
+        assertThatThrownBy(() -> pending.attachGatewayTransactionId(null))
+                .isInstanceOf(InvalidPaymentStateException.class);
+    }
+
+    @Test
+    @DisplayName("succeeding records PaymentSucceeded, once; failing and cancelling record nothing")
+    void succeed_recordsTheEvent() {
+        var succeeded = aPendingPayment().build();
+        var failed = aPendingPayment().build();
+        var cancelled = aPendingPayment().build();
+
+        succeeded.succeed(NOW);
+        failed.fail(NOW);
+        cancelled.cancel(NOW);
+
+        assertThat(succeeded.pullEvents())
+                .containsExactly(
+                        new PaymentSucceeded(succeeded.id(), succeeded.registrationId(), NOW));
+        assertThat(succeeded.pullEvents()).isEmpty();
+        assertThat(failed.pullEvents()).isEmpty();
+        assertThat(cancelled.pullEvents()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a refused success records nothing, so it can never confirm a registration")
+    void refusedSuccess_recordsNothing() {
+        var resolved = aResolvedPayment(PaymentStatus.CANCELLED).build();
+
+        assertThatThrownBy(() -> resolved.succeed(NOW))
+                .isInstanceOf(InvalidPaymentStateException.class);
+        assertThat(resolved.pullEvents()).isEmpty();
     }
 
     @Test
