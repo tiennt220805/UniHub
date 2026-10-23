@@ -201,6 +201,8 @@ No `payments` row is created when the breaker refuses **before** the first trans
 | `canceled` | `CANCELLED` | deleted |
 | The cancel is refused because the PaymentIntent already succeeded | retrieve again and resolve from the real status (`SUCCEEDED`) | completed |
 
+**"Deleted" in the Key column means: an `IN_PROGRESS` key is deleted.** A key already completed as "initiated" (the confirm was sent and came back unknown, §3, §8) keeps its snapshot, exactly as D10 constraint 4 says a replay returns the snapshot and `getPayment` is the truth. Deleting it would gain the student nothing: reconciliation only acts once `stale-after` (15 min) has passed, which is not before the seat hold (15 min, `../modules/registration.md` §2) has ended, and `chargePayment` refuses an ended hold with `409 registration-not-reserved` under any key. It would also run a second effect under a key the client already holds a `201` for, and break the rule that the key store never touches a `COMPLETED` key. **This holds only while `stale-after` ≥ `seat-hold`;** whoever shortens the threshold below the hold must revisit it (Phase 2 checklist D16 constraint 2, clarification 2026-10-23).
+
 Every cancel uses the gateway key `pi-cancel:{paymentId}`; every retry of a step reuses that step's key (`../../guidelines/backend-coding-standards.md` §19.4). `metadata.payment_id` is on every PaymentIntent for operator investigation only — it is never read to resolve a payment. In one transaction at the Master:
 ```
 SELECT status, version FROM payments WHERE id = ? (Master)
