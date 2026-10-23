@@ -142,11 +142,13 @@ dependencies {
     // per-call-site Retry/TimeLimiter, used only inside payment.infrastructure.out.client. The plain
     // libraries, not the Boot starter (configured from unihub.payment.breaker.*, as Redisson is); the
     // micrometer module publishes resilience4j_circuitbreaker_state, which observability.md §6 alerts on.
-    // 2.4.0 is the newest release and older than two weeks when it was chosen.
-    implementation("io.github.resilience4j:resilience4j-circuitbreaker:2.4.0")
-    implementation("io.github.resilience4j:resilience4j-retry:2.4.0")
-    implementation("io.github.resilience4j:resilience4j-timelimiter:2.4.0")
-    implementation("io.github.resilience4j:resilience4j-micrometer:2.4.0")
+    // 2.3.0, not the newest 2.4.0: resilience4j-micrometer 2.4.0 is built against micrometer-core 1.16 and the
+    // Boot 3.3 BOM resolves 1.13.6, which would be an unchecked downgrade; 2.3.0 (and 2.2.0, 2.1.0) are built
+    // against 1.10, so the resolved 1.13.6 is a compatible upgrade. Move both together with Boot.
+    implementation("io.github.resilience4j:resilience4j-circuitbreaker:2.3.0")
+    implementation("io.github.resilience4j:resilience4j-retry:2.3.0")
+    implementation("io.github.resilience4j:resilience4j-timelimiter:2.3.0")
+    implementation("io.github.resilience4j:resilience4j-micrometer:2.3.0")
     // Runtime JDBC driver for the application itself. The buildscript{} block above declares the same
     // artifact separately for the Flyway Gradle plugin's own classloader (see that block's comment) —
     // the two are independent dependency graphs, so this is not a duplicate.

@@ -958,7 +958,7 @@ When a request must call a third party synchronously (the Stripe charge, `paymen
 
 ```
 ChargePayment (no transaction)
-  ├─ breaker.tryAcquirePermission()   refused → 503, nothing written
+  ├─ admission.admitting()            looks at the circuit, takes no permission; refused → 503, nothing written
   ├─ steps.begin(command)             @Transactional: idempotency find/begin(IN_PROGRESS, resourceId = payment id)
   │                                   + payments row PENDING, commit
   ├─ gateway.create(confirm=false)    no transaction; moves no money; key pi-create:{paymentId}
@@ -968,6 +968,8 @@ ChargePayment (no transaction)
   ├─ steps.complete(outcome)          @Transactional: payment updated with version check + idempotency complete
   └─ steps.abandon(paymentId)         @Transactional: PENDING → CANCELLED + idempotency abandonOpenFor; respond 503
 ```
+
+The pre-flight question only *looks* at the circuit and keeps no permission (Phase 2 checklist 3.7): each gateway call asks the breaker for its own, so a permission taken here as well and never returned would leak a probe slot of a half-open breaker on every charge. The circuit may open between the question and the call; `abandon` covers that. Breaker, retry and time limiter wrap the `PaymentGateway` port in one adapter, so the orchestrator sees only port exceptions: a call the breaker refused or the time limiter cut off is `GatewayCallFailedException` for `create`, `GatewayNotReachedException` (refused) or `GatewayOutcomeUnknownException` (timed out — it may have been sent) for `confirm`.
 
 **Which step runs (checklist D10, D16 — one rule for this path and for reconciliation, `payment.md` §6):**
 

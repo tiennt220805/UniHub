@@ -87,20 +87,37 @@ class PaymentBreakerPropertiesTest {
 
     @Test
     @DisplayName(
-            "the circuit state is published as resilience4j_circuitbreaker_state{name=paymentGateway}")
+            "the circuit state is published as resilience4j_circuitbreaker_state{name=paymentGateway}, live")
     void state_isPublishedUnderTheNameTheAlertUses() {
         var registry = CircuitBreakerRegistry.of(ResilientPaymentGateway.breakerConfig(defaults()));
-        registry.circuitBreaker("paymentGateway");
+        var breaker = registry.circuitBreaker("paymentGateway");
         var meters = new SimpleMeterRegistry();
-
         TaggedCircuitBreakerMetrics.ofCircuitBreakerRegistry(registry).bindTo(meters);
 
         // observability.md §6 alerts on exactly this name and tag
+        var open =
+                meters.find("resilience4j.circuitbreaker.state")
+                        .tag("name", "paymentGateway")
+                        .tag("state", "open")
+                        .gauge();
+        assertThat(open).isNotNull();
+        assertThat(open.value()).isZero();
+
+        // recorded calls reach the meters; a micrometer API mismatch would fail here, not in prod
+        breaker.onSuccess(1, java.util.concurrent.TimeUnit.MILLISECONDS);
+        breaker.onError(
+                1,
+                java.util.concurrent.TimeUnit.MILLISECONDS,
+                new com.unihub.payment.application.port.out.GatewayCallFailedException("x", null));
         assertThat(
-                        meters.find("resilience4j.circuitbreaker.state")
+                        meters.find("resilience4j.circuitbreaker.calls")
                                 .tag("name", "paymentGateway")
-                                .tag("state", "open")
-                                .gauge())
-                .isNotNull();
+                                .tag("kind", "successful")
+                                .timer()
+                                .count())
+                .isEqualTo(1);
+
+        breaker.transitionToOpenState();
+        assertThat(open.value()).as("the alert fires on this reading").isEqualTo(1.0);
     }
 }

@@ -321,8 +321,12 @@ class PaymentCircuitBreakerIT extends IntegrationTestSupport {
                                         .withBody(intent("succeeded"))));
         var held = aHeldSeat();
 
+        var started = System.nanoTime();
         var response = charge(held);
 
+        assertThat(Duration.ofNanos(System.nanoTime() - started))
+                .as("cut off by the 500 ms limit, not by the gateway's 1.5 s answer (AC17.1)")
+                .isLessThan(Duration.ofMillis(1400));
         assertThat(response.getStatusCode().value()).isEqualTo(201);
         assertThat(json(response).get("status").asText()).isEqualTo("PENDING");
         assertThat(paymentRows(held.registration())).isEqualTo(1);
