@@ -2,6 +2,7 @@ package com.unihub.payment.infrastructure.out.client;
 
 import com.unihub.payment.application.port.out.ConfirmOutcome;
 import com.unihub.payment.application.port.out.GatewayCallFailedException;
+import com.unihub.payment.application.port.out.GatewayPaymentState;
 import com.unihub.payment.application.port.out.PaymentGateway;
 import com.unihub.shared.domain.id.PaymentId;
 import java.math.BigDecimal;
@@ -23,5 +24,17 @@ public final class UnconfiguredPaymentGateway implements PaymentGateway {
     @Override
     public ConfirmOutcome confirm(PaymentId paymentId, String gatewayTransactionId) {
         throw new IllegalStateException("confirm cannot be reached without a created payment");
+    }
+
+    @Override
+    public GatewayPaymentState retrieve(String gatewayTransactionId) {
+        throw new GatewayCallFailedException(
+                "no payment gateway is configured (unihub.payment.stripe.secret-key)", null);
+    }
+
+    @Override
+    public void cancel(PaymentId paymentId, String gatewayTransactionId) {
+        throw new GatewayCallFailedException(
+                "no payment gateway is configured (unihub.payment.stripe.secret-key)", null);
     }
 }

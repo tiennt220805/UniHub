@@ -7,10 +7,12 @@ import com.unihub.payment.domain.model.PaymentStatus;
 import com.unihub.shared.domain.OptimisticConflictException;
 import com.unihub.shared.domain.id.PaymentId;
 import com.unihub.shared.domain.id.RegistrationId;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Repository;
 
@@ -40,6 +42,13 @@ class JpaPaymentRepository implements PaymentRepository {
     @Override
     public Optional<Payment> findByGatewayTransactionId(String gatewayTransactionId) {
         return springData.findByGatewayTransactionId(gatewayTransactionId).map(mapper::toDomain);
+    }
+
+    @Override
+    public List<PaymentId> findPendingInitiatedBefore(Instant cutoff, int limit) {
+        return springData.findPendingInitiatedBefore(cutoff, PageRequest.ofSize(limit)).stream()
+                .map(PaymentId::of)
+                .toList();
     }
 
     @Override

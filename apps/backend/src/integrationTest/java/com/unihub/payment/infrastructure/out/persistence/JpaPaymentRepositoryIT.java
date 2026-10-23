@@ -15,11 +15,13 @@ import com.unihub.shared.domain.OptimisticConflictException;
 import com.unihub.shared.domain.Version;
 import com.unihub.shared.domain.id.PaymentId;
 import com.unihub.shared.domain.id.RegistrationId;
+import com.unihub.shared.domain.id.WorkshopId;
 import com.unihub.shared.infrastructure.IntegrationTestSupport;
 import com.unihub.shared.security.TestJwts;
 import com.unihub.workshop.application.port.out.WorkshopRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,13 +60,14 @@ class JpaPaymentRepositoryIT extends IntegrationTestSupport {
 
     private RegistrationFixtures fixtures;
     private RegistrationId registration;
+    private WorkshopId workshopId;
 
     @BeforeEach
     void aRegistrationToPayFor() {
         fixtures = new RegistrationFixtures(jdbc);
         var workshop = aPaidWorkshop().build();
         tx.executeWithoutResult(s -> workshops.save(workshop));
-        fixtures.track(workshop.id());
+        workshopId = fixtures.track(workshop.id());
         var held =
                 aReservedRegistration()
                         .withWorkshopId(workshop.id())
@@ -196,5 +199,57 @@ class JpaPaymentRepositoryIT extends IntegrationTestSupport {
         var second = saveNew(pending());
 
         assertThat(second.status()).isEqualTo(PaymentStatus.PENDING);
+    }
+
+    // ---------- the reconciliation sweep's query (payment.md §6) ----------
+
+    private Payment pendingAt(Instant initiatedAt) {
+        var held =
+                aReservedRegistration()
+                        .withWorkshopId(workshopId)
+                        .withUserId(fixtures.aStudent())
+                        .build();
+        tx.executeWithoutResult(s -> registrations.save(held));
+        return saveNew(
+                Payment.initiate(
+                        PaymentId.newId(),
+                        held.id(),
+                        new BigDecimal("100000.00"),
+                        "VND",
+                        initiatedAt));
+    }
+
+    @Test
+    @DisplayName(
+            "the sweep's cutoff is strict: 1µs before is found, exactly on it and after are not")
+    void findPendingInitiatedBefore_isStrictlyBeforeTheCutoff() {
+        var cutoff = Instant.parse("2021-01-01T00:15:00Z");
+        var before = pendingAt(cutoff.minus(1, ChronoUnit.MICROS));
+        var on = pendingAt(cutoff);
+        var after = pendingAt(cutoff.plus(1, ChronoUnit.MICROS));
+
+        var found = payments.findPendingInitiatedBefore(cutoff, 100);
+
+        assertThat(found).contains(before.id()).doesNotContain(on.id(), after.id());
+    }
+
+    @Test
+    @DisplayName("only PENDING payments are found, oldest first, and no more than the limit")
+    void findPendingInitiatedBefore_onlyPending_oldestFirst_limited() {
+        var cutoff = Instant.parse("2021-01-01T00:15:00Z");
+        var newest = pendingAt(cutoff.minus(1, ChronoUnit.MINUTES));
+        var oldest = pendingAt(cutoff.minus(3, ChronoUnit.MINUTES));
+        var middle = pendingAt(cutoff.minus(2, ChronoUnit.MINUTES));
+        var resolved = pendingAt(cutoff.minus(4, ChronoUnit.MINUTES));
+        resolved.fail(NOW);
+        tx.executeWithoutResult(s -> payments.save(resolved));
+
+        var all = payments.findPendingInitiatedBefore(cutoff, 100);
+        var firstTwo = payments.findPendingInitiatedBefore(cutoff, 2);
+
+        assertThat(all)
+                .doesNotContain(resolved.id())
+                .containsSubsequence(oldest.id(), middle.id(), newest.id());
+        assertThat(firstTwo).containsExactly(oldest.id(), middle.id());
     }
 }

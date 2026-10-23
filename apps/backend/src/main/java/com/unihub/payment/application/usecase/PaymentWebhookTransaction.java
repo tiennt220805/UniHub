@@ -1,12 +1,8 @@
 package com.unihub.payment.application.usecase;
 
-import com.unihub.payment.application.event.PaymentOutboxTranslator;
 import com.unihub.payment.application.port.out.GatewayPaymentEvent;
 import com.unihub.payment.application.port.out.PaymentRepository;
-import com.unihub.payment.application.result.ChargePaymentResult;
-import com.unihub.payment.domain.model.PaymentStatus;
 import com.unihub.shared.application.port.out.EventPublisher;
-import com.unihub.shared.application.port.out.IdempotencyScope;
 import com.unihub.shared.application.port.out.IdempotencyStore;
 import java.time.Clock;
 import org.springframework.stereotype.Service;
@@ -33,11 +29,8 @@ class PaymentWebhookTransaction {
         UNKNOWN_TRANSACTION
     }
 
-    private static final IdempotencyScope SCOPE = IdempotencyScope.PAYMENT_CHARGE;
-
     private final PaymentRepository payments;
-    private final IdempotencyStore idempotency;
-    private final EventPublisher events;
+    private final PaymentResolution resolution;
     private final Clock clock;
 
     PaymentWebhookTransaction(
@@ -46,8 +39,7 @@ class PaymentWebhookTransaction {
             EventPublisher events,
             Clock clock) {
         this.payments = payments;
-        this.idempotency = idempotency;
-        this.events = events;
+        this.resolution = new PaymentResolution(payments, idempotency, events);
         this.clock = clock;
     }
 
@@ -57,50 +49,6 @@ class PaymentWebhookTransaction {
         if (found.isEmpty()) {
             return Effect.UNKNOWN_TRANSACTION;
         }
-        var payment = found.get();
-        var now = clock.instant();
-        switch (payment.status()) {
-            case PENDING -> {
-                switch (event.outcome()) {
-                    case SUCCEEDED -> payment.succeed(now);
-                    case FAILED -> payment.fail(now);
-                    case CANCELLED -> payment.cancel(now);
-                }
-                var recorded = payment.pullEvents();
-                var saved = payments.save(payment);
-                recorded.stream()
-                        .flatMap(e -> PaymentOutboxTranslator.translate(e).stream())
-                        .forEach(events::publish);
-                closeTheKey(saved);
-                return Effect.RESOLVED;
-            }
-            case FAILED, CANCELLED -> {
-                if (event.outcome() != GatewayPaymentEvent.Outcome.SUCCEEDED) {
-                    return Effect.NO_OP;
-                }
-                payment.lateSuccess(now);
-                payments.save(payment);
-                return Effect.LATE_SUCCESS;
-            }
-            case SUCCEEDED, REFUND_REQUIRED, REFUNDED -> {
-                return Effect.NO_OP;
-            }
-        }
-        throw new IllegalStateException("unreachable: " + payment.status());
-    }
-
-    /**
-     * Checklist G2 (D1 constraint 8): a charge whose second transaction never ran left its key
-     * open; the webhook resolving the payment closes it in this same transaction, so a same-key
-     * retry replays the outcome instead of getting 409 forever. A payment the webhook cancels
-     * provably moved no money, so its open key is dropped. Does nothing when no key is open.
-     */
-    private void closeTheKey(com.unihub.payment.domain.model.Payment resolved) {
-        if (resolved.status() == PaymentStatus.CANCELLED) {
-            idempotency.abandonOpenFor(SCOPE, resolved.id().value());
-        } else {
-            idempotency.completeOpenFor(
-                    SCOPE, resolved.id().value(), ChargePaymentResult.Processed.of(resolved));
-        }
+        return resolution.apply(found.get(), event.outcome(), clock.instant());
     }
 }

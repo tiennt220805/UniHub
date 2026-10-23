@@ -7,12 +7,15 @@ import com.stripe.exception.InvalidRequestException;
 import com.stripe.exception.StripeException;
 import com.stripe.model.PaymentIntent;
 import com.stripe.net.RequestOptions;
+import com.stripe.param.PaymentIntentCancelParams;
 import com.stripe.param.PaymentIntentConfirmParams;
 import com.stripe.param.PaymentIntentCreateParams;
 import com.unihub.payment.application.port.out.ConfirmOutcome;
 import com.unihub.payment.application.port.out.GatewayCallFailedException;
+import com.unihub.payment.application.port.out.GatewayCancelRefusedException;
 import com.unihub.payment.application.port.out.GatewayNotReachedException;
 import com.unihub.payment.application.port.out.GatewayOutcomeUnknownException;
+import com.unihub.payment.application.port.out.GatewayPaymentState;
 import com.unihub.payment.application.port.out.PaymentGateway;
 import com.unihub.payment.application.port.out.PaymentMethodRejectedException;
 import com.unihub.shared.domain.id.PaymentId;
@@ -29,6 +32,9 @@ import java.util.Locale;
  * explicitly (the SDK's defaults depend on its version).
  */
 final class StripePaymentGateway implements PaymentGateway {
+    /** The error code Stripe gives for an operation the object's current status does not allow. */
+    private static final String UNEXPECTED_STATE = "payment_intent_unexpected_state";
+
     private final StripeClient stripe;
 
     StripePaymentGateway(StripeProperties properties) {
@@ -117,6 +123,69 @@ final class StripePaymentGateway implements PaymentGateway {
             throw new GatewayOutcomeUnknownException("the confirm answer could not be read", e);
         }
         return outcomeOf(intent);
+    }
+
+    @Override
+    public GatewayPaymentState retrieve(String gatewayTransactionId) {
+        PaymentIntent intent;
+        try {
+            intent = stripe.v1().paymentIntents().retrieve(gatewayTransactionId);
+        } catch (StripeException | RuntimeException e) {
+            // RuntimeException too: the SDK itself fails on an error answer without a body.
+            throw new GatewayCallFailedException("reading the payment failed", e);
+        }
+        return stateOf(intent);
+    }
+
+    /**
+     * The mapping of payment.md §6. {@code latest_charge} tells a refused attempt from a payment
+     * never confirmed: it "is null until PaymentIntent confirmation is attempted", while {@code
+     * last_payment_error} is cleared by a later update, so it is not used. An unknown status is not
+     * guessed at.
+     */
+    private static GatewayPaymentState stateOf(PaymentIntent intent) {
+        var status = intent.getStatus();
+        if (status == null) {
+            throw new GatewayCallFailedException("the gateway answered without a status", null);
+        }
+        return switch (status) {
+            case "succeeded" -> GatewayPaymentState.SUCCEEDED;
+            case "requires_payment_method" ->
+                    intent.getLatestCharge() == null
+                            ? GatewayPaymentState.NEVER_CONFIRMED
+                            : GatewayPaymentState.DECLINED;
+            case "requires_confirmation" -> GatewayPaymentState.NEVER_CONFIRMED;
+            // Neither occurs on this system's path (error_on_requires_action, automatic capture);
+            // both can be cancelled.
+            case "requires_action", "requires_capture" -> GatewayPaymentState.CANCEL_REQUIRED;
+            case "processing" -> GatewayPaymentState.PROCESSING;
+            case "canceled" -> GatewayPaymentState.CANCELED;
+            default ->
+                    throw new GatewayCallFailedException(
+                            "the gateway answered with an unknown status " + status, null);
+        };
+    }
+
+    @Override
+    public void cancel(PaymentId paymentId, String gatewayTransactionId) {
+        try {
+            stripe.v1()
+                    .paymentIntents()
+                    .cancel(
+                            gatewayTransactionId,
+                            PaymentIntentCancelParams.builder().build(),
+                            options("pi-cancel", paymentId));
+        } catch (InvalidRequestException e) {
+            // Read off the error code, never its message: the payment is no longer in a state that
+            // can be cancelled (it succeeded, or is already cancelled), so the caller asks again.
+            if (UNEXPECTED_STATE.equals(e.getCode())) {
+                throw new GatewayCancelRefusedException(
+                        "the payment can no longer be cancelled", e);
+            }
+            throw new GatewayCallFailedException("cancelling the payment failed", e);
+        } catch (StripeException | RuntimeException e) {
+            throw new GatewayCallFailedException("cancelling the payment failed", e);
+        }
     }
 
     private static ConfirmOutcome outcomeOf(PaymentIntent intent) {

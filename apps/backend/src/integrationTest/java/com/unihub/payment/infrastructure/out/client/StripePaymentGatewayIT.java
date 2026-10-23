@@ -3,6 +3,8 @@ package com.unihub.payment.infrastructure.out.client;
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.containing;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
@@ -14,8 +16,10 @@ import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import com.github.tomakehurst.wiremock.http.Fault;
 import com.unihub.payment.application.port.out.ConfirmOutcome;
 import com.unihub.payment.application.port.out.GatewayCallFailedException;
+import com.unihub.payment.application.port.out.GatewayCancelRefusedException;
 import com.unihub.payment.application.port.out.GatewayNotReachedException;
 import com.unihub.payment.application.port.out.GatewayOutcomeUnknownException;
+import com.unihub.payment.application.port.out.GatewayPaymentState;
 import com.unihub.payment.application.port.out.PaymentGateway;
 import com.unihub.payment.application.port.out.PaymentMethodRejectedException;
 import com.unihub.shared.domain.id.PaymentId;
@@ -28,6 +32,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /**
  * M-13 (INV-18, payment.md §3, checklist D16): the Stripe adapter against a WireMock stand-in for
@@ -39,6 +45,8 @@ import org.junit.jupiter.api.Test;
 class StripePaymentGatewayIT extends IntegrationTestSupport {
     private static final String CREATE = "/v1/payment_intents";
     private static final String CONFIRM = "/v1/payment_intents/pi_test_1/confirm";
+    private static final String RETRIEVE = "/v1/payment_intents/pi_test_1";
+    private static final String CANCEL = "/v1/payment_intents/pi_test_1/cancel";
     private static final Duration READ_TIMEOUT = Duration.ofMillis(400);
 
     private static WireMockServer gateway;
@@ -346,5 +354,149 @@ class StripePaymentGatewayIT extends IntegrationTestSupport {
                                 adapterFor("http://no-such-host.invalid")
                                         .confirm(payment, "pi_test_1"))
                 .isInstanceOf(GatewayNotReachedException.class);
+    }
+
+    // ---------- retrieve and cancel: reconciliation (payment.md §6, AC16.4, AC16.5) ----------
+
+    private void stubRetrieve(String body) {
+        gateway.stubFor(
+                get(urlEqualTo(RETRIEVE))
+                        .willReturn(
+                                aResponse()
+                                        .withStatus(200)
+                                        .withHeader("Content-Type", "application/json")
+                                        .withBody(body)));
+    }
+
+    private static String intent(String status, String latestCharge) {
+        return "{\"id\":\"pi_test_1\",\"object\":\"payment_intent\",\"status\":\""
+                + status
+                + "\",\"latest_charge\":"
+                + (latestCharge == null ? "null" : "\"" + latestCharge + "\"")
+                + "}";
+    }
+
+    @ParameterizedTest(name = "{0} (latest_charge {1}) is {2}")
+    @CsvSource(
+            nullValues = "null",
+            value = {
+                "succeeded, ch_1, SUCCEEDED",
+                "requires_payment_method, ch_1, DECLINED",
+                "requires_payment_method, null, NEVER_CONFIRMED",
+                "requires_confirmation, null, NEVER_CONFIRMED",
+                "requires_action, null, CANCEL_REQUIRED",
+                "requires_capture, ch_1, CANCEL_REQUIRED",
+                "processing, null, PROCESSING",
+                "canceled, null, CANCELED"
+            })
+    @DisplayName("retrieve maps every PaymentIntent status of payment.md §6 to one state")
+    void retrieve_mapsEveryStatus(String status, String latestCharge, GatewayPaymentState state) {
+        stubRetrieve(intent(status, latestCharge));
+
+        assertThat(adapter().retrieve("pi_test_1")).isEqualTo(state);
+
+        gateway.verify(
+                getRequestedFor(urlEqualTo(RETRIEVE))
+                        .withHeader("Authorization", equalTo("Bearer dummy-secret-for-tests")));
+    }
+
+    @Test
+    @DisplayName("a status nobody knows is not guessed at: the call fails, to be asked again")
+    void retrieve_unknownStatus_isCallFailed() {
+        stubRetrieve(intent("some_future_status", null));
+
+        assertThatThrownBy(() -> adapter().retrieve("pi_test_1"))
+                .isInstanceOf(GatewayCallFailedException.class);
+    }
+
+    @Test
+    @DisplayName("an answer without a status is a failed call too")
+    void retrieve_noStatus_isCallFailed() {
+        stubRetrieve("{\"id\":\"pi_test_1\",\"object\":\"payment_intent\"}");
+
+        assertThatThrownBy(() -> adapter().retrieve("pi_test_1"))
+                .isInstanceOf(GatewayCallFailedException.class);
+    }
+
+    @Test
+    @DisplayName("an error answer, a missing payment and a read timeout fail the read")
+    void retrieve_errors_areCallFailed() {
+        for (var failure :
+                new com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder[] {
+                    aResponse().withStatus(500).withBody("{\"error\":{\"message\":\"boom\"}}"),
+                    aResponse()
+                            .withStatus(404)
+                            .withBody(
+                                    "{\"error\":{\"type\":\"invalid_request_error\","
+                                            + "\"code\":\"resource_missing\"}}"),
+                    aResponse().withStatus(200).withFixedDelay((int) READ_TIMEOUT.toMillis() * 3),
+                    aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)
+                }) {
+            gateway.resetAll();
+            gateway.stubFor(get(urlEqualTo(RETRIEVE)).willReturn(failure));
+
+            assertThatThrownBy(() -> adapter().retrieve("pi_test_1"))
+                    .isInstanceOf(GatewayCallFailedException.class);
+        }
+    }
+
+    @Test
+    @DisplayName("cancel sends the fixed per-payment key, so every retry is the same request")
+    void cancel_sendsItsKey() {
+        gateway.stubFor(
+                post(urlEqualTo(CANCEL))
+                        .willReturn(
+                                aResponse()
+                                        .withStatus(200)
+                                        .withHeader("Content-Type", "application/json")
+                                        .withBody(json("pi_test_1", "canceled"))));
+
+        adapter().cancel(payment, "pi_test_1");
+        adapter().cancel(payment, "pi_test_1");
+
+        gateway.verify(
+                2,
+                postRequestedFor(urlEqualTo(CANCEL))
+                        .withHeader("Idempotency-Key", equalTo("pi-cancel:" + payment.value())));
+    }
+
+    @Test
+    @DisplayName("a cancel refused because the intent is no longer cancellable is its own outcome")
+    void cancel_unexpectedState_isRefused() {
+        gateway.stubFor(
+                post(urlEqualTo(CANCEL))
+                        .willReturn(
+                                aResponse()
+                                        .withStatus(400)
+                                        .withHeader("Content-Type", "application/json")
+                                        .withBody(
+                                                "{\"error\":{\"type\":\"invalid_request_error\","
+                                                        + "\"code\":\"payment_intent_unexpected_state\","
+                                                        + "\"message\":\"anything at all\"}}")));
+
+        assertThatThrownBy(() -> adapter().cancel(payment, "pi_test_1"))
+                .isInstanceOf(GatewayCancelRefusedException.class);
+    }
+
+    @Test
+    @DisplayName("any other failure of the cancel is a failed call, not a refusal")
+    void cancel_otherFailures_areCallFailed() {
+        for (var failure :
+                new com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder[] {
+                    aResponse().withStatus(500).withBody("{\"error\":{\"message\":\"boom\"}}"),
+                    aResponse()
+                            .withStatus(400)
+                            .withBody(
+                                    "{\"error\":{\"type\":\"invalid_request_error\","
+                                            + "\"code\":\"resource_missing\"}}"),
+                    aResponse().withStatus(429).withBody("{\"error\":{\"message\":\"slow\"}}"),
+                    aResponse().withFault(Fault.EMPTY_RESPONSE)
+                }) {
+            gateway.resetAll();
+            gateway.stubFor(post(urlEqualTo(CANCEL)).willReturn(failure));
+
+            assertThatThrownBy(() -> adapter().cancel(payment, "pi_test_1"))
+                    .isInstanceOf(GatewayCallFailedException.class);
+        }
     }
 }

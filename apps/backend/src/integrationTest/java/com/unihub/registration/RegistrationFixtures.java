@@ -105,6 +105,24 @@ public final class RegistrationFixtures {
                 registrationId.toString());
     }
 
+    /** {@code event_publications} rows asking reconciliation to look at this payment. */
+    public int reconciliationRequests(UUID paymentId) {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM event_publications WHERE aggregate_type = 'PAYMENT'"
+                        + " AND routing_key = 'unihub.payment.reconciliation.requested'"
+                        + " AND aggregate_id = ?",
+                Integer.class,
+                paymentId);
+    }
+
+    /** Makes the payment look as if it had been initiated this long ago. */
+    public void backdatePayment(UUID paymentId, java.time.Duration age) {
+        jdbc.update(
+                "UPDATE payments SET initiated_at = now() - (? * interval '1 second') WHERE id = ?",
+                age.toSeconds(),
+                paymentId);
+    }
+
     /** Charge keys the user holds, of any status. */
     public int chargeKeys(UserId user) {
         return jdbc.queryForObject(
@@ -149,8 +167,13 @@ public final class RegistrationFixtures {
                     // exists here (nothing deletes it earlier); they must go before it does.
                     jdbc.update(
                             "DELETE FROM event_publications WHERE aggregate_type = 'PAYMENT'"
-                                    + " AND payload ->> 'registrationId' IN"
-                                    + " (SELECT id::text FROM registrations WHERE user_id = ?)",
+                                    + " AND (payload ->> 'registrationId' IN"
+                                    + " (SELECT id::text FROM registrations WHERE user_id = ?)"
+                                    // a reconciliation request names only the payment
+                                    + " OR payload ->> 'paymentId' IN"
+                                    + " (SELECT p.id::text FROM payments p JOIN registrations r"
+                                    + " ON r.id = p.registration_id WHERE r.user_id = ?))",
+                            user,
                             user);
                     // By the payload's userId, not through registrations: a test may already have
                     // deleted the registration row, and its outbox row would stay PENDING for the

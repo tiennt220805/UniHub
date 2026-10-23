@@ -75,6 +75,12 @@ public abstract class IntegrationTestSupport {
         System.setProperty("unihub.jobs.outbox-relay.enabled", "false");
         System.setProperty("unihub.jobs.event-publication-cleanup.enabled", "false");
 
+        // Unlike the cleanup sweeps this one is not harmless: it would take the PENDING payments
+        // other tests leave behind and write reconciliation requests for them, which the relay
+        // would push into queues another test counts. A test drives the sweep by calling the use
+        // case.
+        System.setProperty("unihub.jobs.payment-reconciliation.enabled", "false");
+
         // The same for consumers. Spring caches contexts across test classes, so a listener
         // container in any cached context would take messages that another test publishes and
         // counts (RabbitTopologyIT counts the messages waiting on every business queue). A test

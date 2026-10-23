@@ -84,6 +84,13 @@ unihub:
       enabled: true
       interval: PT1S
       batch-size: 200
+    # Payment reconciliation sweep (payment.md §6, distributed-coordination.md §2). On by default: it is
+    # the guarantee of last resort for a payment the webhook never resolved, and a duplicate run only
+    # requests payments the consumer then finds resolved. interval is the pause between sweeps; what
+    # counts as stale is unihub.payment.reconciliation.stale-after below.
+    payment-reconciliation:
+      enabled: true
+      interval: PT15M
     # Published-row sweep (distributed-coordination.md §2, database-schema.md §8.2). retention is measured
     # from published_at (decided 2026-10-16); only PUBLISHED rows are ever deleted.
     event-publication-cleanup:
@@ -105,6 +112,14 @@ unihub:
   # The webhook signing secret likewise comes only from the environment
   # (UNIHUB_PAYMENT_STRIPE_WEBHOOK_SECRET); with none, every payment webhook is refused. The
   # signature timestamp must be within unihub.payment.stripe.webhook.tolerance (default PT5M).
+  # Payment reconciliation (payment.md §6). stale-after: how long a payment may stay PENDING before the
+  # sweep takes it (docs/requirement.md §2.10); batch-size: how many one sweep takes; stuck-after: how long
+  # the gateway may keep a payment "processing" before an operator is told (Stripe's idempotency-key window).
+  payment:
+    reconciliation:
+      stale-after: PT15M
+      batch-size: 500
+      stuck-after: PT24H
   # How long a publish waits for the broker's confirm before the message counts as not delivered.
   messaging:
     confirm-timeout: PT5S
