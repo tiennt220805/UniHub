@@ -67,27 +67,19 @@ class ChargePayment implements ChargePaymentUseCase {
         if (replay.isPresent()) {
             return replay.get();
         }
-        if (!admission.tryAcquire()) {
+        if (!admission.admitting()) {
             throw new PaymentGatewayUnavailableException(UNAVAILABLE, null);
         }
-        var gatewayCalled = false;
+        Begun begun;
         try {
-            Begun begun;
-            try {
-                begun = steps.begin(command);
-            } catch (LivePaymentExistsException lostTheIndex) {
-                return steps.recordInProgress(command).result();
-            }
-            if (begun instanceof Decided decided) {
-                return decided.result();
-            }
-            gatewayCalled = true;
-            return callGateway(command, (Started) begun);
-        } finally {
-            if (!gatewayCalled) {
-                admission.release();
-            }
+            begun = steps.begin(command);
+        } catch (LivePaymentExistsException lostTheIndex) {
+            return steps.recordInProgress(command).result();
         }
+        if (begun instanceof Decided decided) {
+            return decided.result();
+        }
+        return callGateway(command, (Started) begun);
     }
 
     private ChargePaymentResult callGateway(ChargePaymentCommand command, Started started) {

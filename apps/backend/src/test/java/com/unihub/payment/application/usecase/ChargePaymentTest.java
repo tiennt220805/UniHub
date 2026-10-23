@@ -43,7 +43,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
-import org.mockito.Mockito;
 
 /**
  * The branches of the charge orchestration (backend-coding-standards.md §19.4): which step runs
@@ -79,7 +78,7 @@ class ChargePaymentTest {
     private final ChargePayment charge = new ChargePayment(idempotency, admission, steps, gateway);
 
     private void started() {
-        when(admission.tryAcquire()).thenReturn(true);
+        when(admission.admitting()).thenReturn(true);
         when(steps.begin(COMMAND)).thenReturn(STARTED);
         when(steps.resolve(eq(COMMAND), eq(PAYMENT), any())).thenReturn(PROCESSED);
     }
@@ -105,35 +104,33 @@ class ChargePaymentTest {
     }
 
     @Test
-    @DisplayName("a refused admission is a 503 and nothing is written")
+    @DisplayName("a refused admission is a 503 and nothing is written (AC1.9)")
     void admissionRefused_is503_writesNothing() {
-        when(admission.tryAcquire()).thenReturn(false);
+        when(admission.admitting()).thenReturn(false);
 
         assertThatThrownBy(() -> charge.charge(COMMAND))
                 .isInstanceOf(PaymentGatewayUnavailableException.class);
 
         verifyNoInteractions(steps, gateway);
-        verify(admission, never()).release();
     }
 
     @Test
-    @DisplayName("a request settled without the gateway gives the admission back")
-    void decidedWithoutGateway_releasesTheAdmission() {
-        when(admission.tryAcquire()).thenReturn(true);
+    @DisplayName("a request settled without the gateway never reaches it")
+    void decidedWithoutGateway_neverCallsTheGateway() {
+        when(admission.admitting()).thenReturn(true);
         when(steps.begin(COMMAND))
                 .thenReturn(new Decided(new ChargePaymentResult.RegistrationNotReserved()));
 
         var result = charge.charge(COMMAND);
 
         assertThat(result).isEqualTo(new ChargePaymentResult.RegistrationNotReserved());
-        verify(admission).release();
         verifyNoInteractions(gateway);
     }
 
     @Test
     @DisplayName("losing the live-payment index is recorded as 'in progress', gateway untouched")
     void lostTheIndex_isRecordedAsInProgress() {
-        when(admission.tryAcquire()).thenReturn(true);
+        when(admission.admitting()).thenReturn(true);
         when(steps.begin(COMMAND))
                 .thenThrow(new LivePaymentExistsException(REGISTRATION, new RuntimeException()));
         when(steps.recordInProgress(COMMAND))
@@ -142,7 +139,6 @@ class ChargePaymentTest {
         assertThat(charge.charge(COMMAND)).isEqualTo(new ChargePaymentResult.PaymentInProgress());
 
         verifyNoInteractions(gateway);
-        verify(admission).release();
     }
 
     @Test
@@ -287,19 +283,6 @@ class ChargePaymentTest {
 
         verify(steps).resolve(COMMAND, PAYMENT, Resolution.INITIATED);
         verify(steps, never()).abandon(any());
-    }
-
-    @Test
-    @DisplayName("once the gateway has been called, the admission is not given back")
-    void gatewayCalled_keepsTheAdmission() {
-        started();
-        createdAs("pi_1");
-        when(gateway.confirm(PAYMENT, "pi_1")).thenReturn(new ConfirmOutcome.Succeeded());
-
-        charge.charge(COMMAND);
-
-        verify(admission, never()).release();
-        Mockito.verify(gateway).confirm(PAYMENT, "pi_1");
     }
 
     private static IdempotencyRecord completed(Object result) {

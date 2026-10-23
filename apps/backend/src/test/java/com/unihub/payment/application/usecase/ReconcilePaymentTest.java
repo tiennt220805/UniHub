@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 import com.unihub.payment.application.command.ReconcilePaymentCommand;
 import com.unihub.payment.application.port.out.GatewayCallFailedException;
 import com.unihub.payment.application.port.out.GatewayCancelRefusedException;
+import com.unihub.payment.application.port.out.GatewayCircuitOpenException;
 import com.unihub.payment.application.port.out.GatewayPaymentEvent.Outcome;
 import com.unihub.payment.application.port.out.GatewayPaymentState;
 import com.unihub.payment.application.port.out.PaymentGateway;
@@ -215,6 +216,45 @@ class ReconcilePaymentTest {
                 .isInstanceOf(GatewayCallFailedException.class);
 
         verify(steps, never()).resolve(any(), any());
+    }
+
+    @Test
+    @DisplayName(
+            "circuit open on the read: skipped for this cycle, no error, payment left PENDING (payment.md §5)")
+    void circuitOpen_onRetrieve_skipsTheCycle() {
+        pendingWithId();
+        when(gateway.retrieve(GATEWAY_ID)).thenThrow(new GatewayCircuitOpenException("open", null));
+
+        useCase().reconcile(command); // returns: the message is acknowledged, not retried
+
+        verify(steps, never()).resolve(any(), any());
+        verify(gateway, never()).cancel(any(), any());
+    }
+
+    @Test
+    @DisplayName("circuit open on the cancel: also skipped, and nothing is resolved")
+    void circuitOpen_onCancel_skipsTheCycle() {
+        pendingWithId();
+        when(gateway.retrieve(GATEWAY_ID)).thenReturn(GatewayPaymentState.NEVER_CONFIRMED);
+        org.mockito.Mockito.doThrow(new GatewayCircuitOpenException("open", null))
+                .when(gateway)
+                .cancel(id, GATEWAY_ID);
+
+        useCase().reconcile(command);
+
+        verify(steps, never()).resolve(any(), any());
+    }
+
+    @Test
+    @DisplayName(
+            "a payment whose gateway id was never stored needs no gateway: the circuit is irrelevant")
+    void noGatewayId_doesNotDependOnTheCircuit() {
+        when(steps.findPending(id)).thenReturn(Optional.of(new Pending(id, null, INITIATED_AT)));
+        when(gateway.retrieve(any())).thenThrow(new GatewayCircuitOpenException("open", null));
+
+        useCase().reconcile(command);
+
+        verify(steps).resolve(id, Outcome.CANCELLED);
     }
 
     @Test

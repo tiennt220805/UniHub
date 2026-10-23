@@ -116,6 +116,20 @@ unihub:
   # sweep takes it (docs/requirement.md §2.10); batch-size: how many one sweep takes; stuck-after: how long
   # the gateway may keep a payment "processing" before an operator is told (Stripe's idempotency-key window).
   payment:
+    # The one circuit breaker of every gateway call (payment.md §2, §3, §5; checklist D12, D17). These are
+    # the documented values; a test lowers minimum-number-of-calls and the open state to make it quick.
+    # sync-time-limit applies to each of the charge's two calls, async-time-limit to each call
+    # reconciliation makes; async-retry-attempts counts the first call plus its retries (the status read only).
+    breaker:
+      window-size: 20
+      failure-rate-threshold: 50
+      wait-duration-in-open-state: PT30S
+      permitted-calls-in-half-open-state: 5
+      minimum-number-of-calls: 10
+      sync-time-limit: PT3S
+      async-time-limit: PT10S
+      async-retry-attempts: 4
+      async-retry-backoff: PT1S
     reconciliation:
       stale-after: PT15M
       batch-size: 500

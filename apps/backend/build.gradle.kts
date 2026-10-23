@@ -138,6 +138,15 @@ dependencies {
     // per instance with an explicit HTTP client, timeouts and zero SDK retries, never through the static
     // Stripe.apiKey.
     implementation("com.stripe:stripe-java:33.4.2")
+    // Resilience4j (payment.md §2, checklist 3.7): the shared `paymentGateway` circuit breaker plus the
+    // per-call-site Retry/TimeLimiter, used only inside payment.infrastructure.out.client. The plain
+    // libraries, not the Boot starter (configured from unihub.payment.breaker.*, as Redisson is); the
+    // micrometer module publishes resilience4j_circuitbreaker_state, which observability.md §6 alerts on.
+    // 2.4.0 is the newest release and older than two weeks when it was chosen.
+    implementation("io.github.resilience4j:resilience4j-circuitbreaker:2.4.0")
+    implementation("io.github.resilience4j:resilience4j-retry:2.4.0")
+    implementation("io.github.resilience4j:resilience4j-timelimiter:2.4.0")
+    implementation("io.github.resilience4j:resilience4j-micrometer:2.4.0")
     // Runtime JDBC driver for the application itself. The buildscript{} block above declares the same
     // artifact separately for the Flyway Gradle plugin's own classloader (see that block's comment) —
     // the two are independent dependency graphs, so this is not a duplicate.

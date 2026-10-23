@@ -4,6 +4,7 @@ import com.unihub.payment.application.command.ReconcilePaymentCommand;
 import com.unihub.payment.application.port.in.ReconcilePaymentUseCase;
 import com.unihub.payment.application.port.out.GatewayCallFailedException;
 import com.unihub.payment.application.port.out.GatewayCancelRefusedException;
+import com.unihub.payment.application.port.out.GatewayCircuitOpenException;
 import com.unihub.payment.application.port.out.GatewayPaymentEvent.Outcome;
 import com.unihub.payment.application.port.out.GatewayPaymentState;
 import com.unihub.payment.application.port.out.PaymentGateway;
@@ -72,7 +73,19 @@ class ReconcilePayment implements ReconcilePaymentUseCase {
             LOG.debug("Payment {} is already resolved; nothing to reconcile", command.paymentId());
             return;
         }
-        var outcome = decide(pending.get());
+        Optional<Outcome> outcome;
+        try {
+            outcome = decide(pending.get());
+        } catch (GatewayCircuitOpenException circuitOpen) {
+            // Payment.md §5: skip this payment for this cycle. Throwing would send the message
+            // through the retry chain into the parking lot; the payment is still PENDING, so the
+            // next sweep asks again against whatever the circuit then says.
+            LOG.info(
+                    "The payment gateway circuit is open; payment {} is left PENDING for the next"
+                            + " sweep",
+                    command.paymentId().value());
+            return;
+        }
         if (outcome.isPresent()) {
             steps.resolve(command.paymentId(), outcome.get());
         }

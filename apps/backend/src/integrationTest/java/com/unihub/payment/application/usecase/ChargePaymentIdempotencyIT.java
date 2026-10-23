@@ -99,7 +99,7 @@ class ChargePaymentIdempotencyIT extends IntegrationTestSupport {
     void setUp() {
         fixtures = new RegistrationFixtures(jdbc);
         reset(gateway, idempotency, payments, steps, admission);
-        when(admission.tryAcquire()).thenReturn(true);
+        when(admission.admitting()).thenReturn(true);
         // A fresh id per call, as the gateway gives: payments.gateway_transaction_id is UNIQUE.
         when(gateway.create(any(), any(), any(), any()))
                 .thenAnswer(call -> "pi_" + UUID.randomUUID());
@@ -249,7 +249,7 @@ class ChargePaymentIdempotencyIT extends IntegrationTestSupport {
     @DisplayName("a refused admission writes nothing: no payment, no key, no gateway call")
     void circuitOpenBeforeBegin_writesNothing() {
         var r = aReservedStudent();
-        when(admission.tryAcquire()).thenReturn(false);
+        when(admission.admitting()).thenReturn(false);
 
         assertThatThrownBy(() -> chargePayment.charge(command(r, UUID.randomUUID())))
                 .isInstanceOf(PaymentGatewayUnavailableException.class);

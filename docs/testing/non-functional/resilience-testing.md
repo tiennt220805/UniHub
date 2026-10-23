@@ -66,7 +66,7 @@ Scenarios 1–6 run at Integration level on local Testcontainers — **only scen
 
 ### 2.2 Scenario 1 — Payment Gateway dead or slow (INV-05)
 
-- **Inject:** WireMock stub of the gateway (`mocking-guidelines.md` §2), two variants: server stopped (connection refused), and `withFixedDelay` above the sync path's 3 s `TimeLimiter`/client timeout (`payment.md` §3). Drive at least 20 failing `POST /api/v1/payments/charge` calls (the count-based window, `payment.md` §2). **TODO: `payment.md` §2 lists window size and threshold but not `minimumNumberOfCalls` — confirm the pinned configuration evaluates the breaker at 20 calls, not Resilience4j's larger default.**
+- **Inject:** WireMock stub of the gateway (`mocking-guidelines.md` §2), two variants: server stopped (connection refused), and `withFixedDelay` above the sync path's 3 s `TimeLimiter`/client timeout (`payment.md` §3). Drive at least 20 failing `POST /api/v1/payments/charge` calls (the count-based window, `payment.md` §2). (`minimumNumberOfCalls` is 10, decided in Phase 2 checklist D12 and now in `payment.md` §2; tests lower it with `unihub.payment.breaker.minimum-number-of-calls`.)
 - **Expected:** once OPEN, further charges return `503` with no gateway call attempted — proven by the WireMock request journal staying flat for the OPEN period (`verify` count unchanged), which is stronger than reading breaker state. What each state does to each call-site is `test-design-techniques.md` §3.3, not repeated.
 - **Must stay unaffected (probe):** browsing, free-workshop registration (no gateway coupling — `test-design-techniques.md` §5's first pairwise row), check-in sync, reporting, and `POST /api/v1/webhooks/payment-gateway` with a valid signature (`200`; the webhook never touches the breaker, `payment.md` §7) — all `2xx`.
 - **Recovery:** stub restored, wait past the 30 s open duration; the breaker re-closes and a charge succeeds with no manual step.
@@ -170,4 +170,4 @@ Manual (or a dedicated pipeline), never per-push; it is a deployment smoke test,
 | New dependency, not adopted | Toxiproxy | §3 |
 | Needs a decision | A `resilience` Gradle task for the one on-demand scenario (3) | §3 |
 | INV covered | INV-03, INV-05, INV-08, INV-10, INV-11, INV-14, INV-16, INV-19 (INV-09 skip side; INV-17's fail-open limit noted) | §1 |
-| Open items | Probe latency multiplier; `minimumNumberOfCalls`; Redisson hung-connection handling; hold-expiry under a long Redis outage; the Replica-unreachable health check; S3-unreachable status; audit-publish alert signal; pod-kill burst bound and unhealthy-pod mechanism; WireMock stub placement | §2 |
+| Open items | Probe latency multiplier; Redisson hung-connection handling; hold-expiry under a long Redis outage; the Replica-unreachable health check; S3-unreachable status; audit-publish alert signal; pod-kill burst bound and unhealthy-pod mechanism; WireMock stub placement | §2 |
