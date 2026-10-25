@@ -7,6 +7,7 @@ import static com.unihub.workshop.domain.model.WorkshopBuilder.aPublishedWorksho
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -31,7 +32,10 @@ class GetWorkshopTest {
 
     private final WorkshopRepository workshops = mock(WorkshopRepository.class);
     private final InMemoryWorkshopCache cache = new InMemoryWorkshopCache();
-    private final GetWorkshop useCase = new GetWorkshop(workshops, cache);
+    private final GetWorkshop useCase =
+            new GetWorkshop(
+                    new GetWorkshopFromPrimary(workshops),
+                    new GetWorkshopFromCache(workshops, cache));
 
     static Stream<WorkshopBuilder> visibleToEveryone() {
         return Stream.of(aPublishedWorkshop(), aCancelledWorkshop(), aCompletedWorkshop());
@@ -190,15 +194,56 @@ class GetWorkshopTest {
     }
 
     @Test
-    @DisplayName("a DRAFT cached by a manager is still 'not found' to the next anonymous caller")
+    @DisplayName("a DRAFT already in the cache is still 'not found' to an anonymous caller")
     void get_cachedDraft_staysHiddenFromOthers() {
         var workshop = stored(aDraftWorkshop());
-        useCase.get(new GetWorkshopQuery(workshop.id().value(), Set.of("WORKSHOP_EDIT")));
-        assertThat(cache.details).containsKey(workshop.id().value());
+        cache.putDetail(WorkshopDetailSnapshot.from(workshop));
+        cache.putSeats(WorkshopSeatsSnapshot.from(workshop));
 
         assertThatThrownBy(() -> useCase.get(anonymous(workshop)))
                 .isInstanceOf(WorkshopNotFoundException.class);
-        verify(workshops, times(1)).findById(workshop.id());
+        verify(workshops, never()).findById(workshop.id());
+    }
+
+    // ---------- a manager reads their own writes (INV-03, architecture.md §4.1) ----------
+
+    @ParameterizedTest
+    @ValueSource(strings = {"WORKSHOP_CREATE", "WORKSHOP_EDIT"})
+    @DisplayName("a manager's read ignores the cache: what the cache holds may be stale")
+    void get_manager_ignoresTheCache(String permission) {
+        var current = stored(aPublishedWorkshop().withTitle("After"));
+        var stale = aPublishedWorkshop().withId(current.id()).withTitle("Before").build();
+        cache.putDetail(WorkshopDetailSnapshot.from(stale));
+        cache.putSeats(WorkshopSeatsSnapshot.from(stale));
+
+        var result = useCase.get(new GetWorkshopQuery(current.id().value(), Set.of(permission)));
+
+        assertThat(result.title()).isEqualTo("After");
+        verify(workshops, times(1)).findById(current.id());
+    }
+
+    @Test
+    @DisplayName("a manager's read does not fill the cache for other callers")
+    void get_manager_doesNotFillTheCache() {
+        var workshop = stored(aPublishedWorkshop());
+
+        useCase.get(new GetWorkshopQuery(workshop.id().value(), Set.of("WORKSHOP_EDIT")));
+
+        assertThat(cache.details).isEmpty();
+        assertThat(cache.seats).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an unknown id is 'not found' to a manager too")
+    void get_manager_unknown_notFound() {
+        var id = WorkshopId.newId();
+        when(workshops.findById(id)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(
+                        () ->
+                                useCase.get(
+                                        new GetWorkshopQuery(id.value(), Set.of("WORKSHOP_EDIT"))))
+                .isInstanceOf(WorkshopNotFoundException.class);
     }
 
     @Test

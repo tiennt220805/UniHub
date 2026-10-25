@@ -1076,6 +1076,7 @@ Implements `architecture.md` §4.1.
 
 - Use `@ReadFromPrimary` for consistency-sensitive reads: idempotency lookups, and read-after-own-write views such as an organizer reloading a workshop right after saving it (`architecture.md` §4.1).
 - Consumers re-checking state (§8.7) run in read-write transactions, so they read the Master.
+- When the node depends on **who is asking** (a workshop manager reads their own write, a browsing student may read the Replica), the entry point is not `@Transactional`; it picks between two beans, one `@Transactional(readOnly = true)` and one `@Transactional(readOnly = true) @ReadFromPrimary` (§25.1, the same two-bean shape as `ReserveSeat`). `@ReadFromPrimary` on a method inside a transaction that has already started does nothing. Example: `GetWorkshop` → `GetWorkshopFromPrimary` / `GetWorkshopFromCache`.
 - **Implementation note** (`shared.infrastructure`): an `AbstractRoutingDataSource` wrapped in a `LazyConnectionDataSourceProxy`. Without the lazy proxy, a connection is taken before the transaction's read-only flag is set, and every query goes to the Master.
 
 ```java

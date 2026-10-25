@@ -220,12 +220,10 @@ class WorkshopCacheIT extends IntegrationTestSupport {
             "a publish is visible to the public on the very next read, though a DRAFT was cached")
     void publish_refreshesTheCache() throws Exception {
         var id = insert(aDraftWorkshop().build());
-        // A manager's read caches the DRAFT; the public 404 is applied after the cache.
-        var managerRead = send(HttpMethod.GET, BASE + "/" + id, editor(), null);
-        assertThat(managerRead.getStatusCode().value()).isEqualTo(200);
-        assertThat(cached("detail", id)).isTrue();
+        // A public read caches the DRAFT and then answers 404: the gate is applied after the cache.
         assertThat(send(HttpMethod.GET, BASE + "/" + id, null, null).getStatusCode().value())
                 .isEqualTo(404);
+        assertThat(cached("detail", id)).isTrue();
 
         var publish = send(HttpMethod.POST, BASE + "/" + id + "/publish", editor(), null);
 
@@ -265,16 +263,38 @@ class WorkshopCacheIT extends IntegrationTestSupport {
     // ---------- what the cache must never change ----------
 
     @Test
-    @DisplayName("a DRAFT cached for a manager is still 404 for an anonymous caller")
-    void cachedDraft_staysHidden() throws Exception {
+    @DisplayName("a DRAFT already in the cache is still 404 for an anonymous caller")
+    void cachedDraft_staysHidden() {
         var id = insert(aDraftWorkshop().build());
+        assertThat(send(HttpMethod.GET, BASE + "/" + id, null, null).getStatusCode().value())
+                .isEqualTo(404);
+        assertThat(cached("detail", id)).as("the first miss filled the cache").isTrue();
+
+        var again = send(HttpMethod.GET, BASE + "/" + id, null, null);
+
+        assertThat(again.getStatusCode().value()).isEqualTo(404);
+    }
+
+    @Test
+    @DisplayName("a manager reads the database and leaves the cache as it was (INV-03)")
+    void managerRead_bypassesTheCache() throws Exception {
+        var id = insert(aPublishedWorkshop().withTitle("Before").build());
+        get(id);
+        jdbc.update("UPDATE workshops SET title = 'Changed behind its back' WHERE id = ?", id);
+
         var asManager = send(HttpMethod.GET, BASE + "/" + id, editor(), null);
-        assertThat(asManager.getStatusCode().value()).isEqualTo(200);
-        assertThat(cached("detail", id)).isTrue();
 
-        var anonymous = send(HttpMethod.GET, BASE + "/" + id, null, null);
+        assertThat(JSON.readTree(asManager.getBody()).get("title").asText())
+                .as("not the cached 'Before'")
+                .isEqualTo("Changed behind its back");
+        assertThat(get(id).get("title").asText())
+                .as("and the cache was neither read nor refilled")
+                .isEqualTo("Before");
 
-        assertThat(anonymous.getStatusCode().value()).isEqualTo(404);
+        var draft = insert(aDraftWorkshop().build());
+        assertThat(send(HttpMethod.GET, BASE + "/" + draft, editor(), null).getStatusCode().value())
+                .isEqualTo(200);
+        assertThat(cached("detail", draft)).isFalse();
     }
 
     @Test

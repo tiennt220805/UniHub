@@ -1,65 +1,42 @@
 package com.unihub.workshop.application.usecase;
 
-import com.unihub.shared.domain.id.WorkshopId;
 import com.unihub.shared.security.Permissions;
 import com.unihub.workshop.application.command.GetWorkshopQuery;
 import com.unihub.workshop.application.port.in.GetWorkshopUseCase;
-import com.unihub.workshop.application.port.out.WorkshopCache;
-import com.unihub.workshop.application.port.out.WorkshopDetailSnapshot;
-import com.unihub.workshop.application.port.out.WorkshopRepository;
-import com.unihub.workshop.application.port.out.WorkshopSeatsSnapshot;
 import com.unihub.workshop.application.result.WorkshopResult;
-import com.unihub.workshop.domain.exception.WorkshopNotFoundException;
-import com.unihub.workshop.domain.model.WorkshopStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Entry point of {@code getWorkshop}; deliberately not {@code @Transactional}. Which node answers
+ * depends on who asks, and {@code @ReadFromPrimary} only takes effect on the method that starts the
+ * transaction, called through the proxy — so the choice is made here and each branch is its own
+ * bean (backend-coding-standards.md §25, the same two-bean shape as {@code ReserveSeat}).
+ *
+ * <ul>
+ *   <li>A caller who manages workshops reads the Master and never the cache: this is the "organizer
+ *       viewing a workshop right after creating or editing it" read that must reflect the write
+ *       (architecture.md §4.1, §20). The cache is shared by every caller and can hold a row a
+ *       student's miss refilled from a lagging Replica, so it cannot serve this caller either.
+ *   <li>Everyone else gets the cache-aside read, which tolerates replication lag (workshop.md §2).
+ * </ul>
+ */
 @Service
 class GetWorkshop implements GetWorkshopUseCase {
-    private final WorkshopRepository workshops;
-    private final WorkshopCache cache;
+    private final GetWorkshopFromPrimary fromPrimary;
+    private final GetWorkshopFromCache fromCache;
 
-    GetWorkshop(WorkshopRepository workshops, WorkshopCache cache) {
-        this.workshops = workshops;
-        this.cache = cache;
+    GetWorkshop(GetWorkshopFromPrimary fromPrimary, GetWorkshopFromCache fromCache) {
+        this.fromPrimary = fromPrimary;
+        this.fromCache = fromCache;
     }
 
     @Override
-    @Transactional(readOnly = true)
     public WorkshopResult get(GetWorkshopQuery query) {
-        var id = WorkshopId.of(query.workshopId());
-        var result = load(id);
-        // A DRAFT is "not found", never "forbidden", to a caller who may not manage workshops
-        // (packages/api-contract getWorkshop): its existence must not be observable. Checked after
-        // the cache, which holds drafts too: the entry is shared by every caller, the gate is not.
-        if (WorkshopStatus.DRAFT.name().equals(result.status()) && !canSeeDrafts(query)) {
-            throw new WorkshopNotFoundException(id);
-        }
-        return result;
+        return managesWorkshops(query) ? fromPrimary.get(query) : fromCache.get(query);
     }
 
-    /**
-     * Cache-aside over two independently expiring entries (workshop.md §2). Both present: no
-     * database read at all. Either missing: one Replica read refills the missing entry. A workshop
-     * that does not exist is never cached.
-     */
-    private WorkshopResult load(WorkshopId id) {
-        var detail = cache.findDetail(id);
-        var seats = cache.findSeats(id);
-        if (detail.isPresent() && seats.isPresent()) {
-            return WorkshopResult.from(detail.get(), seats.get());
-        }
-        var workshop = workshops.findById(id).orElseThrow(() -> new WorkshopNotFoundException(id));
-        if (detail.isEmpty()) {
-            cache.putDetail(WorkshopDetailSnapshot.from(workshop));
-        }
-        if (seats.isEmpty()) {
-            cache.putSeats(WorkshopSeatsSnapshot.from(workshop));
-        }
-        return WorkshopResult.from(workshop);
-    }
-
-    private static boolean canSeeDrafts(GetWorkshopQuery query) {
+    /** The permissions that may also see a DRAFT, and that read their own writes. */
+    static boolean managesWorkshops(GetWorkshopQuery query) {
         return query.permissions().contains(Permissions.WORKSHOP_CREATE)
                 || query.permissions().contains(Permissions.WORKSHOP_EDIT);
     }
