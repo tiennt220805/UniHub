@@ -944,7 +944,7 @@ public interface SeatLockHandle extends AutoCloseable { @Override void close(); 
 
 Adapters:
 
-- **Phase 2 — `InProcessSeatLock`**: one `ReentrantLock` per `workshopId` (no global lock), `tryLock(waitTimeout)`, and entries removed when no thread holds or waits for them, so the map does not grow without bound. `leaseTime` is ignored — a JVM lock has no lease. Acquire and release happen on the same request thread. It does **not** protect across instances; the database check (version + `seats_taken <= capacity`) is the deciding layer, recorded in `test-matrix.md` §4.5 with the adapter.
+- **Phase 2 — `InProcessSeatLock`** (test code only since Phase 3, checklist D21): one `ReentrantLock` per `workshopId` (no global lock), `tryLock(waitTimeout)`, and entries removed when no thread holds or waits for them, so the map does not grow without bound. `leaseTime` is ignored — a JVM lock has no lease. Acquire and release happen on the same request thread. It does **not** protect across instances; the database check (version + `seats_taken <= capacity`) is the deciding layer, recorded in `test-matrix.md` §4.5 with the adapter.
 - **Phase 3 — `RedissonSeatLock`** (parameters from `registration.md` §2): contention timeout **or** Redis unreachable → `SeatLockUnavailableException`; never proceed without the lock (INV-08, M-34). `unlock()` failing because the lease already expired (`IllegalMonitorStateException`) is caught and logged at `WARN`: by then the transaction has committed and the database's version check already protected it.
 - Exhausted seat-claim retries after lost version races are a different `503`: `SeatTemporarilyUnavailableException` (§25.1). Both map to `UNAVAILABLE` + `Retry-After` and are never recorded under the idempotency key (§21 rule 7).
 

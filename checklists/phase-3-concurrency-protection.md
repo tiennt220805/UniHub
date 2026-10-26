@@ -7,8 +7,8 @@
 | Trường | Giá trị |
 |---|---|
 | Phase | 3 — Concurrency Protection |
-| Ngày bắt đầu | — (lập checklist 2026-10-26, ngay sau sign-off Phase 2) |
-| Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☑ Đang làm` / `☐ Chờ sign-off` / `☐ Hoàn tất` — **Mục 0 đã chốt 2026-10-26 (D19–D30, Mục 0A)**; tài liệu sở hữu đã sửa trừ Q2 (chờ test kiểm chứng); chưa có code (cập nhật 2026-10-26) |
+| Ngày bắt đầu | 2026-10-26 |
+| Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☑ Đang làm` / `☐ Chờ sign-off` / `☐ Hoàn tất` — **Mục 0 đã chốt 2026-10-26 (D19–D30, Mục 0A)**; tài liệu sở hữu đã sửa, Q2 đã kiểm chứng; **Mục 1: 1.1–1.3 xong, 1.4 chờ bằng chứng Mục 2/4**; chưa bắt đầu Mục 2 (cập nhật 2026-10-26) |
 | Nhánh làm việc | `main` (push thẳng, không PR — `test-matrix.md` §4.4) |
 | INV trong scope | INV-06, INV-07, INV-08, INV-09 (`test-plan.md` §3) |
 | Matrix rows | M-28 … M-36 (Phase 3), M-76 (derived DR-PAY-2, Phase 3†), các mục hoãn sang Phase 3 ở `test-matrix.md` §4.5: M-09 (`RedissonJobLock`; chạy chồng lấn `UNIQUE (email)`), M-11 (hoãn từ Phase 1), M-28/M-32/M-34 (`InProcessSeatLock`) |
@@ -97,7 +97,7 @@ Theo `CLAUDE.md`: task phụ thuộc mục còn mở thì **dừng lại hỏi**
 
 ## 0A. Decisions (ADR) — D19–D30 (Q1–Q12) + C1, C2, C5, C10
 
-Chốt bởi Nguyễn Thành Tiến ngày 2026-10-26: chọn mọi đề xuất của Claude Code (sau tư vấn của advisor). Mỗi quyết định gồm: quyết định · lý do · ràng buộc · acceptance criteria (AC) · test cần có · tài liệu phải sửa. **Chưa có dòng code nào cho các quyết định này. Tài liệu sở hữu đã sửa ngày 2026-10-26 (D28 chốt lại theo (a″)).**
+Chốt bởi Nguyễn Thành Tiến ngày 2026-10-26: chọn mọi đề xuất của Claude Code (sau tư vấn của advisor). Mỗi quyết định gồm: quyết định · lý do · ràng buộc · acceptance criteria (AC) · test cần có · tài liệu phải sửa. **Tài liệu sở hữu đã sửa ngày 2026-10-26 (D28 chốt lại theo (a″)). Đã có code cho D20 và D21 (Mục 1); các quyết định còn lại chưa.**
 
 ### D19 — Q1: Trả ghế khi Redis sập lâu: retry không giới hạn, riêng cho "không lấy được lock" `[→ M-33, M-34]`
 
