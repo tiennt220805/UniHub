@@ -242,7 +242,25 @@ WHERE users.email <> EXCLUDED.email OR users.full_name <> EXCLUDED.full_name;
 
 This relies on the `UNIQUE (legacy_student_id)` constraint already declared on `users` (`../platform/database-schema.md` §2.1) — the same database-enforced-backstop pattern already used for `idempotency_keys` (`../platform/database-schema.md` §8.1) and the RBAC junction tables, applied here to a different natural key.
 
-**Why this is safe under a concurrent overlapping run (the lease-overrun scenario):** each row's upsert is a single, self-contained atomic statement scoped to one `legacy_student_id` — it never reads then writes across two separate round-trips the way an application-level "check, then insert-or-update" would. Two pods processing the same file concurrently and both reaching the same row at nearly the same instant simply serialize at the database's unique-index level: whichever statement arrives first takes the row lock and commits; the second blocks briefly and then applies its own values — identical, since both pods are reading the same source file — on top. The two runs converge to the same final `users` state either way. There is no lost update, no duplicate row, and no constraint violation ever surfaced to the application.
+**Why this is safe under a concurrent overlapping run (the lease-overrun scenario):** each row's upsert is a single, self-contained atomic statement scoped to one `legacy_student_id` — it never reads then writes across two separate round-trips the way an application-level "check, then insert-or-update" would. Two pods processing the same file concurrently and both reaching the same row at nearly the same instant serialize at the database's unique-index level: whichever statement arrives first takes the row lock and commits; the second blocks briefly and then applies its own values — identical, since both pods are reading the same source file — on top. There is no lost update and no duplicate row.
+
+**Correction (2026-10-26, Phase 3 checklist D28): one constraint violation *can* surface, and the pipeline absorbs it per row.** An earlier version of this section said no constraint violation ever reaches the application. That is not true for a **new** student inserted by both runs at once. `users` has two unique indexes, `legacy_student_id` and `email`, and `ON CONFLICT (legacy_student_id)` absorbs a conflict only on its own arbiter; when the waiting insert is refused by the `email` index instead, PostgreSQL raises a plain unique violation (`RunNightlySyncIT#m09_concurrentRuns_dataConverges` observed it). Because a batch commits 500 rows in one transaction, and an error aborts the whole PostgreSQL transaction, the slower run used to end `FAILED` with `PIPELINE_ERROR` although the data had converged — a false alarm. The rule:
+
+```
+for each VALID row in the batch transaction:
+  SAVEPOINT row
+  upsert (statement above)
+  on unique violation of the email index:
+    ROLLBACK TO SAVEPOINT row        -- only this row is undone; the batch transaction survives
+    upsert again, once               -- the other run has committed the same legacy_student_id,
+                                        so this attempt takes the ON CONFLICT path and converges
+                                        (no change, by the WHERE clause)
+  RELEASE SAVEPOINT row
+```
+
+- **Why retry, not quarantine:** the row is valid — it collided with the identical row the other run had just written. Quarantining it would report a source-data problem that does not exist, and would need a new `reason_code`, which the `legacy_sync_errors` CHECK does not allow.
+- **Why the savepoint is required:** without it the violation aborts the batch transaction and there is nothing left to retry in. A savepoint per row is a negligible cost for a nightly job.
+- **Out of scope — a real email collision:** if the retry is refused by the `email` index again, the email belongs to a *different* `legacy_student_id` already in `users` (for example, the legacy system reassigned it). That is a genuine data conflict, not a race. It already fails the run today, independent of overlapping runs; handling it (a new quarantine `reason_code`, which needs a migration) is a separate decision for the owner, not part of D28. The retry happens once only, so such a row cannot loop.
 
 `password_hash` and `status` are deliberately **excluded** from `DO UPDATE SET`:
 - `password_hash` — a student's own later password-set action must never be silently reverted to `NULL` by a subsequent night's sync reprocessing the same row (`../platform/database-schema.md` §2.1 already establishes this column is set once, outside this pipeline).
@@ -252,7 +270,7 @@ This relies on the `UNIQUE (legacy_student_id)` constraint already declared on `
 
 **Trade-off:** the `WHERE` clause on `DO UPDATE` is an optimization, not a correctness requirement — without it, every row still converges correctly, just with a redundant `updated_at` bump and a wasted write on every unchanged row, every night. Skipping the write when nothing actually changed keeps the common case (most students' data identical to the night before) cheap.
 
-**Guarantees:** the upsert converges to the same final `users` state regardless of how many times it is applied for the same input row, and regardless of how many pods apply it concurrently — the property `../platform/distributed-coordination.md` §2 required this file to provide, delivered at the SQL statement level rather than by external coordination.
+**Guarantees:** the upsert converges to the same final `users` state regardless of how many times it is applied for the same input row, and regardless of how many pods apply it concurrently — with an overlapping run ending `COMPLETED`, not `FAILED`, thanks to the per-row retry above — the property `../platform/distributed-coordination.md` §2 required this file to provide, delivered at the SQL statement level rather than by external coordination.
 
 ---
 
