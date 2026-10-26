@@ -61,9 +61,9 @@ class RedissonSeatLock implements SeatLock {
             throw new SeatLockUnavailableException(workshopId);
         } catch (RedisException redisFailure) {
             LOG.warn(
-                    "Seat lock for workshop {} unavailable: Redis failed",
+                    "Seat lock for workshop {} unavailable: Redis failed: {}",
                     workshopId.value(),
-                    redisFailure);
+                    redisFailure.toString());
             throw new SeatLockUnavailableException(workshopId);
         }
         if (!acquired) {
@@ -95,9 +95,9 @@ class RedissonSeatLock implements SeatLock {
                         workshopId.value());
             } catch (RedisException redisFailure) {
                 LOG.warn(
-                        "Seat lock for workshop {} not released: Redis failed; it expires with its lease",
+                        "Seat lock for workshop {} not released: Redis failed; it expires with its lease: {}",
                         workshopId.value(),
-                        redisFailure);
+                        redisFailure.toString());
             }
         }
     }
