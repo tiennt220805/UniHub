@@ -4,9 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "predev": "openapi-typescript ../../packages/api-contract/openapi.yaml -o src/shared/api/schema.gen.ts",
+    "api:types": "openapi-typescript ../../packages/api-contract/openapi.yaml -o src/shared/api/schema.gen.ts",
+    "predev": "npm run api:types",
     "dev": "vite",
-    "prebuild": "openapi-typescript ../../packages/api-contract/openapi.yaml -o src/shared/api/schema.gen.ts",
+    "prebuild": "npm run api:types",
+    "typecheck": "tsc -b",
     "build": "tsc -b && vite build",
     "lint": "oxlint && eslint",
     "preview": "vite preview",

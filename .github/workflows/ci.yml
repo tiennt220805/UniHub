@@ -70,6 +70,31 @@ jobs:
           cache: 'gradle'
       - run: ./gradlew integrationTest --no-daemon
 
+  # The Web Application's gate (apps/web): types from the contract, typecheck, lint (oxlint + the ESLint
+  # import-boundary rules of web-coding-standards.md §2) and Vitest. Independent of the backend chain
+  # (`needs:` nothing): it needs no database, no Docker and no backend, so a red backend job neither hides
+  # nor delays it, and it blocks nothing upstream. No `continue-on-error`: a failure fails the run.
+  # schema.gen.ts is gitignored (web-coding-standards.md §5), so the types are generated first. Node 22:
+  # Vite 8, jsdom and Vitest need >= 20.19 or >= 22.12, and the lockfile carries the linux-x64 native
+  # binaries (rolldown, oxlint, tailwind oxide, lightningcss) `npm ci` installs here.
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm run api:types
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
   # deployment-and-cicd.md §5 (Contract-Diff Mechanism ADR). All of the logic lives in the script, which a
   # developer runs unchanged locally (docs/testing/test-levels/contract-testing.md §2) — none of it is
   # repeated here. The script sets its own SPRING_DATASOURCE_URL default (generateOpenApiDocs needs a URL
@@ -97,13 +122,19 @@ jobs:
   # push/PR but gate nothing until promoted (the ADR's five conditions: triaged baseline, pinned image,
   # chosen severity threshold, stable period, and for Dependency-Check the NVD key + cache). Rule sets are
   # starting values. Reports are workflow artifacts, never committed (test-strategy.md §6).
+  #
+  # The three scanner images are pinned to the version `latest` resolved to on 2026-10-26 (same manifest
+  # digest, so nothing changed when they were pinned): Semgrep 1.181.1, Dependency-Check 13.0.0, Gitleaks
+  # v8.30.1. Raising a pin is a deliberate edit, so a scanner upgrade can no longer change a run by itself
+  # (IMPLEMENTATION-READINESS.md D6). Pinning the images does not pin their rules: Semgrep still pulls its
+  # registry rule sets and Dependency-Check the NVD data when they run.
   sast-semgrep:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - run: |
-          docker run --rm -v "$PWD:/src" semgrep/semgrep:latest \
+          docker run --rm -v "$PWD:/src" semgrep/semgrep:1.181.1 \
             semgrep scan --metrics=off --config p/java --config p/typescript \
             --config p/owasp-top-ten /src
 
@@ -132,7 +163,7 @@ jobs:
             echo "::warning::NVD_API_KEY secret is not set — the NVD download is heavily throttled"
           fi
           docker run --rm -v "$PWD:/src" -v "$PWD/dc-report:/report" \
-            -v "$PWD/dc-data:/usr/share/dependency-check/data" owasp/dependency-check:latest \
+            -v "$PWD/dc-data:/usr/share/dependency-check/data" owasp/dependency-check:13.0.0 \
             --scan /src --exclude "**/dc-data/**" --format HTML --format JSON --out /report \
             --nvdApiKey "$NVD_API_KEY"
         env:
@@ -153,7 +184,8 @@ jobs:
   # fails the run. Full history (`fetch-depth: 0`): a secret committed and later deleted is still leaked.
   # A justified false positive goes in a committed, reviewed allowlist: `.gitleaksignore` lists exact
   # findings (commit:file:rule:line), so no rule is switched off. `build-and-push` must `needs:` this job once it exists (Phase 7). The
-  # image is `latest`, the ADR's accepted risk; pin it the first time an upgrade fails a run.
+  # image is pinned (v8.30.1, see the scanner note above): this job is blocking, so an upgrade of the
+  # scanner must not be able to turn a run red on its own.
   secret-scan-gitleaks:
     runs-on: ubuntu-latest
     steps:
@@ -161,5 +193,5 @@ jobs:
         with:
           fetch-depth: 0
       - run: |
-          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest \
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1 \
             detect --source /repo --redact --exit-code 1

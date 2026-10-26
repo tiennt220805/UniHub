@@ -93,6 +93,7 @@ All configuration in this document targets a single Kubernetes namespace, `unihu
 - A failed lint/unit/integration/contract-diff job structurally blocks `build-and-push` via the job dependency graph — not merely step ordering within one job, which could be bypassed by a misplaced `continue-on-error` or a step-reordering mistake.
 - One workflow file remains the single source of truth for the whole pipeline, with no cross-workflow triggering to reason about.
 - The three security-scan jobs (Security Scan Jobs ADR) live in the same file but outside the sequential chain: they `needs:` nothing. Semgrep and Dependency-Check are non-blocking, so nothing waits for them; Gitleaks is blocking, so `build-and-push` `needs:` it alongside `contract-diff`.
+- The Web Application has its own `web` job (Phase 2 checklist 5): `npm ci`, types generated from `packages/api-contract`, typecheck, lint (oxlint plus the import-boundary rules) and Vitest. It `needs:` nothing and is blocking, outside the sequential chain like the scans: it uses no database, Docker or backend, so it neither waits for nor delays the backend jobs. It is not in `build-and-push`'s `needs:` while no web image is built.
 - `contract-diff` runs after `integration-test`, not in parallel with it — it's cheap relative to the Testcontainers job, and ordering it last among the test-gate jobs means a contract mismatch never wastes the time of a run that was already going to fail on lint/unit/integration anyway.
 
 **Trade-offs accepted (user's own reasoning):** two separate workflow files cross-triggered via `workflow_run` were rejected — that level of pipeline decoupling is disproportionate for one developer maintaining one repository, and adds triggering complexity with no corresponding benefit here.
@@ -187,14 +188,14 @@ Decided in a review of the testing documents.
 
 **Conditions to promote Semgrep or Dependency-Check to blocking** (each independently; promotion means removing `continue-on-error` and adding the job to `build-and-push`'s `needs:`):
 1. The baseline is triaged: every existing finding is either fixed or suppressed with a written justification in a committed suppression file (inline `nosemgrep`, Dependency-Check's suppression file).
-2. The tool image is pinned to a version or digest rather than `latest`, so a tool upgrade cannot fail a merge.
+2. The tool image is pinned to a version or digest rather than `latest`, so a tool upgrade cannot fail a merge. **Met for the image (2026-10-26):** Semgrep `1.181.1`, Dependency-Check `13.0.0`, Gitleaks `v8.30.1`, each the version `latest` resolved to at that moment (same manifest digest). The rules and vulnerability data they fetch at run time are not pinned.
 3. A blocking severity threshold has been chosen (for example, High and Critical only). **Not chosen yet.**
 4. The job has run stably for a period the user defines. **Not defined yet.**
 5. For Dependency-Check: the API-key secret is in place and its data is cached, so runtime is bounded.
 
 **Consequences:** INV-18's detection is enforced from the first push. Semgrep and Dependency-Check findings are visible but gate nothing until promoted. Reports are workflow artifacts, never committed (`docs/testing/strategy/test-strategy.md` §6). Gating a *pull-request merge* on Gitleaks additionally needs the manual branch-protection setup in §5.
 
-**Trade-offs accepted:** all three jobs blocking from day one was rejected for Semgrep and Dependency-Check for the reasons above; running any of them inside the `lint` → … → `build-and-push` chain was rejected because a scan finding is then indistinguishable from a test failure and lengthens every gate run. Gitleaks runs on `latest`, the same posture the `oasdiff` step takes; a tool upgrade can therefore start failing merges, and pinning the image is the remedy when that first happens — accepted as a risk rather than pre-empted.
+**Trade-offs accepted:** all three jobs blocking from day one was rejected for Semgrep and Dependency-Check for the reasons above; running any of them inside the `lint` → … → `build-and-push` chain was rejected because a scan finding is then indistinguishable from a test failure and lengthens every gate run. Gitleaks first ran on `latest`, the same posture the `oasdiff` step takes, accepting that an upgrade could start failing merges; all three scanner images were then pinned on 2026-10-26 (Semgrep 1.181.1, Dependency-Check 13.0.0, Gitleaks v8.30.1 — each what `latest` pointed to, so nothing changed) rather than waiting for that first failure. `oasdiff` still takes `latest`.
 
 ---
 
@@ -943,6 +944,26 @@ jobs:
       # `services:` stanza is needed, unlike a fixed-sidecar-container setup.
       - run: ./gradlew integrationTest --no-daemon
 
+  # The Web Application (apps/web): outside the chain, `needs:` nothing, blocking. No database or Docker.
+  # schema.gen.ts is gitignored, so the types are generated before typecheck, lint and test.
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm run api:types
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
   contract-diff:
     needs: integration-test
     runs-on: ubuntu-latest
@@ -988,14 +1009,15 @@ jobs:
   # Semgrep and Dependency-Check: no `needs:` and `continue-on-error: true` — they report on
   # every push/PR but neither block a merge nor gate build-and-push. Rule sets are starting values.
   # Gitleaks (last job): also `needs:` nothing, but NOT continue-on-error — build-and-push needs it
-  # (INV-18). Images use `latest`, the same posture as oasdiff above; pin before promoting the others.
+  # (INV-18). The three scanner images are pinned (Semgrep 1.181.1, Dependency-Check 13.0.0, Gitleaks v8.30.1);
+  # oasdiff above still uses `latest`.
   sast-semgrep:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - run: |
-          docker run --rm -v "$PWD:/src" semgrep/semgrep:latest \
+          docker run --rm -v "$PWD:/src" semgrep/semgrep:1.181.1 \
             semgrep scan --metrics=off --config p/java --config p/typescript \
             --config p/owasp-top-ten /src
 
@@ -1005,7 +1027,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: |
-          docker run --rm -v "$PWD:/src" -v "$PWD/dc-report:/report" owasp/dependency-check:latest \
+          docker run --rm -v "$PWD:/src" -v "$PWD/dc-report:/report" owasp/dependency-check:13.0.0 \
             --scan /src --format HTML --format JSON --out /report --nvdApiKey "$NVD_API_KEY"
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
@@ -1019,7 +1041,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }   # full history: a secret committed and later deleted is still leaked
       - run: |
-          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest \
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1 \
             detect --source /repo --redact --exit-code 1
 ```
 
