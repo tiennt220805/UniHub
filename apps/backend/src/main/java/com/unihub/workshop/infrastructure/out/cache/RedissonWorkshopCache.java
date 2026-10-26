@@ -17,7 +17,6 @@ import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.StringCodec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -34,7 +33,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * this cache wrong rather than slow.
  */
 @Component
-@ConditionalOnExpression("!'${unihub.redis.address:}'.isEmpty()")
 class RedissonWorkshopCache implements WorkshopCache {
 
     static final Duration DETAIL_TTL = Duration.ofSeconds(300);

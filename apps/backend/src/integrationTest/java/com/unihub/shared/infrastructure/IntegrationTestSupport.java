@@ -1,6 +1,10 @@
 package com.unihub.shared.infrastructure;
 
+import java.io.IOException;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeEach;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MinIOContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -30,6 +34,34 @@ public abstract class IntegrationTestSupport {
                     DockerImageName.parse("cgr.dev/chainguard/minio:latest")
                             .asCompatibleSubstituteFor("minio/minio"));
 
+    /**
+     * {@code redis://host:port} of the singleton {@link #REDIS}, for classes that cannot extend
+     * this one.
+     */
+    public static String redisAddress() {
+        return "redis://" + REDIS.getHost() + ":" + REDIS.getMappedPort(6379);
+    }
+
+    /**
+     * Empties the singleton Redis before every test (checklist D21). Redis is required
+     * configuration, so every context has the workshop catalog cache live, and a test that writes
+     * PostgreSQL directly and then reads through the API would otherwise read an entry an earlier
+     * test left. Also drops any lock a previous test abandoned. An inline command over a plain
+     * socket: a {@code docker exec} per test costs far more than the test it protects.
+     */
+    @BeforeEach
+    protected void flushRedis() throws IOException {
+        try (var socket = new Socket(REDIS.getHost(), REDIS.getMappedPort(6379))) {
+            socket.getOutputStream().write("FLUSHALL\r\n".getBytes(StandardCharsets.US_ASCII));
+            socket.getOutputStream().flush();
+            var reply =
+                    new String(socket.getInputStream().readNBytes(3), StandardCharsets.US_ASCII);
+            if (!reply.startsWith("+OK")) {
+                throw new IllegalStateException("FLUSHALL was refused by the test Redis: " + reply);
+            }
+        }
+    }
+
     static {
         // Started once, when this class is first loaded by the JVM. No @Container/@Testcontainers:
         // those
@@ -55,6 +87,11 @@ public abstract class IntegrationTestSupport {
         // every full context — never falls back to localhost:5672. A test's own
         // @DynamicPropertySource
         // still overrides them.
+        // Redis is required configuration (checklist D21): every context gets the singleton, so
+        // the seat lock and the job lock are the Redis ones everywhere. A test's own
+        // @DynamicPropertySource (an unreachable address, a private container) still overrides it.
+        System.setProperty("unihub.redis.address", redisAddress());
+
         System.setProperty("spring.rabbitmq.host", RABBITMQ.getHost());
         System.setProperty("spring.rabbitmq.port", String.valueOf(RABBITMQ.getAmqpPort()));
         System.setProperty("spring.rabbitmq.username", RABBITMQ.getAdminUsername());

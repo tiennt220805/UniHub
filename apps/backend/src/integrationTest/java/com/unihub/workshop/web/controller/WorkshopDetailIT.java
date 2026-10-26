@@ -102,12 +102,18 @@ class WorkshopDetailIT extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("seat availability is read live: a later seats_taken change shows immediately")
+    @DisplayName(
+            "seat availability is not stale once its cache entry is gone: the read shows seats_taken now")
     void seats_areFresh() throws Exception {
         var id = insert(aPublishedWorkshop().withCapacity(40).withSeatsTaken(1).build());
         assertThat(JSON.readTree(get(id, null).getBody()).get("seatsTaken").asInt()).isEqualTo(1);
 
         jdbc.update("UPDATE workshops SET seats_taken = 9 WHERE id = ?", id);
+        // Redis is live in every context (D21), so the first read cached seats for up to 3 s. A
+        // write
+        // through the application drops that entry; this test writes the row directly and does it
+        // itself.
+        flushRedis();
 
         assertThat(JSON.readTree(get(id, null).getBody()).get("seatsTaken").asInt()).isEqualTo(9);
     }

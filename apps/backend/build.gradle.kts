@@ -130,8 +130,9 @@ dependencies {
     implementation("io.micrometer:micrometer-core")
     // Redis client (distributed-coordination.md §1: Redisson, single-server mode). Pinned on the 3.x line that
     // matches Boot 3.3 (4.x targets newer Boot/Netty). Plain `redisson`, not the Spring Boot starter: the
-    // client is configured from unihub.redis.* in RedisConfig, and created only when an address is set, so
-    // the app still boots with no Redis (contract-diff boots it without any dependency).
+    // client is configured from unihub.redis.* in RedisConfig. The address is required (Phase 3 checklist
+    // D21) but the client connects lazily, so the app still boots against an unreachable Redis (contract-diff
+    // boots it with a dead address).
     implementation("org.redisson:redisson:3.45.1")
     // Stripe Java SDK (payment.md §3, checklist D16): used only inside payment.infrastructure.out.client.
     // 33.4.2 is the newest stable release older than two weeks when it was chosen. The client is built

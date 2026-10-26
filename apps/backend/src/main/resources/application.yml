@@ -59,9 +59,8 @@ springdoc:
 # (deployment-and-cicd.md §3). Username/password default to the Master's.
 
 # Nightly legacy student sync (docs/technical-design/modules/user.md §2, §7). Off by default in every
-# environment: Phase 1 runs a single instance and the job lock is still in-process (InProcessJobLock,
-# INV-09 is Phase 3), so turning the trigger on is a deliberate per-environment choice
-# (UNIHUB_JOBS_NIGHTLYSYNC_ENABLED=true). The rest are the documented values.
+# environment: turning the trigger on is a deliberate per-environment choice
+# (UNIHUB_JOBS_NIGHTLYSYNC_ENABLED=true); the job lock is the Redis one, so only one instance runs it. The rest are the documented values.
 unihub:
   jobs:
     nightly-sync:
@@ -98,8 +97,8 @@ unihub:
       interval: PT1M
       retention: PT1H
   # Seat reservation (registration.md §2, Phase 2 checklist D3/D4). seat-hold is how long a paid
-  # registration keeps its seat; lock-wait/lock-lease are the per-workshop seat lock (the in-process
-  # adapter ignores the lease); seat-claim-attempts is how many transactions a claim may lose to a
+  # registration keeps its seat; lock-wait/lock-lease are the per-workshop seat lock (Redis, fixed
+  # lease, no watchdog); seat-claim-attempts is how many transactions a claim may lose to a
   # workshops.version race before it answers 503.
   registration:
     seat-hold: PT15M
@@ -138,9 +137,11 @@ unihub:
   messaging:
     confirm-timeout: PT5S
   # Redis (distributed-coordination.md §1). The address and password come from the environment only
-  # (UNIHUB_REDIS_ADDRESS, UNIHUB_REDIS_PASSWORD) — never set here (M-13). With no address there is no Redis
-  # client at all: the workshop catalog is simply not cached and every read goes to the database. Timeouts
-  # are short on purpose: an unreachable Redis must cost a request milliseconds, not seconds.
+  # (UNIHUB_REDIS_ADDRESS, UNIHUB_REDIS_PASSWORD) — never set here (M-13). The address is required: without
+  # it the application does not start, because the seat lock and the job lock have no in-process fallback
+  # (Phase 3 checklist D21). An address that is set but unreachable still starts the application; registrations
+  # are then refused with 503. Timeouts are short on purpose: an unreachable Redis must cost a request
+  # milliseconds, not seconds.
   redis:
     connect-timeout: PT0.5S
     command-timeout: PT0.5S

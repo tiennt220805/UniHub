@@ -10,12 +10,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
-import org.springframework.stereotype.Component;
 
 /**
- * Phase 2 {@link SeatLock}: one JVM lock per workshop (Phase 2 checklist D4). It does NOT protect
- * across instances — with more than one pod the database check (version and {@code seats_taken <=
- * capacity}) is the only guard; {@code RedissonSeatLock} replaces this in Phase 3.
+ * Test fixture {@link SeatLock}: one JVM lock per workshop. It never ships — production uses {@code
+ * RedissonSeatLock} (Phase 3 checklist D21) — and serves two purposes: the in-process side of the
+ * contract test, and the control of the multi-instance harness, where two contexts built on this
+ * lock must show overlapping holds, proving the harness really separates the instances (M-32). It
+ * does NOT protect across instances.
  *
  * <p>{@code leaseTime} cannot apply to a JVM lock and is ignored. A {@link ReentrantLock} must be
  * unlocked by the thread that locked it, so acquire and close happen on the request thread.
@@ -25,8 +26,7 @@ import org.springframework.stereotype.Component;
  * reaches zero. Counting before waiting is what stops a waiter from holding a lock object that was
  * already evicted, which would let two threads lock different objects for one workshop.
  */
-@Component
-class InProcessSeatLock implements SeatLock {
+public class InProcessSeatLock implements SeatLock {
 
     private static final class Entry {
         final ReentrantLock lock = new ReentrantLock();
@@ -61,7 +61,7 @@ class InProcessSeatLock implements SeatLock {
     }
 
     /** Number of workshops with a holder or a waiter; zero once everyone is done (AC4.5). */
-    int size() {
+    public int size() {
         return entries.size();
     }
 

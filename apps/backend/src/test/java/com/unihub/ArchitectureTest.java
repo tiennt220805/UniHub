@@ -262,6 +262,22 @@ class ArchitectureTest {
                     .as(
                             "use NonRetryableMessageException; reject-without-requeue drops messages here (§8.6)");
 
+    // ---------- Phase 3 checklist D21 (AC21.3): coordination locks ----------
+
+    @ArchTest
+    static final ArchRule only_redisson_adapters_implement_the_locks =
+            classes()
+                    .that()
+                    .implement(com.unihub.registration.application.port.out.SeatLock.class)
+                    .or()
+                    .implement(com.unihub.shared.application.port.out.JobLock.class)
+                    .should()
+                    .haveSimpleNameStartingWith("Redisson")
+                    .as(
+                            "no in-process fallback for the seat lock or the job lock in production"
+                                    + " code (D21, INV-08): it would run uncoordinated on more than"
+                                    + " one pod; test fixtures live in src/test");
+
     // ---------- §6, §14, §15, §23 Conventions ----------
 
     @ArchTest
