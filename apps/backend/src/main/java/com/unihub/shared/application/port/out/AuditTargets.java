@@ -9,5 +9,7 @@ public final class AuditTargets {
 
     public static final String REGISTRATION = "REGISTRATION";
 
+    public static final String PAYMENT = "PAYMENT";
+
     private AuditTargets() {}
 }

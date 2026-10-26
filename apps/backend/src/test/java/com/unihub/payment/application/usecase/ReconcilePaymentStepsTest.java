@@ -1,5 +1,8 @@
 package com.unihub.payment.application.usecase;
 
+import static com.unihub.payment.application.usecase.AuditAssertions.assertRecorded;
+import static com.unihub.payment.application.usecase.AuditAssertions.assertSystemActor;
+import static com.unihub.payment.application.usecase.AuditAssertions.onlyEntry;
 import static com.unihub.payment.domain.model.PaymentBuilder.aPendingPayment;
 import static com.unihub.payment.domain.model.PaymentBuilder.aResolvedPayment;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -17,6 +20,8 @@ import com.unihub.payment.application.port.out.PaymentRepository;
 import com.unihub.payment.application.usecase.PaymentWebhookTransaction.Effect;
 import com.unihub.payment.domain.model.Payment;
 import com.unihub.payment.domain.model.PaymentStatus;
+import com.unihub.shared.application.port.out.AuditActions;
+import com.unihub.shared.application.port.out.AuditTrail;
 import com.unihub.shared.application.port.out.EventPublisher;
 import com.unihub.shared.application.port.out.IdempotencyScope;
 import com.unihub.shared.application.port.out.IdempotencyStore;
@@ -39,9 +44,10 @@ class ReconcilePaymentStepsTest {
     private final PaymentRepository payments = mock(PaymentRepository.class);
     private final IdempotencyStore idempotency = mock(IdempotencyStore.class);
     private final EventPublisher events = mock(EventPublisher.class);
+    private final AuditTrail audit = mock(AuditTrail.class);
     private final ReconcilePaymentSteps steps =
             new ReconcilePaymentSteps(
-                    payments, idempotency, events, Clock.fixed(NOW, ZoneOffset.UTC));
+                    payments, idempotency, events, audit, Clock.fixed(NOW, ZoneOffset.UTC));
 
     private Payment found(Payment payment) {
         when(payments.findById(payment.id())).thenReturn(Optional.of(payment));
@@ -153,5 +159,40 @@ class ReconcilePaymentStepsTest {
 
         assertThat(payment.status()).isEqualTo(PaymentStatus.REFUND_REQUIRED);
         verifyNoInteractions(events);
+    }
+
+    // ---------- audit (checklist D6): reconciliation is a process, never a user ----------
+
+    @Test
+    @DisplayName(
+            "audit: a payment reconciliation settles is recorded under the reconciliation process")
+    void audit_resolved() {
+        var payment = found(aPendingPayment().withGatewayTransactionId("pi_1").build());
+
+        steps.resolve(payment.id(), Outcome.SUCCEEDED);
+
+        var entry = onlyEntry(audit);
+        assertRecorded(entry, AuditActions.PAYMENT_SUCCEEDED, payment, NOW);
+        assertSystemActor(entry, "payment-reconciliation");
+    }
+
+    @Test
+    @DisplayName("audit: a payment cancelled for want of a gateway object is recorded as cancelled")
+    void audit_cancelled() {
+        var payment = found(aPendingPayment().build());
+
+        steps.resolve(payment.id(), Outcome.CANCELLED);
+
+        assertRecorded(onlyEntry(audit), AuditActions.PAYMENT_CANCELLED, payment, NOW);
+    }
+
+    @Test
+    @DisplayName("audit: a payment the webhook settled first is not recorded again")
+    void audit_alreadyResolved_recordsNothing() {
+        var payment = found(aResolvedPayment(PaymentStatus.SUCCEEDED).build());
+
+        steps.resolve(payment.id(), Outcome.SUCCEEDED);
+
+        verifyNoInteractions(audit);
     }
 }

@@ -9,11 +9,13 @@ import com.unihub.payment.domain.exception.PayableRegistrationNotFoundException;
 import com.unihub.payment.domain.model.Payment;
 import com.unihub.payment.domain.model.PaymentStatus;
 import com.unihub.registration.api.PayableRegistrations;
+import com.unihub.shared.application.port.out.AuditTrail;
 import com.unihub.shared.application.port.out.EventPublisher;
 import com.unihub.shared.application.port.out.IdempotencyScope;
 import com.unihub.shared.application.port.out.IdempotencyStore;
 import com.unihub.shared.application.usecase.IdempotentReplay;
 import com.unihub.shared.domain.id.PaymentId;
+import com.unihub.shared.security.Actor;
 import com.unihub.workshop.api.WorkshopPricing;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -50,6 +52,7 @@ class ChargePaymentSteps {
     private final WorkshopPricing pricing;
     private final PaymentRepository payments;
     private final EventPublisher events;
+    private final PaymentAudit audit;
     private final Clock clock;
 
     ChargePaymentSteps(
@@ -58,12 +61,14 @@ class ChargePaymentSteps {
             WorkshopPricing pricing,
             PaymentRepository payments,
             EventPublisher events,
+            AuditTrail auditTrail,
             Clock clock) {
         this.idempotency = idempotency;
         this.registrations = registrations;
         this.pricing = pricing;
         this.payments = payments;
         this.events = events;
+        this.audit = new PaymentAudit(auditTrail);
         this.clock = clock;
     }
 
@@ -124,13 +129,11 @@ class ChargePaymentSteps {
                 command.idempotencyKey(),
                 command.requestFingerprint(),
                 paymentId.value());
-        payments.save(
+        var initiated =
                 Payment.initiate(
-                        paymentId,
-                        command.registrationId(),
-                        amount,
-                        Payment.DEFAULT_CURRENCY,
-                        now));
+                        paymentId, command.registrationId(), amount, Payment.DEFAULT_CURRENCY, now);
+        payments.save(initiated);
+        audit.initiated(command.actor(), initiated, now);
         return new Started(paymentId, amount, Payment.DEFAULT_CURRENCY);
     }
 
@@ -186,6 +189,7 @@ class ChargePaymentSteps {
             recorded.stream()
                     .flatMap(event -> PaymentOutboxTranslator.translate(event).stream())
                     .forEach(events::publish);
+            audit.moved(command.actor(), settled, now);
         }
         var result = ChargePaymentResult.Processed.of(settled);
         idempotency.complete(
@@ -201,8 +205,12 @@ class ChargePaymentSteps {
     void abandon(PaymentId paymentId) {
         var payment = load(paymentId);
         if (payment.status() == PaymentStatus.PENDING) {
-            payment.cancel(clock.instant());
+            var now = clock.instant();
+            payment.cancel(now);
+            // Not the student's decision: the system undid a charge that could not reach the
+            // gateway.
             payments.save(payment);
+            audit.moved(Actor.system(PaymentAudit.CHARGE_COMPENSATION), payment, now);
         }
         idempotency.abandonOpenFor(SCOPE, paymentId.value());
     }

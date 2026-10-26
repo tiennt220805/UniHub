@@ -1,5 +1,8 @@
 package com.unihub.payment.application.usecase;
 
+import static com.unihub.payment.application.usecase.AuditAssertions.assertRecorded;
+import static com.unihub.payment.application.usecase.AuditAssertions.assertSystemActor;
+import static com.unihub.payment.application.usecase.AuditAssertions.onlyEntry;
 import static com.unihub.payment.domain.model.PaymentBuilder.aPendingPayment;
 import static com.unihub.payment.domain.model.PaymentBuilder.aResolvedPayment;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -18,6 +21,8 @@ import com.unihub.payment.application.result.ChargePaymentResult;
 import com.unihub.payment.application.usecase.PaymentWebhookTransaction.Effect;
 import com.unihub.payment.domain.model.Payment;
 import com.unihub.payment.domain.model.PaymentStatus;
+import com.unihub.shared.application.port.out.AuditActions;
+import com.unihub.shared.application.port.out.AuditTrail;
 import com.unihub.shared.application.port.out.EventPublisher;
 import com.unihub.shared.application.port.out.IdempotencyScope;
 import com.unihub.shared.application.port.out.IdempotencyStore;
@@ -43,9 +48,10 @@ class PaymentWebhookTransactionTest {
     private final PaymentRepository payments = mock(PaymentRepository.class);
     private final IdempotencyStore idempotency = mock(IdempotencyStore.class);
     private final EventPublisher events = mock(EventPublisher.class);
+    private final AuditTrail audit = mock(AuditTrail.class);
     private final PaymentWebhookTransaction transaction =
             new PaymentWebhookTransaction(
-                    payments, idempotency, events, Clock.fixed(NOW, ZoneOffset.UTC));
+                    payments, idempotency, events, audit, Clock.fixed(NOW, ZoneOffset.UTC));
 
     private Payment found(Payment payment) {
         when(payments.findByGatewayTransactionId(GATEWAY_ID)).thenReturn(Optional.of(payment));
@@ -167,5 +173,71 @@ class PaymentWebhookTransactionTest {
             }
         }
         verifyNoInteractions(events, idempotency);
+    }
+
+    // ---------- audit (checklist D6): the webhook is a process, never a user ----------
+
+    @Test
+    @DisplayName("audit: a payment the webhook settles is recorded once, under the webhook process")
+    void audit_pendingSucceeded() {
+        var payment = found(aPendingPayment().build());
+
+        transaction.apply(event(Outcome.SUCCEEDED));
+
+        var entry = onlyEntry(audit);
+        assertRecorded(entry, AuditActions.PAYMENT_SUCCEEDED, payment, NOW);
+        assertSystemActor(entry, "payment-webhook");
+    }
+
+    @Test
+    @DisplayName("audit: a failed and a cancelled payment are recorded as such")
+    void audit_pendingFailedAndCancelled() {
+        var failed = found(aPendingPayment().build());
+        transaction.apply(event(Outcome.FAILED));
+        assertRecorded(onlyEntry(audit), AuditActions.PAYMENT_FAILED, failed, NOW);
+
+        org.mockito.Mockito.reset(audit);
+        var cancelled = found(aPendingPayment().build());
+        transaction.apply(event(Outcome.CANCELLED));
+        assertRecorded(onlyEntry(audit), AuditActions.PAYMENT_CANCELLED, cancelled, NOW);
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = PaymentStatus.class,
+            names = {"FAILED", "CANCELLED"})
+    @DisplayName(
+            "audit: a late success for a closed payment is recorded as PAYMENT_REFUND_REQUIRED")
+    void audit_lateSuccess(PaymentStatus closed) {
+        var payment = found(aResolvedPayment(closed).build());
+
+        transaction.apply(event(Outcome.SUCCEEDED));
+
+        var entry = onlyEntry(audit);
+        assertRecorded(entry, AuditActions.PAYMENT_REFUND_REQUIRED, payment, NOW);
+        assertSystemActor(entry, "payment-webhook");
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = PaymentStatus.class,
+            names = {"SUCCEEDED", "REFUND_REQUIRED", "REFUNDED"})
+    @DisplayName("audit: a redelivery to a payment that already moved records nothing (AC2.2)")
+    void audit_redelivery_recordsNothing(PaymentStatus settled) {
+        found(aResolvedPayment(settled).build());
+
+        transaction.apply(event(Outcome.SUCCEEDED));
+
+        verifyNoInteractions(audit);
+    }
+
+    @Test
+    @DisplayName("audit: a transaction no payment has records nothing")
+    void audit_unknownTransaction_recordsNothing() {
+        when(payments.findByGatewayTransactionId(GATEWAY_ID)).thenReturn(Optional.empty());
+
+        transaction.apply(event(Outcome.SUCCEEDED));
+
+        verifyNoInteractions(audit);
     }
 }

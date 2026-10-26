@@ -6,9 +6,11 @@ import com.unihub.payment.application.port.out.PaymentRepository;
 import com.unihub.payment.application.result.ChargePaymentResult;
 import com.unihub.payment.domain.model.Payment;
 import com.unihub.payment.domain.model.PaymentStatus;
+import com.unihub.shared.application.port.out.AuditTrail;
 import com.unihub.shared.application.port.out.EventPublisher;
 import com.unihub.shared.application.port.out.IdempotencyScope;
 import com.unihub.shared.application.port.out.IdempotencyStore;
+import com.unihub.shared.security.Actor;
 import java.time.Instant;
 
 /**
@@ -25,21 +27,28 @@ final class PaymentResolution {
     private final PaymentRepository payments;
     private final IdempotencyStore idempotency;
     private final EventPublisher events;
+    private final PaymentAudit audit;
 
     PaymentResolution(
-            PaymentRepository payments, IdempotencyStore idempotency, EventPublisher events) {
+            PaymentRepository payments,
+            IdempotencyStore idempotency,
+            EventPublisher events,
+            AuditTrail auditTrail) {
         this.payments = payments;
         this.idempotency = idempotency;
         this.events = events;
+        this.audit = new PaymentAudit(auditTrail);
     }
 
     /**
-     * Applies the outcome to the payment as found.
+     * Applies the outcome to the payment as found. A payment that moves is audited under {@code
+     * actor}, the process that learned the outcome (webhook or reconciliation).
      *
      * @throws com.unihub.shared.domain.OptimisticConflictException when another transaction
      *     resolved the row first; the caller retries in a new transaction
      */
-    PaymentWebhookTransaction.Effect apply(Payment payment, Outcome outcome, Instant now) {
+    PaymentWebhookTransaction.Effect apply(
+            Payment payment, Outcome outcome, Instant now, Actor actor) {
         switch (payment.status()) {
             case PENDING -> {
                 switch (outcome) {
@@ -53,6 +62,7 @@ final class PaymentResolution {
                         .flatMap(e -> PaymentOutboxTranslator.translate(e).stream())
                         .forEach(events::publish);
                 closeTheKey(saved);
+                audit.moved(actor, saved, now);
                 return PaymentWebhookTransaction.Effect.RESOLVED;
             }
             case FAILED, CANCELLED -> {
@@ -61,6 +71,7 @@ final class PaymentResolution {
                 }
                 payment.lateSuccess(now);
                 payments.save(payment);
+                audit.moved(actor, payment, now);
                 return PaymentWebhookTransaction.Effect.LATE_SUCCESS;
             }
             case SUCCEEDED, REFUND_REQUIRED, REFUNDED -> {

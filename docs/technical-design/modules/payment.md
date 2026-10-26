@@ -357,6 +357,19 @@ flowchart TD
 
 **Authorization and audit:** the endpoint requires `REGISTRATION_CREATE` (the same permission as `createRegistration`, checklist D7) and the caller must own the registration. The charge and every payment transition are recorded through `AuditTrail` — the user for the charge, `Actor.system(...)` for webhook/reconciliation/compensation (checklist D6).
 
+**Audit entries (Phase 2, checklist D6; built 2026-10-26).** Target type `PAYMENT`, target id the payment id, metadata `registrationId`, `amount`, `currency`. Each is recorded inside the transaction that makes the change and takes effect after it commits, so a rolled-back change leaves nothing; the trail never throws, so a broken audit pipeline cannot fail or roll back the payment (INV-14).
+
+| Action | When | Actor |
+|---|---|---|
+| `PAYMENT_INITIATED` | tx1 of the charge creates the `PENDING` row | the student |
+| `PAYMENT_SUCCEEDED` / `PAYMENT_FAILED` | tx2 of the charge, when the gateway answered | the student |
+| `PAYMENT_CANCELLED` | the charge is undone because nothing could have been charged (breaker refused, create failed, confirm never left) | `payment-charge-compensation` |
+| `PAYMENT_SUCCEEDED` / `PAYMENT_FAILED` / `PAYMENT_CANCELLED` | the webhook settles a `PENDING` payment | `payment-webhook` |
+| same | reconciliation settles a `PENDING` payment | `payment-reconciliation` |
+| `PAYMENT_REFUND_REQUIRED` | a success arrives for a closed payment (webhook), or the registration rejected the confirmation (refund consumer) | `payment-webhook` / `payment-refund` |
+
+A payment that stays `PENDING` (outcome unknown) has not moved, so nothing is recorded; a redelivery to a payment that already moved is a no-op and records nothing. The registration's own confirmation by the consumer is recorded as `REGISTRATION_CONFIRMED` under `payment-confirmation`. The refund call and `REFUNDED` are Phase 3 (M-76).
+
 **Payment method in Phase 2:** the web client offers only Stripe **test** tokens (a success and a decline token) and only when built with a test key; `paymentMethodToken` stays a generic gateway token so Stripe.js can replace the dropdown without an API change (checklist D11).
 
 **Retrying after a failed charge:** a payment that ends `FAILED` (declined) or `CANCELLED` is the final outcome of **its** key: a same-key retry replays it and never dials the gateway. Trying again is a new attempt with a **new** key, and the partial unique index lets it through because a `FAILED`/`CANCELLED` payment is not live. A decline returned **synchronously** by the gateway is visible at once: the response is `201` with `FAILED`.

@@ -2,6 +2,8 @@ package com.unihub.payment.application.usecase;
 
 import com.unihub.payment.application.command.RequireRefundCommand;
 import com.unihub.payment.application.port.out.PaymentRepository;
+import com.unihub.shared.application.port.out.AuditTrail;
+import com.unihub.shared.security.Actor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -22,10 +24,13 @@ class RequireRefundTransaction {
     }
 
     private final PaymentRepository payments;
+    private final PaymentAudit audit;
     private final java.time.Clock clock;
 
-    RequireRefundTransaction(PaymentRepository payments, java.time.Clock clock) {
+    RequireRefundTransaction(
+            PaymentRepository payments, AuditTrail auditTrail, java.time.Clock clock) {
         this.payments = payments;
+        this.audit = new PaymentAudit(auditTrail);
         this.clock = clock;
     }
 
@@ -40,8 +45,10 @@ class RequireRefundTransaction {
                                                         + command.paymentId().value()));
         switch (payment.status()) {
             case SUCCEEDED -> {
-                payment.requireRefund(clock.instant());
+                var now = clock.instant();
+                payment.requireRefund(now);
                 payments.save(payment);
+                audit.moved(Actor.system(PaymentAudit.REFUND_CONSUMER), payment, now);
                 return Effect.REFUND_REQUIRED;
             }
             case REFUND_REQUIRED, REFUNDED -> {

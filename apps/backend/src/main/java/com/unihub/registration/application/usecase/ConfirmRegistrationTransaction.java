@@ -5,8 +5,14 @@ import com.unihub.registration.application.command.ConfirmRegistrationCommand;
 import com.unihub.registration.application.event.RegistrationOutboxTranslator;
 import com.unihub.registration.application.port.out.RegistrationRepository;
 import com.unihub.registration.domain.model.RegistrationStatus;
+import com.unihub.shared.application.port.out.AuditActions;
+import com.unihub.shared.application.port.out.AuditEntry;
+import com.unihub.shared.application.port.out.AuditTargets;
+import com.unihub.shared.application.port.out.AuditTrail;
 import com.unihub.shared.application.port.out.EventPublisher;
+import com.unihub.shared.security.Actor;
 import java.time.Clock;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,14 +34,21 @@ class ConfirmRegistrationTransaction {
         REJECTED
     }
 
+    static final String CONFIRMATION_PROCESS = "payment-confirmation";
+
     private final RegistrationRepository registrations;
     private final EventPublisher events;
+    private final AuditTrail auditTrail;
     private final Clock clock;
 
     ConfirmRegistrationTransaction(
-            RegistrationRepository registrations, EventPublisher events, Clock clock) {
+            RegistrationRepository registrations,
+            EventPublisher events,
+            AuditTrail auditTrail,
+            Clock clock) {
         this.registrations = registrations;
         this.events = events;
+        this.auditTrail = auditTrail;
         this.clock = clock;
     }
 
@@ -60,6 +73,18 @@ class ConfirmRegistrationTransaction {
                 recorded.stream()
                         .flatMap(e -> RegistrationOutboxTranslator.translate(e).stream())
                         .forEach(events::publish);
+                // The consumer confirms, not a user: a process, named as such (checklist D6).
+                auditTrail.record(
+                        AuditEntry.of(
+                                        Actor.system(CONFIRMATION_PROCESS),
+                                        AuditActions.REGISTRATION_CONFIRMED,
+                                        AuditTargets.REGISTRATION,
+                                        registration.id().value(),
+                                        now)
+                                .withMetadata(
+                                        Map.of(
+                                                "paymentId",
+                                                command.paymentId().value().toString())));
                 return Effect.CONFIRMED;
             }
             case CONFIRMED -> {

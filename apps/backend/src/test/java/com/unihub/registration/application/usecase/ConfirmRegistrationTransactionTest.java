@@ -21,9 +21,14 @@ import com.unihub.registration.application.port.out.RegistrationRepository;
 import com.unihub.registration.application.usecase.ConfirmRegistrationTransaction.Effect;
 import com.unihub.registration.domain.model.Registration;
 import com.unihub.registration.domain.model.RegistrationStatus;
+import com.unihub.shared.application.port.out.AuditActions;
+import com.unihub.shared.application.port.out.AuditEntry;
+import com.unihub.shared.application.port.out.AuditTargets;
+import com.unihub.shared.application.port.out.AuditTrail;
 import com.unihub.shared.application.port.out.EventPublisher;
 import com.unihub.shared.domain.id.PaymentId;
 import com.unihub.shared.event.OutboxMessage;
+import com.unihub.shared.security.Actor;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -41,9 +46,10 @@ class ConfirmRegistrationTransactionTest {
 
     private final RegistrationRepository registrations = mock(RegistrationRepository.class);
     private final EventPublisher events = mock(EventPublisher.class);
+    private final AuditTrail audit = mock(AuditTrail.class);
     private final ConfirmRegistrationTransaction transaction =
             new ConfirmRegistrationTransaction(
-                    registrations, events, Clock.fixed(NOW, ZoneOffset.UTC));
+                    registrations, events, audit, Clock.fixed(NOW, ZoneOffset.UTC));
 
     private ConfirmRegistrationCommand found(Registration registration) {
         when(registrations.findById(registration.id())).thenReturn(Optional.of(registration));
@@ -131,5 +137,38 @@ class ConfirmRegistrationTransactionTest {
 
         assertThatThrownBy(() -> transaction.attempt(command))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    // ---------- audit (checklist D6): the consumer confirms, a process and never a user ----------
+
+    @Test
+    @DisplayName(
+            "audit: confirming a registration is recorded once, under the confirmation process")
+    void audit_confirmed() {
+        var registration = aReservedRegistration().build();
+
+        transaction.attempt(found(registration));
+
+        var entry = ArgumentCaptor.forClass(AuditEntry.class);
+        verify(audit).record(entry.capture());
+        assertThat(entry.getValue().action()).isEqualTo(AuditActions.REGISTRATION_CONFIRMED);
+        assertThat(entry.getValue().targetType()).isEqualTo(AuditTargets.REGISTRATION);
+        assertThat(entry.getValue().targetId()).isEqualTo(registration.id().value());
+        assertThat(entry.getValue().occurredAt()).isEqualTo(NOW);
+        assertThat(entry.getValue().metadata())
+                .containsEntry("paymentId", PAYMENT.value().toString());
+        assertThat(entry.getValue().actor())
+                .isEqualTo(Actor.system("payment-confirmation"))
+                .isInstanceOf(Actor.SystemActor.class);
+    }
+
+    @Test
+    @DisplayName("audit: a redelivery and a rejection confirm nothing, so they record nothing")
+    void audit_notConfirmed_recordsNothing() {
+        transaction.attempt(found(aConfirmedRegistration().build()));
+        transaction.attempt(found(anExpiredRegistration().build()));
+        transaction.attempt(found(aCancelledRegistration().build()));
+
+        verifyNoInteractions(audit);
     }
 }

@@ -3,10 +3,12 @@ package com.unihub.payment.application.usecase;
 import com.unihub.payment.application.port.out.GatewayPaymentEvent.Outcome;
 import com.unihub.payment.application.port.out.PaymentRepository;
 import com.unihub.payment.domain.model.PaymentStatus;
+import com.unihub.shared.application.port.out.AuditTrail;
 import com.unihub.shared.application.port.out.EventPublisher;
 import com.unihub.shared.application.port.out.IdempotencyStore;
 import com.unihub.shared.application.routing.ReadFromPrimary;
 import com.unihub.shared.domain.id.PaymentId;
+import com.unihub.shared.security.Actor;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
@@ -32,9 +34,10 @@ class ReconcilePaymentSteps {
             PaymentRepository payments,
             IdempotencyStore idempotency,
             EventPublisher events,
+            AuditTrail auditTrail,
             Clock clock) {
         this.payments = payments;
-        this.resolution = new PaymentResolution(payments, idempotency, events);
+        this.resolution = new PaymentResolution(payments, idempotency, events, auditTrail);
         this.clock = clock;
     }
 
@@ -74,6 +77,7 @@ class ReconcilePaymentSteps {
                                         new IllegalStateException(
                                                 "reconciliation for unknown payment "
                                                         + id.value()));
-        return resolution.apply(payment, outcome, clock.instant());
+        return resolution.apply(
+                payment, outcome, clock.instant(), Actor.system(PaymentAudit.RECONCILIATION));
     }
 }

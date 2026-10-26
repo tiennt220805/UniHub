@@ -1,5 +1,8 @@
 package com.unihub.payment.application.usecase;
 
+import static com.unihub.payment.application.usecase.AuditAssertions.assertRecorded;
+import static com.unihub.payment.application.usecase.AuditAssertions.assertSystemActor;
+import static com.unihub.payment.application.usecase.AuditAssertions.onlyEntry;
 import static com.unihub.payment.domain.model.PaymentBuilder.aPendingPayment;
 import static com.unihub.payment.domain.model.PaymentBuilder.aResolvedPayment;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -8,6 +11,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.unihub.payment.application.command.RequireRefundCommand;
@@ -15,6 +19,8 @@ import com.unihub.payment.application.port.out.PaymentRepository;
 import com.unihub.payment.application.usecase.RequireRefundTransaction.Effect;
 import com.unihub.payment.domain.model.Payment;
 import com.unihub.payment.domain.model.PaymentStatus;
+import com.unihub.shared.application.port.out.AuditActions;
+import com.unihub.shared.application.port.out.AuditTrail;
 import com.unihub.shared.domain.id.PaymentId;
 import java.time.Clock;
 import java.time.Instant;
@@ -27,8 +33,9 @@ class RequireRefundTransactionTest {
     private static final Instant NOW = Instant.parse("2026-12-01T09:00:00Z");
 
     private final PaymentRepository payments = mock(PaymentRepository.class);
+    private final AuditTrail audit = mock(AuditTrail.class);
     private final RequireRefundTransaction transaction =
-            new RequireRefundTransaction(payments, Clock.fixed(NOW, ZoneOffset.UTC));
+            new RequireRefundTransaction(payments, audit, Clock.fixed(NOW, ZoneOffset.UTC));
 
     private RequireRefundCommand found(Payment payment) {
         when(payments.findById(payment.id())).thenReturn(Optional.of(payment));
@@ -82,5 +89,36 @@ class RequireRefundTransactionTest {
 
         assertThatThrownBy(() -> transaction.attempt(command))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    // ---------- audit (checklist D6): the refund consumer is a process, never a user ----------
+
+    @Test
+    @DisplayName(
+            "audit: SUCCEEDED becoming REFUND_REQUIRED is recorded once, under the refund process")
+    void audit_refundRequired() {
+        var payment = aResolvedPayment(PaymentStatus.SUCCEEDED).build();
+
+        transaction.attempt(found(payment));
+
+        var entry = onlyEntry(audit);
+        assertRecorded(entry, AuditActions.PAYMENT_REFUND_REQUIRED, payment, NOW);
+        assertSystemActor(entry, "payment-refund");
+    }
+
+    @Test
+    @DisplayName("audit: a redelivery and a payment that took no money record nothing")
+    void audit_noOp_recordsNothing() {
+        for (var payment :
+                new Payment[] {
+                    aResolvedPayment(PaymentStatus.REFUND_REQUIRED).build(),
+                    aResolvedPayment(PaymentStatus.REFUNDED).build(),
+                    aPendingPayment().build(),
+                    aResolvedPayment(PaymentStatus.FAILED).build()
+                }) {
+            transaction.attempt(found(payment));
+        }
+
+        verifyNoInteractions(audit);
     }
 }

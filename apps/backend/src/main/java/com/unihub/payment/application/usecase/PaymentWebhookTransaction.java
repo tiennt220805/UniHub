@@ -2,8 +2,10 @@ package com.unihub.payment.application.usecase;
 
 import com.unihub.payment.application.port.out.GatewayPaymentEvent;
 import com.unihub.payment.application.port.out.PaymentRepository;
+import com.unihub.shared.application.port.out.AuditTrail;
 import com.unihub.shared.application.port.out.EventPublisher;
 import com.unihub.shared.application.port.out.IdempotencyStore;
+import com.unihub.shared.security.Actor;
 import java.time.Clock;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,9 +39,10 @@ class PaymentWebhookTransaction {
             PaymentRepository payments,
             IdempotencyStore idempotency,
             EventPublisher events,
+            AuditTrail auditTrail,
             Clock clock) {
         this.payments = payments;
-        this.resolution = new PaymentResolution(payments, idempotency, events);
+        this.resolution = new PaymentResolution(payments, idempotency, events, auditTrail);
         this.clock = clock;
     }
 
@@ -49,6 +52,7 @@ class PaymentWebhookTransaction {
         if (found.isEmpty()) {
             return Effect.UNKNOWN_TRANSACTION;
         }
-        return resolution.apply(found.get(), event.outcome(), clock.instant());
+        return resolution.apply(
+                found.get(), event.outcome(), clock.instant(), Actor.system(PaymentAudit.WEBHOOK));
     }
 }
