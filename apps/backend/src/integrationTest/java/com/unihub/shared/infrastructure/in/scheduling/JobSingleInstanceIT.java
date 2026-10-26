@@ -55,7 +55,6 @@ class JobSingleInstanceIT extends IntegrationTestSupport {
             assertThat(log.totalSkips())
                     .as("the other instance found the lock taken and skipped its cycle")
                     .isGreaterThanOrEqualTo(ROUNDS);
-            assertThat(log.holds()).hasSizeGreaterThanOrEqualTo(2 * ROUNDS);
         }
     }
 

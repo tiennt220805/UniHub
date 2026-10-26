@@ -16,7 +16,12 @@ import com.unihub.shared.infrastructure.IntegrationTestSupport;
 import com.unihub.shared.infrastructure.in.scheduling.SchedulerTicks;
 import com.unihub.shared.security.TestJwts;
 import com.unihub.workshop.application.port.out.WorkshopRepository;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -28,6 +33,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.awaitility.core.ConditionTimeoutException;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -83,8 +89,10 @@ class RedisOutageIT extends IntegrationTestSupport {
     private static final Duration RECOVERY = Duration.ofSeconds(45);
 
     /**
-     * The tick made during a pause may be executed by Redis when it wakes and then holds the job's
-     * key until its lease (1 minute) runs out; the job is skipped meanwhile, which is harmless.
+     * The lease of the job's lock (1 minute) plus a margin. A tick made during a pause might be
+     * executed by Redis when it wakes and hold the key until the lease runs out. That has not been
+     * observed in any timed run (the job ran again within ~0.5 s each time); one full-suite run did
+     * fail to see the job run within 45 s, cause unknown, so a timeout here reports the key's TTL.
      */
     private static final Duration JOB_RECOVERY = Duration.ofSeconds(60 + 30);
 
@@ -285,13 +293,40 @@ class RedisOutageIT extends IntegrationTestSupport {
 
         // and the job runs again (after the lease of a lock the paused Redis may have taken late)
         int runsBefore = CountJobRuns.PURGES.get();
-        await().atMost(JOB_RECOVERY)
-                .pollInterval(Duration.ofMillis(500))
-                .until(
-                        () -> {
-                            SchedulerTicks.idempotencyCleanup(context);
-                            return CountJobRuns.PURGES.get() > runsBefore;
-                        });
+        try {
+            await().atMost(JOB_RECOVERY)
+                    .pollInterval(Duration.ofMillis(500))
+                    .until(
+                            () -> {
+                                SchedulerTicks.idempotencyCleanup(context);
+                                return CountJobRuns.PURGES.get() > runsBefore;
+                            });
+        } catch (ConditionTimeoutException stuck) {
+            // Read the key over a plain socket: the application's own client may be what is stuck.
+            // A TTL counting down from the 1-minute lease means a lock taken late by the paused
+            // Redis; no key at all means the job is skipped for some other reason.
+            throw new AssertionError(
+                    "the job did not run again within "
+                            + JOB_RECOVERY
+                            + "; PTTL of its lock key, in ms (-2 = no key): "
+                            + jobLockTtlMillis(),
+                    stuck);
+        }
+    }
+
+    private String jobLockTtlMillis() {
+        var command = "PTTL unihub:lock:job:idempotency-cleanup\r\n";
+        try (var socket = new Socket(OUTAGE_REDIS.getHost(), REDIS_PORT)) {
+            socket.setSoTimeout(5_000);
+            socket.getOutputStream().write(command.getBytes(StandardCharsets.US_ASCII));
+            socket.getOutputStream().flush();
+            return new BufferedReader(
+                            new InputStreamReader(
+                                    socket.getInputStream(), StandardCharsets.US_ASCII))
+                    .readLine();
+        } catch (IOException e) {
+            return "unreadable: " + e;
+        }
     }
 
     /**
