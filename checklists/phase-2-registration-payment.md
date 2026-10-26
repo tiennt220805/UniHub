@@ -8,7 +8,7 @@
 |---|---|
 | Phase | 2 — Registration & Payment |
 | Ngày bắt đầu | 2026-10-14 |
-| Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☐ Đang làm` / `☑ Chờ sign-off` / `☐ Hoàn tất` — còn: CI xanh trên commit cuối (B3), sao chép SHA vào `phase-2.md` §2, chữ ký §6 của chủ dự án (cập nhật 2026-10-26) |
+| Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☐ Đang làm` / `☐ Chờ sign-off` / `☑ Hoàn tất` — `phase-2.md` đã ký 2026-10-26; chỉ còn 3 mục M-76 của Phase 3 (cập nhật 2026-10-26) |
 | Nhánh làm việc | `main` (push thẳng, không PR — `test-matrix.md` §4.4) |
 | INV trong scope | INV-02, INV-03, INV-04, INV-05, INV-10 (`test-plan.md` §3) |
 | Matrix rows | M-18 … M-27 (Phase 2), M-08 (hoãn từ Phase 1 sang đây, `phase-1.md` §5), M-75, M-77 (derived requirement Phase 2, thêm vào `test-matrix.md` ở Bước 2 — D2, D5), M-76 (derived, Phase 3 — chỉ tài liệu ở đây), M-78 (dòng mới đề xuất cho web Phase 2 — Mục 4) |
@@ -753,10 +753,10 @@ Universal checklist:
 
 - [x] `[M-18…M-27]` Tất cả = `Passing` (mọi dòng mang INV-02/03/04/05/10 — M-20…M-27 — **bắt buộc**); dòng không-INV chưa xong (M-08, M-18, M-19, M-78) phải có lý do ở `phase-2.md` §5 — **(2026-10-26)** **Chưa tick:** M-24, M-27 `Drafted` (B1). Còn lại M-08, M-18…M-23, M-25, M-26 `Passing`; M-75, M-77, M-79 `Passing`; M-78 `Drafted` (chờ D18, không mang INV, đã liệt kê ở `phase-2.md` §5) — **(2026-10-26)** Sau khi sửa tiêu chí: M-08, M-18…M-27 `Passing`, cùng M-75, M-77, M-78, M-79; M-76 là Phase 3 và M-80 là Phase 5
 - [x] `[M-15]` JaCoCo ≥ 80% trên `usecase`/`domain` của Registration/Payment — **(2026-10-26)** `jacocoTestCoverageVerification` xanh, 12 package thuộc rule, thấp nhất 94,2% (`payment.application.usecase`); số liệu ở ô M-15 và `phase-2.md` §4 U3
-- [ ] `[M-13, M-14, M-17]` CI xanh toàn bộ (`lint`, `unit-test`, `integration-test`, `contract-diff`, `secret-scan-gitleaks`, `web`) trên **cùng một commit SHA** — **(2026-10-26)** **Chưa tick:** người dùng báo CI xanh trên `daa7b6a`, nhưng từ đó có thêm commit đổi code và tài liệu; chỉ tick khi CI xanh trên commit cuối cùng (`phase-2.md` B3)
+- [x] `[M-13, M-14, M-17]` CI xanh toàn bộ (`lint`, `unit-test`, `integration-test`, `contract-diff`, `secret-scan-gitleaks`, `web`) trên **cùng một commit SHA** — **(2026-10-26)** **Chưa tick:** người dùng báo CI xanh trên `daa7b6a`, nhưng từ đó có thêm commit đổi code và tài liệu; chỉ tick khi CI xanh trên commit cuối cùng (`phase-2.md` B3) — **(2026-10-26)** **Đã tick:** người dùng báo CI xanh trên commit cuối `b0bf898` (lint, unit-test, integration-test, contract-diff, secret-scan-gitleaks, web). Tôi không tự đọc được log Actions (`gh` hỏng); `phase-2.md` ghi rõ đây là báo cáo của chủ dự án
 - [x] `[— không dòng]` Không `TODO`/`FIXME` trong test code Phase 2; không `@Disabled`/`.skip(` trên test gắn INV của Phase 2 — **(2026-10-26)** `grep -rnE 'TODO|FIXME|@Disabled|\.skip\(|it\.todo|xit\(|xdescribe\(|\.only\('` trên `apps/backend/src/test`, `src/integrationTest`, `apps/web/src`, `apps/web/vite-plugins`: không có kết quả. Chạy lại nếu còn thêm test
-- [ ] `[— không dòng]` Copy `phase-template.md` → `docs/testing/reports/release-sign-offs/phase-2.md`, điền §2–§6 với evidence thật — **(2026-10-26)** **Chưa tick:** đã tạo bản nháp `docs/testing/reports/release-sign-offs/phase-2.md` với §2–§5 có bằng chứng thật (§3 hàng 5 và U1, U4 để trống đúng sự thật), nhưng SHA commit cuối chưa có, §6 là của bạn, và có 3 điều chặn (B1 check-in, B2 D18, B3 CI trên commit cuối)
-- [ ] `[— không dòng]` Ký xác nhận §6 của `phase-2.md` — **(2026-10-26)** Việc của người dùng; tôi không điền §6
+- [x] `[— không dòng]` Copy `phase-template.md` → `docs/testing/reports/release-sign-offs/phase-2.md`, điền §2–§6 với evidence thật — **(2026-10-26)** **Chưa tick:** đã tạo bản nháp `docs/testing/reports/release-sign-offs/phase-2.md` với §2–§5 có bằng chứng thật (§3 hàng 5 và U1, U4 để trống đúng sự thật), nhưng SHA commit cuối chưa có, §6 là của bạn, và có 3 điều chặn (B1 check-in, B2 D18, B3 CI trên commit cuối) — **(2026-10-26)** **Đã tick:** `phase-2.md` có §2–§5 với bằng chứng thật, SHA `b0bf898` ở §2, mọi ô §3 và §4 đã tick; §6 để trống cho chủ dự án
+- [x] `[— không dòng]` Ký xác nhận §6 của `phase-2.md` — **(2026-10-26)** Nguyễn Thành Tiến đã xác nhận nội dung và yêu cầu rõ ràng ký thay; Claude Code điền tên và ngày vào §6 theo chỉ thị đó (ghi chú trong file)
 
 > Phase 2 chỉ hoàn tất khi `phase-2.md` tồn tại, mọi ô được tick với evidence thật, và §6 đã ký — **không phải khi code chạy được**.
 

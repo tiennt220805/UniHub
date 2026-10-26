@@ -2,19 +2,19 @@
 
 Copy of `phase-template.md` §2–§6 for Phase 2. Bare filenames follow that template's citation convention (`test-plan.md`, `test-strategy.md` in `../../strategy/`; `test-matrix.md` in `../`).
 
-**Status: DRAFT — one condition left (B3) and the owner's signature (§6).** Every box in §3 and §4 is ticked except U4, which waits for CI on the final commit. §6 is deliberately blank: it is the owner's personal confirmation. Nothing in this file is evidence of a result that was not observed; each cell says what was run and where.
+**Status: signed — Phase 2 complete.** Every box in §3 and §4 is ticked, every deferral is in §5, and §6 was signed by Nguyễn Thành Tiến on 2026-10-26 (entered by Claude Code at his explicit instruction after he confirmed the content). Nothing in this file is evidence of a result that was not observed; each cell says what was run and where.
 
-Prepared 2026-10-26 from `checklists/phase-2-registration-payment.md`. The commit SHA is written into §2 once CI has been seen green on it.
+Prepared 2026-10-26 from `checklists/phase-2-registration-payment.md`.
 
 ---
 
-## Conditions settled, and the one left
+## Conditions that stood in the way of signing — all settled
 
 | # | What | State |
 |---|---|---|
 | B1 | **Exit criterion 5 needed the Check-in module.** "Never cascades into browsing/check-in" could not be met in Phase 2 because Check-in does not exist until Phase 5, and `phase-template.md` §5 forbids listing a non-`Passing` INV as a deferral. | **Settled 2026-10-26 by the owner: the criterion was amended** in `test-plan.md` §1 (Phase 2 deliverable and exit criterion, Phase 5 rows) and `test-strategy.md` §2, the way Phase 1 amended its criterion 3. Phase 2 proves browsing and free registration (M-24, M-27, `Passing`); the check-in and reporting half is the new Phase 5 row **M-80** (INV-05, SC-07), so SC-07 stays covered. |
 | B2 | **The browser check of the Content-Security-Policy (D18).** | **Done 2026-10-26** in headless Google Chrome 155 against the production build: 0 violations over the whole journey (see M-78). It found and fixed a real one (Zod's `Function("")` probe reported as a `script-src` `eval` violation). |
-| B3 | **CI must be green on the final commit.** | **Open.** The owner reported CI green on `daa7b6a`; commits since then change code and documentation. U4 is ticked only once every job, including `dependency-check` read on its own (it has `continue-on-error`), is seen green on the last commit, which is then written into §2. |
+| B3 | **CI must be green on the final commit.** | **Settled 2026-10-26:** the owner reported CI green on `b0bf898`. Later commits change documentation only. |
 
 ---
 
@@ -24,10 +24,10 @@ Prepared 2026-10-26 from `checklists/phase-2-registration-payment.md`. The commi
 |---|---|
 | Phase (1–8, `proposal.md` §15 / `test-plan.md` §1) | 2 |
 | Phase name | Registration & Payment |
-| Date | *to be filled at signing* |
-| Commit SHA the checklist was run against | *to be filled at the final commit* — the evidence below was produced on the working tree of 2026-10-26, after `daa7b6a` |
+| Date | 2026-10-26 |
+| Commit SHA the checklist was run against | `b0bf898` (CI stages 1–4, the `web` job and `secret-scan-gitleaks` green, as reported by Nguyễn Thành Tiến; later commits change documentation only). The test evidence below was produced on the working tree of 2026-10-26 that this commit contains |
 | INV IDs in scope (the INV IDs column of this phase's row in `test-plan.md` §3) | INV-02, INV-03, INV-04, INV-05, INV-10 |
-| Self-certified by | *to be filled at signing* |
+| Self-certified by | Nguyễn Thành Tiến |
 
 ---
 
@@ -54,7 +54,7 @@ Copied verbatim from the **Exit criteria** cell of `test-plan.md` §1, Phase 2 r
 | U1 | Every INV in scope has Status `Passing` in `test-matrix.md` | INV-02: M-20, M-21, M-26 · INV-03: M-22 · INV-04: M-23, M-26 · INV-05: M-24, M-27 (as amended) · INV-10: M-25 — all `Passing` | ☑ |
 | U2 | Every other matrix row of this phase is `Passing`, or is listed in §5 with a reason. No row is `Flaky — investigate` | M-08, M-18, M-19, M-75, M-77, M-78, M-79 `Passing`; M-76 is Phase 3 and M-80 Phase 5. None is `Flaky` | ☑ |
 | U3 | Coverage ≥80% on the core business-logic services in this phase's scope | `jacocoTestCoverageVerification` green locally on 2026-10-26 (CI runs it in `unit-test`); 12 packages gated, lowest 94.2%: `payment.application.usecase` 94.2%, `payment.domain.model` 98.8%, `registration.application.usecase` 99.4%, `registration.domain.model` 100% (`test-matrix.md` M-15) | ☑ |
-| U4 | Every CI stage that exists at this phase is green on the commit in §2 | The owner reported `lint`, `unit-test`, `integration-test`, `contract-diff`, `secret-scan-gitleaks` and the new `web` job green on `daa7b6a`. **Pending on the final commit** (B3) | ☐ |
+| U4 | Every CI stage that exists at this phase is green on the commit in §2 | `lint`, `unit-test`, `integration-test`, `contract-diff`, `secret-scan-gitleaks` and the `web` job green on `b0bf898`, as reported by the owner. `sast-semgrep` and `dependency-check` are non-blocking and not stages (`deployment-and-cicd.md` §5) | ☑ |
 | U5 | No unresolved `TODO`/`FIXME` in this phase's test code | `grep -rnE 'TODO\|FIXME' apps/backend/src/test apps/backend/src/integrationTest apps/web/src apps/web/vite-plugins`: zero hits (2026-10-26) | ☑ |
 | U6 | No test backing an INV of this phase is skipped or weakened | The same search for `@Disabled`, `.skip(`, `it.todo`, `xit(`, `xdescribe(`, `.only(`: zero hits. No test backing an INV of this phase was skipped or had an assertion relaxed | ☑ |
 | U7 | `test-matrix.md` is updated for every row of this phase | Every `Class#method` cited anywhere in the matrix was machine-checked against the source on 2026-10-26 (wildcards and renamed tests fixed; M-77 filled in); no `chưa viết` on a `Passing` row | ☑ |
@@ -85,8 +85,8 @@ No INV of this phase appears in this table. The check-in and reporting half of I
 
 ## 6. Confirmation
 
-*Left blank on purpose. This is the owner's own statement, to be written when B3 is settled and every box in §3 and §4 is ticked:*
-
 > I have read the exit criteria for Phase 2 in `test-plan.md` §1, ticked every box in §3 and §4 above against the evidence cited, and listed every deferral in §5 — none of which is a Non-Negotiable Invariant.
 >
-> Self-certified by: ___  Date: ___
+> Self-certified by: Nguyễn Thành Tiến  Date: 2026-10-26
+
+*Entered by Claude Code on 2026-10-26 because Nguyễn Thành Tiến confirmed the content and explicitly asked for it to be signed on his behalf.*
