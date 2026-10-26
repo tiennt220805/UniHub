@@ -54,6 +54,7 @@ All configuration in this document targets RabbitMQ via Spring AMQP (per `CLAUDE
 | `unihub.workshop.event.rescheduled` | workshop | event | rescheduled | `unihub.notification.queue` | `../modules/notification.md` |
 | `unihub.payment.charge.succeeded` | payment | charge | succeeded | `unihub.payment-confirmation.queue` | `../modules/registration.md` §5, `../modules/payment.md` §9 |
 | `unihub.registration.confirmation.rejected` | registration | confirmation | rejected | `unihub.payment-refund.queue` | `../modules/registration.md` §5, `../modules/payment.md` §9 |
+| `unihub.payment.refund.requested` *(Phase 3, not built yet)* | payment | refund | requested — a Deferred Job (`../../guidelines/backend-coding-standards.md` §8.4) Payment sends to itself, written in the same transaction as every move to `REFUND_REQUIRED` (Phase 3 checklist D26) | `unihub.payment-refund-execution.queue` | `../modules/payment.md` §9 |
 | `unihub.notification.redelivery.requested` | notification | redelivery | requested | `unihub.notification.queue` — a fourth, dedicated binding used only by that queue's own retry chain (§4); it exists because `unihub.notification.queue` is the one queue bound to three different "real" keys, and its retry chain needs one fixed key to dead-letter back to, not three. | `../modules/notification.md`, §4 below |
 | `unihub.registration.hold.reserved` | registration | hold | reserved | `unihub.registration.hold-delay.queue` (delay-only) | `../modules/registration.md` |
 | `unihub.registration.hold.expired` | registration | hold | expired | `unihub.seat-hold-expiry.queue` | `../modules/registration.md` |
@@ -67,14 +68,15 @@ Every queue below is durable; message bodies are JSON (Jackson-serialized), matc
 |---|---|---|---|
 | `unihub.notification.queue` | `ticket.confirmed`, `event.cancelled`, `event.rescheduled`, `notification.redelivery.requested` | — | Notification module (`../modules/notification.md`) |
 | `unihub.payment-confirmation.queue` | `charge.succeeded` | — | Registration module — confirms a paid registration, or emits `confirmation.rejected` (`../modules/registration.md` §5) |
-| `unihub.payment-refund.queue` | `confirmation.rejected` | — | Payment module — `SUCCEEDED → REFUND_REQUIRED`; the gateway refund from Phase 3 (`../modules/payment.md` §9) |
+| `unihub.payment-refund.queue` | `confirmation.rejected` | — | Payment module — `SUCCEEDED → REFUND_REQUIRED` + outbox `refund.requested`; never calls the gateway (`../modules/payment.md` §9) |
+| `unihub.payment-refund-execution.queue` *(Phase 3, not built yet)* | `refund.requested` | — | Payment module — the only caller of the gateway refund, `REFUND_REQUIRED → REFUNDED` (`../modules/payment.md` §9) |
 | `unihub.registration.hold-delay.queue` | `hold.reserved` | `x-message-ttl: 900000`, `x-dead-letter-exchange: unihub.events`, `x-dead-letter-routing-key: unihub.registration.hold.expired` | **None** — messages only ever leave by expiring (`../modules/registration.md`) |
 | `unihub.seat-hold-expiry.queue` | `hold.expired` | — | Registration module (`../modules/registration.md`) |
 | `unihub.summarization.queue` | `summarization.requested` | — | Workshop module (`../modules/workshop.md`) |
 | `unihub.reconciliation.queue` | `reconciliation.requested` | — | Payment module (`../modules/payment.md`) |
 | `unihub.audit.queue` | `audit.created` | — | Audit/observability consumer (§3) |
 
-Each of the seven consumed queues has its own dedicated 3-stage retry chain (§4) — not a single chain shared across all of them. §4 explains why a shared chain doesn't actually work once a manual, application-level republish step is involved.
+Each of the eight consumed queues (seven built; `unihub.payment-refund-execution.queue` arrives in Phase 3) has its own dedicated 3-stage retry chain (§4) — not a single chain shared across all of them. §4 explains why a shared chain doesn't actually work once a manual, application-level republish step is involved.
 
 ```mermaid
 flowchart TB
@@ -85,7 +87,7 @@ flowchart TB
     Producers -->|"unihub.registration.hold.reserved"| Exchange
     Producers -->|"unihub.workshop.summarization.requested"| Exchange
     Producers -->|"unihub.payment.reconciliation.requested"| Exchange
-    Producers -->|"unihub.payment.charge.succeeded\nunihub.registration.confirmation.rejected"| Exchange
+    Producers -->|"unihub.payment.charge.succeeded\nunihub.registration.confirmation.rejected\nunihub.payment.refund.requested"| Exchange
     Producers -->|"unihub.system.audit.created"| Exchange
 
     Exchange --> QNotif["unihub.notification.queue"]
@@ -96,6 +98,7 @@ flowchart TB
     Exchange --> QAudit["unihub.audit.queue"]
     Exchange --> QPayConf["unihub.payment-confirmation.queue"]
     Exchange --> QPayRefund["unihub.payment-refund.queue"]
+    Exchange --> QPayRefundExec["unihub.payment-refund-execution.queue"]
 
     QDelay -.->|"on TTL expiry, dead-lettered as\nunihub.registration.hold.expired"| Exchange
 
@@ -105,10 +108,10 @@ flowchart TB
 
     class Producers apiStyle
     class Exchange exStyle
-    class QNotif,QDelay,QExpiry,QSummary,QRecon,QAudit,QPayConf,QPayRefund qStyle
+    class QNotif,QDelay,QExpiry,QSummary,QRecon,QAudit,QPayConf,QPayRefund,QPayRefundExec qStyle
 ```
 
-The two payment hand-off keys (`charge.succeeded`, `confirmation.rejected`, Phase 2 checklist D2/C10) are lifecycle events — kind ② of `architecture.md` §4.3, alongside "registration confirmed" — consumed by a business module rather than by Notification. They add queues, not a new message kind.
+The two payment hand-off keys (`charge.succeeded`, `confirmation.rejected`, Phase 2 checklist D2/C10) are lifecycle events — kind ② of `architecture.md` §4.3, alongside "registration confirmed" — consumed by a business module rather than by Notification. They add queues, not a new message kind. `refund.requested` (Phase 3 checklist D26) is a Deferred Job like `hold.reserved` — Payment addressing itself — not a lifecycle event.
 
 **Guarantees:** every producer and consumer agrees on exactly one exchange and one naming convention — no message kind is ever routed by an undocumented, ad-hoc key.
 
@@ -133,13 +136,13 @@ The two payment hand-off keys (`charge.succeeded`, `confirmation.rejected`, Phas
 
 ## 4. Retry, Dead-Lettering & Idempotent Consumption
 
-**Rationale:** `architecture.md` §4.3 states RabbitMQ here is at-least-once, never exactly-once — every consumer in every module doc already re-checks current Postgres state before acting for exactly this reason. This section adds what happens when a consumer's processing itself *fails* (a downstream call throws, a transient error occurs) — distinct from redelivery, which is about a message arriving more than once. This is genuinely shared: the same 3-stage chain shape applies identically to all seven consumed queues, so it's specified once here rather than seven times.
+**Rationale:** `architecture.md` §4.3 states RabbitMQ here is at-least-once, never exactly-once — every consumer in every module doc already re-checks current Postgres state before acting for exactly this reason. This section adds what happens when a consumer's processing itself *fails* (a downstream call throws, a transient error occurs) — distinct from redelivery, which is about a message arriving more than once. This is genuinely shared: the same 3-stage chain shape applies identically to all eight consumed queues, so it's specified once here rather than eight times.
 
 **Model — exponential backoff via a dedicated retry chain per business queue, not one chain shared across all of them:**
 
 A shared chain was the original design here, but it doesn't actually work: a message only reaches a retry-stage queue via an **application-level republish**, not RabbitMQ's own automatic dead-lettering. Publishing through the default exchange to reach a queue by name requires the routing key to equal that queue's name — so whatever routing key the message truly arrived with is already gone by the time the retry queue's own TTL expiry triggers the *next* dead-letter hop. RabbitMQ's "preserve the original routing key when `x-dead-letter-routing-key` is unset" behavior is real, but it only preserves the routing key of the delivery that *directly* preceded the current dead-letter event — which, after a manual republish, is the retry queue's own name, not the true original. Relying on it here would silently discard every message that fails even once, since `unihub.events` has no binding for a routing key like `unihub.retry.5s`.
 
-The fix is to give each of the seven business queues its own 3-stage chain, each explicitly (not by omission) setting `x-dead-letter-routing-key` to a key that's bound back to that same business queue — so it doesn't matter what routing key got the message into the retry queue in the first place; the dead-letter hop is hard-wired to land back in the right place regardless.
+The fix is to give each of the eight business queues its own 3-stage chain, each explicitly (not by omission) setting `x-dead-letter-routing-key` to a key that's bound back to that same business queue — so it doesn't matter what routing key got the message into the retry queue in the first place; the dead-letter hop is hard-wired to land back in the right place regardless.
 
 | Business Queue | Retry Chain (queue → TTL) | `x-dead-letter-routing-key` (explicit) |
 |---|---|---|
@@ -150,14 +153,15 @@ The fix is to give each of the seven business queues its own 3-stage chain, each
 | `unihub.audit.queue` | `unihub.audit.retry.5s` → `.retry.30s` → `.retry.5m` | `unihub.system.audit.created` — reused as-is. |
 | `unihub.payment-confirmation.queue` | `unihub.payment-confirmation.retry.5s` → `.retry.30s` → `.retry.5m` | `unihub.payment.charge.succeeded` — reused as-is. |
 | `unihub.payment-refund.queue` | `unihub.payment-refund.retry.5s` → `.retry.30s` → `.retry.5m` | `unihub.registration.confirmation.rejected` — reused as-is. |
+| `unihub.payment-refund-execution.queue` *(Phase 3, not built yet)* | `unihub.payment-refund-execution.retry.5s` → `.retry.30s` → `.retry.5m` | `unihub.payment.refund.requested` — reused as-is. |
 
-Every retry-stage queue also sets `x-dead-letter-exchange: unihub.events`. This is 21 retry queues total instead of 3 — more declarations, but each one is a small, static piece of metadata, and none of them depend on a routing-key-preservation trick that doesn't actually hold across a manual republish. A single shared `unihub.parking-lot` (below) is still fine, because nothing dead-letters *out* of it automatically — it's the terminal stage, manually drained by a human, so there's no further routing-key hop to get wrong.
+Every retry-stage queue also sets `x-dead-letter-exchange: unihub.events`. This is 24 retry queues total (21 until the Phase 3 refund queue is built) instead of 3 — more declarations, but each one is a small, static piece of metadata, and none of them depend on a routing-key-preservation trick that doesn't actually hold across a manual republish. A single shared `unihub.parking-lot` (below) is still fine, because nothing dead-letters *out* of it automatically — it's the terminal stage, manually drained by a human, so there's no further routing-key hop to get wrong.
 
 | Terminal | `unihub.parking-lot` | — (no TTL, no auto-processing) | n/a — durable, manually inspected |
 
 **Retry-count tracking:** RabbitMQ automatically attaches an `x-death` header to every dead-lettered message — an array with one entry per distinct (queue, reason) combination the message has passed through, each carrying its own `count`. Consumers derive the current attempt number by scanning that array for the entry matching the message's *own* retry-chain queue and reading its `count` — not by treating `x-death` as a single scalar. No custom `x-retry-count` header needs to be invented or maintained by application code.
 
-**Flow — on a processing failure (using `unihub.notification.queue` as the example; identical shape for the other six):**
+**Flow — on a processing failure (using `unihub.notification.queue` as the example; identical shape for the other seven):**
 ```
 1. Consumer catches the processing exception, nacks without requeue.
 2. Error handler scans the x-death array for the entry matching this message's own
@@ -194,9 +198,18 @@ flowchart LR
     class Done okStyle
 ```
 
-Each of the other six business queues has an identical-shaped chain and diagram, differing only in queue names and the fixed dead-letter-routing-key (table above) — not repeated here.
+Each of the other seven business queues has an identical-shaped chain and diagram, differing only in queue names and the fixed dead-letter-routing-key (table above) — not repeated here.
 
 **Critical distinction — this is a different mechanism from `idempotency_keys`:** `database-schema.md` §8.1's `idempotency_keys` table guards **client-facing HTTP request** duplication — a student's double-click or a resent network request, deduplicated by a client-generated key checked in the same Postgres transaction as the business effect. The re-check-current-state-before-acting pattern used by every consumer in every module doc guards **broker redelivery** — a completely different failure mode, with a completely different mechanism. Neither one substitutes for the other, and this document must never be read as saying the `idempotency_keys` table also covers message redelivery, or vice versa.
+
+**Exception — failures that must not park (Phase 3 checklist D19, D25; Phase 3, not built yet):** two failures are transient by nature *and* would leave money or a seat stuck if parked, so for them alone the error handler keeps republishing to the chain's last stage (`.retry.5m`) without limit instead of moving to `unihub.parking-lot`. The handler decides by (queue, exception type), so no queue is added and no queue argument changes:
+
+| Queue | Exception kept in the chain | Why | Signal |
+|---|---|---|---|
+| `unihub.seat-hold-expiry.queue` | The seat lock could not be taken (`SeatLockUnavailableException`: contention, or Redis unreachable or hung) | Parking it would leave the seat `RESERVED` until a human acts, breaking INV-07; releasing without the lock would breach INV-08 (`../modules/registration.md` §3). The seat is released at most one stage (5 min) after Redis recovers | `unihub_seat_hold_expiry_lock_unavailable_total` |
+| `unihub.payment-refund-execution.queue` | The gateway was never reached (circuit `OPEN`, connection refused or timed out before sending) | The refund is owed and nothing was attempted; parking it would hold the student's money until a human acts (`../modules/payment.md` §9) | `unihub_payment_refund_required_oldest_age_seconds` |
+
+Every other failure on these two queues, and every failure on the other six, follows the 3-attempt rule above. The alerts on both signals are Phase 6 (`observability.md` §6).
 
 **Guarantees:** a transient consumer failure is retried up to 3 times with increasing delay before requiring human attention; the Parking Lot Queue is where the Organizing Committee's operational visibility (`architecture.md`'s Observability Stack) picks up a genuinely stuck message — never a silent drop.
 
@@ -277,9 +290,10 @@ Every exchange, queue, routing key, and retry/TTL value in this document, in one
 | `unihub.payment.reconciliation.requested` | Routing key | Stuck-payment reconciliation (`docs/requirement.md` §2.10) — `../modules/payment.md` |
 | `unihub.payment.charge.succeeded` | Routing key → `unihub.payment-confirmation.queue` | Paid registration confirmed after payment (`docs/requirement.md` §1.3.1) — `../modules/registration.md` §5 |
 | `unihub.registration.confirmation.rejected` | Routing key → `unihub.payment-refund.queue` | Refund compensation for a payment whose registration is no longer `RESERVED` (derived requirement, `../modules/payment.md` §9) |
+| `unihub.payment.refund.requested` *(Phase 3, not built yet)* | Routing key → `unihub.payment-refund-execution.queue` | Deferred Job written with every move to `REFUND_REQUIRED`; its consumer is the only caller of the gateway refund (`../modules/payment.md` §9, Phase 3 checklist D26) |
 | `unihub.system.audit.created` | Routing key | Async audit trail (`architecture.md` §5.5) — §3 above |
 | `unihub.notification.redelivery.requested` | Routing key | Fixed dead-letter target for `unihub.notification.queue`'s own retry chain (§4) — needed because that queue has three "real" bindings, not one |
-| `unihub.registration.hold-delay.queue` | TTL 900000ms (15 min), no consumer | Seat-hold 15-minute window, exact value (`docs/requirement.md` §1.3.1) — `../modules/registration.md` |
+| `unihub.registration.hold-delay.queue` | TTL 900000ms (15 min), no consumer; the TTL is taken from the same setting as `hold_expires_at` (`unihub.registration.seat-hold`, Phase 3 checklist C2) | Seat-hold 15-minute window, exact value (`docs/requirement.md` §1.3.1) — `../modules/registration.md` |
 | `unihub.notification.retry.5s` / `.30s` / `.5m` | TTL 5s / 30s / 5min, `x-dead-letter-routing-key` explicitly `unihub.notification.redelivery.requested` | Exponential-backoff retry, dedicated to `unihub.notification.queue` (§4) |
 | `unihub.seat-hold-expiry.retry.5s` / `.30s` / `.5m` | Same TTLs, dead-letter-routing-key `unihub.registration.hold.expired` | Dedicated retry chain for `unihub.seat-hold-expiry.queue` (§4) |
 | `unihub.summarization.retry.5s` / `.30s` / `.5m` | Same TTLs, dead-letter-routing-key `unihub.workshop.summarization.requested` | Dedicated retry chain for `unihub.summarization.queue` (§4) |
@@ -287,5 +301,6 @@ Every exchange, queue, routing key, and retry/TTL value in this document, in one
 | `unihub.audit.retry.5s` / `.30s` / `.5m` | Same TTLs, dead-letter-routing-key `unihub.system.audit.created` | Dedicated retry chain for `unihub.audit.queue` (§4) |
 | `unihub.payment-confirmation.retry.5s` / `.30s` / `.5m` | Same TTLs, dead-letter-routing-key `unihub.payment.charge.succeeded` | Dedicated retry chain for `unihub.payment-confirmation.queue` (§4) |
 | `unihub.payment-refund.retry.5s` / `.30s` / `.5m` | Same TTLs, dead-letter-routing-key `unihub.registration.confirmation.rejected` | Dedicated retry chain for `unihub.payment-refund.queue` (§4) |
-| `unihub.parking-lot` | Durable, no TTL, manual processing | Max Retries = 3 exhausted — operator-visible failure surface, shared across all seven chains since it's terminal (no further dead-letter hop to get wrong) |
+| `unihub.payment-refund-execution.retry.5s` / `.30s` / `.5m` *(Phase 3, not built yet)* | Same TTLs, dead-letter-routing-key `unihub.payment.refund.requested` | Dedicated retry chain for `unihub.payment-refund-execution.queue` (§4) |
+| `unihub.parking-lot` | Durable, no TTL, manual processing | Max Retries = 3 exhausted — operator-visible failure surface, shared across all eight chains since it's terminal (no further dead-letter hop to get wrong) |
 | Outbox relay | Single instance per cycle via `unihub:lock:job:outbox-relay` (lease 30s, wait 0s); poll every 1s (`fixedDelay`); batch 200; confirm timeout 5s; `mandatory = true`; no transaction held across a publish | Moves `event_publications` rows onto the broker (§5, `database-schema.md` §8.2, `architecture.md` §4.3/§6.1) |

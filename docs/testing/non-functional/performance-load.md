@@ -99,7 +99,7 @@ export function journey() {
 }
 ```
 
-Where the script file lives is **TODO** — no repository location for load-test scripts is fixed anywhere in the corpus (`proposal.md` §17 names them a deliverable without a path). The snippet above is the specification of the script, not a committed file.
+Load-test scripts live in `tests/load/k6/` at the repository root (decided 2026-10-26, Phase 3 checklist D30) — outside `apps/`, because they belong to no deployable. The snippet above is the specification of the script; the Phase 3 adversarial script (§2.2) is the first file there. Load tests never run in CI.
 
 **Guarantees:** the ramp is the sourced 60%/3-minute curve and nothing else; every parameter without a source is a visible TODO, not a chosen number.
 
@@ -115,7 +115,7 @@ Where the script file lives is **TODO** — no repository location for load-test
 | Workshop | one, capacity C with `seats_taken = C − 10` (`../guidelines/test-data-management.md` §2's boundary shape); `is_paid=false` so seats are *sold*, isolating the seat logic from payment. **TODO: a paid variant (10 *held* seats) if wanted.** |
 | Contenders | 500 distinct seeded users (§2.3) |
 | First response | Classified, never asserted as "all `409`" — see below |
-| Retry | A `503` is retried after its `Retry-After` with the **same** `Idempotency-Key` until a definitive answer, capped at **TODO** attempts |
+| Retry | A `503` is retried after its `Retry-After` with the **same** `Idempotency-Key` until a definitive answer, capped at **10** attempts, each after the response's `Retry-After` (Phase 3 checklist D30); a VU still without a definitive answer after 10 counts as a failed run, never as a `409` |
 
 **Why the first response is not asserted as "exactly 10 × 2xx, 490 × `409`":** `registration.md` §2 makes lock contention (`tryLock` 2 s wait) a distinct `503 + Retry-After`, not a `409`, so with 500 contenders on one workshop a share of losers legitimately get `503` first. `requirement.md` §3.2 anticipates only `409`. This project's approved reading — `503` + `Retry-After`, retried until definitive, satisfies "clear, immediate" — is recorded in `../guidelines/test-design-techniques.md` §3.1.
 
@@ -136,8 +136,8 @@ thresholds: {
 **Rationale:** creating 12,000 users through the API would add write load to the very system being measured, and logging in 12,000 times adds password hashing and hits the login rate limit. The auth JWT is verified by signature and expiry alone with no database or Redis lookup (`auth-and-identity.md` §3), so a token needs no server-side session — but the *registration* still needs a real `users` row for its foreign key.
 
 **Proposed mechanism (confirm before use):**
-1. **Seed rows straight into the load-test Postgres Master** (`generate_series`), not through the API: 12,000 `users` with `status = 'ACTIVE'`; `password_hash` and `legacy_student_id` are nullable (`database-schema.md` §2.1), so neither is needed. Plus the seeded workshops. **TODO: verify the required column set against the §2.1/§3.1 DDL.**
-2. **Mint the tokens offline**, immediately before the run, with a small script that signs HS256 with the load-test cluster's own JWT secret read at run time from the cluster's Secret — never written into the repository or any committed file (INV-18). Claims exactly as `auth-and-identity.md` §2: `sub` (the seeded `users.id`), `permissions[]`, `iat`, `exp`. **OPEN — deliberately not decided here: which permission codes a Student token carries. `deployment-and-cicd.md` §4's seed SQL bundles *no* permissions for the `Student` role, which would mean `permissions: []`, and `createRegistration` needs none (the contract's "any authenticated user"). But the seed migration file does not exist yet, so mint from the real seed once it does rather than from this reading.** Write the result to `tokens.json` for K6's `SharedArray`.
+1. **Seed rows straight into the load-test Postgres Master** (`generate_series`), not through the API: 12,000 `users` with `status = 'ACTIVE'`; `password_hash` and `legacy_student_id` are nullable (`database-schema.md` §2.1), so neither is needed. Plus the seeded workshops. Checked against `V1` on 2026-10-26: `users` requires only `email` (unique) and `full_name`; `id`, `status`, `created_at`, `updated_at` have defaults.
+2. **Mint the tokens offline**, immediately before the run, with a small script that signs HS256 with the load-test cluster's own JWT secret read at run time from the cluster's Secret — never written into the repository or any committed file (INV-18). Claims exactly as `auth-and-identity.md` §2: `sub` (the seeded `users.id`), `permissions[]`, `iat`, `exp`. **Permissions (settled 2026-10-26, Phase 3 checklist C3):** a Student token carries `permissions: ["REGISTRATION_CREATE"]` — migration `V4` seeds that permission for the `Student` role and `createRegistration` requires it (Phase 2 checklist D7). Mint from the real seed (`role_permissions` for `Student`) rather than from this text, so a later seed change is picked up. Write the result to `tokens.json` for K6's `SharedArray`.
 3. **Token lifetime is 30 minutes** (`auth-and-identity.md` §4) with no refresh: mint no earlier than ~15 minutes before start, or the last arrivals of a 10-minute surge could hold an expired token and get `401`. Verify `exp` covers the whole run before starting.
 
 Rejected: a test-only login/impersonation endpoint — it would add application code and attack surface for a measurement convenience, which `CLAUDE.md`'s Boundaries argue against. **This is a proposal, not a decision — the user chooses the mechanism.**

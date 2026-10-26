@@ -106,6 +106,17 @@ public abstract class ReplicaIntegrationTestSupport extends IntegrationTestSuppo
 | CI (GitHub Actions) | One fresh set of containers per workflow run — `.withReuse(true)` has no effect across runs on an ephemeral runner, but costs nothing to leave set |
 | Local dev | `.withReuse(true)` + a `~/.testcontainers.properties` opt-in lets repeated `./gradlew integrationTest` invocations reuse the same Postgres container across runs, cutting iteration time — genuinely optional developer QoL, never relied on for correctness |
 
+**Phase 3 additions (checklist D21, D22, 2026-10-26):**
+
+| Rule | Why |
+|---|---|
+| Every `*IT` context is given `unihub.redis.address` for the singleton `REDIS` above (through `IntegrationTestSupport`), not just the cache tests | Redis becomes required configuration: without an address the application refuses to start (`../../technical-design/platform/distributed-coordination.md` §1). Until Phase 3 most contexts ran without Redis |
+| The workshop-catalog cache is isolated between tests (Redis flushed before each test, or the cache switched off for classes that do not test it) | With Redis wired everywhere the cache is live in every test, and a test that writes PostgreSQL directly and then reads through the API would otherwise read a stale entry |
+| A class that injects a Redis fault (stop, pause) uses its **own** Redis container, never the singleton (`../non-functional/resilience-testing.md` §3) | Stopping the singleton would fail every later class in the run |
+| `InProcessSeatLock`/`InProcessJobLock` exist only in test code | They are the control for the multi-instance tests below and the base for unit tests; production code has no in-process fallback |
+
+**Multi-instance harness (M-32, M-35):** two application contexts in the same JVM (`SpringApplicationBuilder`, random ports), both pointed at the singleton containers, **each with its own `RedissonClient`** — Redisson ties lock ownership to the client id plus the thread, so a shared client would make the two "instances" one. Neither context may share a bean or static state that holds a lock. The tests assert the lock itself, not only the business outcome, because the database check already makes the outcome correct without any lock: a test-only decorator around the `SeatLock`/`JobLock` port in each context records each hold as an acquire→release interval in a JVM-wide structure, and the test asserts that no two intervals on the same key overlap. **Control:** the same harness with the in-process adapters must show overlapping intervals; if it does not, the harness is not actually separating the instances and the test proves nothing.
+
 **Guarantees:** a test's outcome never depends on whether a container was freshly started or reused — reuse is a startup-time optimization only; `../guidelines/test-data-management.md` §4's isolation rules (transaction rollback vs. explicit teardown) are what actually keep tests from interfering with each other, independent of container lifecycle.
 
 ---

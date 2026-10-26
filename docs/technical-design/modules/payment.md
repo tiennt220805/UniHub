@@ -44,7 +44,7 @@ Reached through the `spec-driven-development` gated workflow: 2–4 alternatives
 - Both outbound call-sites observe and contribute to the same `CLOSED`/`OPEN`/`HALF_OPEN` state — when the sync path trips the breaker, the reconciliation sweep also stops calling the gateway on its next tick, instead of continuing to poll a known-down dependency every 15 minutes.
 - Two decorator configurations must stay conceptually distinct (fast-fail vs. backoff-retry) despite sharing breaker state — §3 makes this explicit so an implementer doesn't reuse one `TimeLimiter`/`Retry` config for both.
 - Recovery detection (`HALF_OPEN` probe) is shared too: whichever call-site's probe call succeeds first flips the breaker back to `CLOSED` for both.
-- **Pending revision (Phase 3):** the gateway refund (§9) becomes a third call-initiating site. This ADR is revised when that call is built (Phase 2 checklist D2/C10), not before.
+- **Revised for Phase 3 (checklist D25, 2026-10-26): the gateway refund (§9) is a third call-initiating site and joins the same `paymentGateway` breaker.** Its decorators are its own: `TimeLimiter` 10s and **no** in-call `Retry`, because the refund runs in a queue consumer whose retry chain already retries (`../platform/messaging.md` §4) — retrying inside the call as well would multiply attempts. A refund refused by the open breaker never reached the gateway, so it stays in the retry chain instead of parking (`../platform/messaging.md` §4, exception table). Sharing the breaker keeps the ADR's premise: one view of gateway health for the whole system, so a refund never hammers a gateway the charge path has already given up on.
 
 **Trade-offs accepted (user's own reasoning):** an unprotected reconciliation sweep was rejected because it would let the sweep keep polling the Gateway's status API every 15 minutes even after the synchronous path has already detected and reacted to an outage — contradicting §2.7's "temporarily stop calling that service" applied to "the system" as a whole, not just its user-facing half. Two independent `CircuitBreaker` instances per call-site were rejected because they could disagree about whether the gateway is currently healthy, letting one side hammer a gateway the other side has already given up on.
 
@@ -91,6 +91,8 @@ Reached through the `spec-driven-development` gated workflow: 2–4 alternatives
 | Minimum-number-of-calls | 10 (configurable; tests override it to prove the breaker opens quickly) | The failure rate is not evaluated until 10 calls are recorded, so the first one or two failures after a start-up cannot open the breaker on their own. Half the 20-call window. **Recalibrate in Phase 8** against the load-test data (Phase 2 checklist D12, Q8). |
 
 **This instance is shared by name, not by call-site.** Both the synchronous charge path (§3) and the asynchronous reconciliation sweep (§5, wrapping the call already described in §6) register against the same `paymentGateway` `CircuitBreakerRegistry` entry — this is what makes the shared-detection guarantee in the ADR above literally true, not just described in prose.
+
+**Refund call-site (Phase 3, checklist D25):** `TimeLimiter` 10s, `Retry` 0 — the consumer's retry chain is the retry (§9). It counts toward the same sliding window as the other two call-sites.
 
 **Decorator composition order:** `CircuitBreaker` around `Retry` around `TimeLimiter` around the actual gateway call — the breaker sees the *final* outcome of a call after its own retries and timeout have already been applied, so one already-retried, already-timed-out logical attempt counts as one data point in the breaker's sliding window, not several. Retrying *inside* the breaker's view (rather than each retry independently tripping toward the threshold) keeps the failure-rate calculation meaningful: a single flaky call that succeeds on its second retry attempt is a success from the breaker's perspective, exactly as it should be.
 
@@ -227,7 +229,7 @@ UPDATE idempotency_keys SET status = 'COMPLETED', result_type = :type, result_bo
 if :resolved = 'SUCCEEDED': write outbox unihub.payment.charge.succeeded   -- §9
 ```
 
-**One mapping for "the gateway says it succeeded", on every path.** The webhook (§7), this consumer and the charge's own second transaction (§8) apply the same rule to the row they find: `PENDING` → `SUCCEEDED` (with the `charge.succeeded` outbox row, §9); already `SUCCEEDED`, `REFUND_REQUIRED` or `REFUNDED` → no-op; **`CANCELLED` or `FAILED` → `REFUND_REQUIRED` directly** — never through `SUCCEEDED`, and **without** a `charge.succeeded` event, so it can never confirm a registration (checklist D5, C33). With create/confirm split this late success is practically impossible — a payment is only `CANCELLED` after its PaymentIntent was never confirmed or was cancelled — so this is defence in depth; the live-payment index covers only `PENDING`/`SUCCEEDED`, so the transition never collides with another live payment.
+**One mapping for "the gateway says it succeeded", on every path.** The webhook (§7), this consumer and the charge's own second transaction (§8) apply the same rule to the row they find: `PENDING` → `SUCCEEDED` (with the `charge.succeeded` outbox row, §9); already `SUCCEEDED`, `REFUND_REQUIRED` or `REFUNDED` → no-op; **`CANCELLED` or `FAILED` → `REFUND_REQUIRED` directly** — never through `SUCCEEDED`, and **without** a `charge.succeeded` event, so it can never confirm a registration (checklist D5, C33). **From Phase 3 (not built yet)** the same transaction writes the outbox row `unihub.payment.refund.requested` (§9; Phase 3 checklist D26) — without it nothing would ever refund this payment. With create/confirm split this late success is practically impossible — a payment is only `CANCELLED` after its PaymentIntent was never confirmed or was cancelled — so this is defence in depth; the live-payment index covers only `PENDING`/`SUCCEEDED`, so the transition never collides with another live payment.
 
 **Why this is safe without searching the gateway (Phase 2 checklist C31 → D16):** Stripe offers no lookup by idempotency key — a result is stored "only after the execution of an endpoint begins" and a reused key "generate[s] a new request" once pruned (≥ 24 h) — so re-sending a create to "find" a transaction could charge late; and its Search API is not read-after-write ("Don't use search for read-after-write flows"). Splitting create from confirm removes the need for either: a `NULL` id is itself the evidence that nothing was confirmed.
 
@@ -269,6 +271,7 @@ if :resolved = 'SUCCEEDED': write outbox unihub.payment.charge.succeeded   -- §
    if status in (CANCELLED, FAILED) and the gateway reports success:
      UPDATE payments SET status = 'REFUND_REQUIRED', version = version + 1
        WHERE id = ? AND version = :expected      -- late success: never a no-op (§6, §9)
+     write outbox unihub.payment.refund.requested  -- same transaction (§9) — Phase 3, not built yet
    if status = 'PENDING':
      UPDATE payments SET status = :resolved, resolved_at = now(), version = version + 1
        WHERE gateway_transaction_id = ? AND version = :expected
@@ -367,6 +370,7 @@ flowchart TD
 | `PAYMENT_SUCCEEDED` / `PAYMENT_FAILED` / `PAYMENT_CANCELLED` | the webhook settles a `PENDING` payment | `payment-webhook` |
 | same | reconciliation settles a `PENDING` payment | `payment-reconciliation` |
 | `PAYMENT_REFUND_REQUIRED` | a success arrives for a closed payment (webhook), or the registration rejected the confirmation (refund consumer) | `payment-webhook` / `payment-refund` |
+| `PAYMENT_REFUNDED` *(Phase 3)* | the gateway reports the refund `succeeded` (§9) | `payment-refund` |
 
 A payment that stays `PENDING` (outcome unknown) has not moved, so nothing is recorded; a redelivery to a payment that already moved is a no-op and records nothing. The registration's own confirmation by the consumer is recorded as `REGISTRATION_CONFIRMED` under `payment-confirmation`. The refund call and `REFUNDED` are Phase 3 (M-76).
 
@@ -386,32 +390,68 @@ A payment that stays `PENDING` (outcome unknown) has not moved, so nothing is re
 
 **Model — hand-off:** whichever path moves a payment to `SUCCEEDED` (the charge's own second transaction §8, webhook §7, reconciliation §6) writes the outbox row `unihub.payment.charge.succeeded` in the same transaction (`../platform/messaging.md` §2). Registration confirms the registration if it is still `RESERVED`.
 
-**Late success for a closed payment:** a success reported for a payment already `CANCELLED`/`FAILED` goes straight to `REFUND_REQUIRED` in this module (§6) — there is no live charge for Registration to confirm.
+**Late success for a closed payment:** a success reported for a payment already `CANCELLED`/`FAILED` goes straight to `REFUND_REQUIRED` in this module (§6) — there is no live charge for Registration to confirm — and writes `unihub.payment.refund.requested` in the same transaction (below).
 
 **Model — compensation:** if the registration is no longer `RESERVED` (hold expired, registration cancelled), Registration emits `unihub.registration.confirmation.rejected` → `unihub.payment-refund.queue`. This module's consumer:
 
 ```
 UPDATE payments SET status = 'REFUND_REQUIRED', version = version + 1
   WHERE id = :paymentId AND status = 'SUCCEEDED'
-affected rows = 1 → COMMIT; then (Phase 3) refund, below
+affected rows = 1 → write outbox unihub.payment.refund.requested (Phase 3); COMMIT
 affected rows = 0 → re-read:
-  REFUND_REQUIRED → Phase 2: no-op. Phase 3: refund again (see rule below)
+  REFUND_REQUIRED → no-op (its refund.requested row was written with that transition)
   REFUNDED        → no-op
 ```
 
 **Deduplication is per payment, never per event:** in the compensation branch the registration does not change, so every redelivery of `charge.succeeded` makes Registration emit a **new** `confirmation.rejected` event with a new event id. Deduplicating by event id would refund once per redelivery; the conditional transition above, keyed by the payment, is what makes it happen once. No inbox table is added (`architecture.md` §6.1 names exactly three Technical Pattern Entities; `../../guidelines/backend-coding-standards.md` §8.5).
 
-**Phase 3 — the refund itself (designed here, built with the seat-hold expiry consumer, which is what actually triggers this branch):**
-- The refund is called **outside** any transaction with a gateway-side idempotency key that is deterministic per payment, `refund:{paymentId}`, so a repeated call can never refund twice. On success: `REFUND_REQUIRED → REFUNDED` by conditional update.
-- Re-processing a payment still in `REFUND_REQUIRED` **must call the refund again** — a crash may have happened after the transition committed and before the gateway was called. Only `REFUNDED` is a no-op.
-- The refund is a third call-initiating site for the gateway; the breaker ADR above is revised then. Transient failures follow the queue's retry chain; exhausted retries land in `unihub.parking-lot` and the payment stays `REFUND_REQUIRED` for an operator. A signal for refunds stuck in `REFUND_REQUIRED` is defined then (`../platform/observability.md`).
-- A refund moves money, so it is an audited operation once `AuditTrail` exists (open item Q10 of the Phase 2 checklist).
+**Every move to `REFUND_REQUIRED` writes a refund job (Phase 3 checklist D26, 2026-10-26; Phase 3, not built yet — Phase 2 code writes no job and calls no refund).** Both ways into `REFUND_REQUIRED` — this consumer, and the late success of §6/§7 — write the outbox row `unihub.payment.refund.requested` (payload: `paymentId`) in the same transaction as the transition. It is a Deferred Job Payment sends to itself (`../../guidelines/backend-coding-standards.md` §8.4), routed to its own queue, `unihub.payment-refund-execution.queue`, with its own retry chain (`../platform/messaging.md` §2, §4). That queue's consumer is the **only** code that calls the gateway refund. Consequences:
+
+- The late success, which had no trigger at all in Phase 2, is refunded like the compensation.
+- A crash after the transition commits and before the gateway is called loses nothing: the job row commits with the transition and the outbox relay delivers it. This replaces Phase 2's rule (checklist D2, constraint 3) that the `confirmation.rejected` consumer must refund again when it finds `REFUND_REQUIRED`; that consumer now never calls the gateway.
+- Messages are never told apart by routing key: each queue carries exactly one kind.
+
+**Model — the refund (Phase 3, checklist D25):**
+
+```
+consumer of unihub.payment-refund-execution.queue (paymentId):
+  SELECT status FROM payments WHERE id = ? (Master)
+    REFUNDED → no-op                              -- redelivery after success
+    not REFUND_REQUIRED → no-op, log WARN         -- cannot happen: only this queue's
+                                                     producer moves a row here
+  outside any transaction:
+    list the gateway's refunds for this PaymentIntent
+      one exists → use it                         -- already created by an earlier attempt
+      none       → create a full refund, idempotency key refund:{paymentId}
+    status of that refund:
+      succeeded               → UPDATE payments SET status = 'REFUNDED', version = version + 1
+                                  WHERE id = ? AND status = 'REFUND_REQUIRED'; audit; COMMIT
+      pending | requires_action → transient failure: retried by the chain, re-read by listing;
+                                  still non-final after the 3 attempts → parked like any
+                                  transient failure; payment stays REFUND_REQUIRED
+      failed  | canceled      → permanent failure: unihub.parking-lot; payment stays
+                                  REFUND_REQUIRED for an operator
+    gateway not reached (breaker OPEN, connection refused or timed out before sending)
+                              → transient failure, kept in the chain (never parked)
+```
+
+| Decision | Value | Why |
+|---|---|---|
+| Breaker | The shared `paymentGateway` instance (ADR above) | One view of gateway health for the whole system |
+| Decorators | `TimeLimiter` 10s, no in-call `Retry` | The consumer's retry chain is the retry; retrying inside it too would multiply attempts |
+| Amount | The full amount of the charge | There is no partial-refund case in this system |
+| Deduplication | List the PaymentIntent's refunds first; create only when none exists, with key `refund:{paymentId}` | Stripe (API v1) replays the **saved first response** for a repeated key and may prune a key after 24 h ([idempotent requests](https://docs.stripe.com/api/idempotent_requests)), so re-creating can neither show a refund progressing nor dedupe for long. Listing by PaymentIntent needs no new column (no `gateway_refund_id`, no migration), and Stripe refuses to refund more than was charged |
+| Status mapping | `succeeded` → `REFUNDED`; `pending`, `requires_action` → retry, and parked if still non-final after the chain's 3 attempts; `failed`, `canceled` → parking lot. A parked refund leaves the payment `REFUND_REQUIRED` for an operator | The values of `Refund.status` ([the Refund object](https://docs.stripe.com/api/refunds/object)); only `succeeded` is final and good |
+| Never parked | Failures that never reached the gateway | The refund is owed and nothing was attempted (`../platform/messaging.md` §4, exception table) |
+| Refund webhooks | Not handled | Listing on each attempt replaces them; no new webhook event types in Phase 3 |
+| Stuck signal | `unihub_payment_refund_required_oldest_age_seconds` (gauge), plus `unihub_payment_refund_parked_total` for any park from the refund queue | `../platform/observability.md` §4; alert in Phase 6 |
+| Audit | Every transition, `Actor.system("payment-refund")` | A refund moves money (Phase 2 checklist D6) |
 
 **Phase 2 scope:** the hand-off, and the compensation up to `REFUND_REQUIRED` (status change only, no gateway call). Nothing on the Phase 2 live path can reach the compensation — there is no seat-hold expiry consumer and no cancellation endpoint yet — so it is exercised by tests. `REFUND_REQUIRED`/`REFUNDED` are in the schema and the contract enum from Phase 2, because adding an enum value to a response after clients exist is a breaking change.
 
 **Derived requirements** (stated here, not in `docs/requirement.md`; traced in `../../testing/reports/test-matrix.md` §2.2 under the `DR-` prefix):
 - **DR-PAY-1** — A payment that succeeds for a registration no longer `RESERVED` is moved to `REFUND_REQUIRED` exactly once, however often the triggering messages are redelivered, and its registration is never re-confirmed (Phase 2).
-- **DR-PAY-2** — A payment in `REFUND_REQUIRED` is refunded through the gateway at most once (key `refund:{paymentId}`) and reaches `REFUNDED`; re-processing while still `REFUND_REQUIRED` retries the refund (Phase 3).
+- **DR-PAY-2** — A payment in `REFUND_REQUIRED` is refunded through the gateway at most once (existing refunds listed first, key `refund:{paymentId}`) and reaches `REFUNDED`; re-processing while still `REFUND_REQUIRED` retries the refund (Phase 3).
 - **DR-PAY-3** — A registration has at most one live payment at any time, across all idempotency keys; a `FAILED` or `CANCELLED` attempt never blocks a new attempt with a new key (§1, §8; Phase 2).
 
 **Guarantees:** money taken for a registration that could not be confirmed is always routed to exactly one refund; the system never re-grants a seat it released.
@@ -431,10 +471,13 @@ affected rows = 0 → re-read:
 | Confirm times out or fails after it was sent | `201` with `PENDING`; key `COMPLETED` ("initiated"); same-key retry replays it; webhook/reconciliation decide the outcome | The gateway may have charged; a second call is never made (§3, §8). |
 | Gateway answers synchronously | `201` with `SUCCEEDED` (+ `charge.succeeded` outbox in the same transaction) or `FAILED` | §8. |
 | Crash between the charge's two transactions | Payment `PENDING`, key `IN_PROGRESS`; same-key retry → `409`; reconciliation resolves both together (§6) | G2. |
-| Gateway reports success for a payment closed as `CANCELLED`/`FAILED` | Directly `REFUND_REQUIRED` (never via `SUCCEEDED`), no `charge.succeeded` event | Late success (§6, §7) — practically impossible with create/confirm split; never collides with the live-payment index (`PENDING`/`SUCCEEDED` only). |
+| Gateway reports success for a payment closed as `CANCELLED`/`FAILED` | Directly `REFUND_REQUIRED` (never via `SUCCEEDED`), no `charge.succeeded` event; `refund.requested` written in the same transaction (§9) | Late success (§6, §7) — practically impossible with create/confirm split; never collides with the live-payment index (`PENDING`/`SUCCEEDED` only). |
 | Second charge for a registration that already has a live payment (another tab, another key) | Recorded business rejection, `409` | Partial unique index (§1, §8). |
 | Charge retried after `FAILED`/`CANCELLED` | Same key → replay; new key → new attempt accepted | §8. |
-| Payment succeeds after its registration stopped being `RESERVED` | `SUCCEEDED → REFUND_REQUIRED`; refund from Phase 3 (§9) | The seat is never re-granted. |
+| Payment succeeds after its registration stopped being `RESERVED` | `SUCCEEDED → REFUND_REQUIRED` + `refund.requested`; the refund consumer refunds it (§9) | The seat is never re-granted. |
+| Refund attempted while the circuit is `OPEN` | Gateway not called; the job stays in its retry chain, never parked; payment stays `REFUND_REQUIRED` | §9 — the refund is owed and nothing was attempted. |
+| Gateway reports the refund `pending`/`requires_action` | Payment stays `REFUND_REQUIRED`; retried, and re-read by listing the PaymentIntent's refunds | §9. |
+| Gateway reports the refund `failed`/`canceled` | Parking lot; payment stays `REFUND_REQUIRED`; stuck gauge grows | §9 — an operator decides. |
 | `paymentGateway` circuit `OPEN`, reconciliation sweep tick fires | That payment's gateway call is skipped for this cycle; retried on the next 15-minute tick (§5) | Consistent with §6's existing "already-resolved payments are a no-op" idempotency — a skip is just another reason a cycle doesn't get to a row. |
 | `paymentGateway` recovers | `HALF_OPEN` probe (either call-site) succeeds, breaker returns to `CLOSED` for both (§4) | `docs/requirement.md` §2.7's "automatically attempt reconnecting... resume normal payment processing." |
 | Webhook arrives for a `gateway_transaction_id` UniHub never initiated | `200 OK`, logged and discarded, no `payments` row touched (§7) | Not every webhook delivery necessarily maps to a UniHub-initiated charge (gateway test pings, misrouted delivery) — this is not an error condition. |
@@ -472,8 +515,10 @@ Every algorithm, threshold, and endpoint decision in this document, in one place
 | Idempotency scope: payment | `PAYMENT_CHARGE` | Composite uniqueness `(scope, actor_user_id, idempotency_key)` (`../platform/database-schema.md` §8.1), scoped to this module's charge endpoint and the authenticated caller (§8) |
 | Live payments per registration | At most one (`PENDING`, `SUCCEEDED`), partial unique index | No two charges in flight; retry allowed after `FAILED`/`CANCELLED` (§1, §8) |
 | Gateway idempotency keys | Per payment and per step: `pi-create:`, `pi-confirm:`, `pi-cancel:`, `refund:` (Phase 3) + payment id; reused by every retry of that step; never used to look anything up | §6, §8, §9 |
+| Refund call | Shared breaker, `TimeLimiter` 10s, no in-call `Retry`; list the PaymentIntent's refunds before creating; only `succeeded` → `REFUNDED` | §9 (Phase 3 checklist D25) |
 | Hand-off routing key | `unihub.payment.charge.succeeded` → `unihub.payment-confirmation.queue` | Registration confirms the paid registration (§9) |
 | Compensation queue | `unihub.payment-refund.queue` ← `unihub.registration.confirmation.rejected` | `SUCCEEDED → REFUND_REQUIRED` (§9) |
+| Refund job | `unihub.payment.refund.requested` → `unihub.payment-refund-execution.queue`, written with every move to `REFUND_REQUIRED` | The only path to the gateway refund (§9, Phase 3 checklist D26) |
 
 ---
 

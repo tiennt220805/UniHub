@@ -476,7 +476,7 @@ flowchart TB
 
 **Consistency Guarantees**
 
-- Exactly one instance executes a given scheduled job per cycle — never zero (barring a coordination-layer outage) and never more than one.
+- Exactly one instance executes a given scheduled job per cycle — never zero (barring a coordination-layer outage) and never more than one. Concretely, what is held and tested is that **no two executions of the same job ever overlap in time**: a job on a fixed-delay schedule may legitimately run its next execution on another instance as soon as the previous one has finished, and that is the next cycle, not a duplicate.
 - A skipped cycle is always recovered by the next scheduled tick — none of these jobs depend on every single cycle succeeding.
 - This pattern only governs _when and how many_ instances run a job — it says nothing about the job's own internal correctness. That belongs to the job's own file, e.g. `technical-design/modules/user.md` (the nightly student sync).
 

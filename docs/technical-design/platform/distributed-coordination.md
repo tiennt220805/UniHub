@@ -33,6 +33,7 @@ All configuration in this document targets Redis via the Redisson client (per `C
 | Topology | Single Redis instance (Kubernetes `StatefulSet`, one pod) | `CLAUDE.md` frames this deployment as a local Minikube proof-of-concept, not a cloud production rollout — Sentinel/Cluster HA is a deliberate future revisit, not something this design builds toward now. |
 | Client | Redisson, single-server mode (`SingleServerConfig`) | Mandated client per `CLAUDE.md`'s tech stack; single-server mode matches the single-instance topology above — Sentinel/Cluster client modes aren't applicable yet. |
 | Connection pool | Redisson defaults (`connectionPoolSize` 64, `connectionMinimumIdleSize` 24) | No load-test evidence yet justifies overriding the client's own defaults; revisit once K6/JMeter load testing (`docs/requirement.md` §3.2) produces a number. |
+| Required configuration (Phase 3 checklist D21) | `unihub.redis.address` must be set; without it the application does not start. An address that is set but unreachable still starts the application (lazy initialization) | The seat lock and the job lock have no in-process fallback in production: a fallback would run uncoordinated on more than one pod without anyone noticing (INV-08). An unreachable Redis is a runtime fault with a documented direction for each subsystem (§4), not a configuration error, and Redis stays out of Readiness (`observability.md` §5). |
 | Persistence (RDB/AOF) | Disabled | Nothing stored in this Redis is authoritative data (`database-schema.md` §6.3's cross-referenced retention table: coordination locks and rate limits are seconds-lived; cache is disposable). A restart losing all keys is a non-event — caches refill on next read, locks simply don't exist until next acquired, rate limiters reset to full budget. |
 
 <div align=center>
@@ -70,7 +71,7 @@ flowchart TB
 
 ## 2. Distributed Lock: Scheduled Job Coordination
 
-**Rationale:** `architecture.md` §4.6 requires exactly one pod to execute a given scheduled job per cycle, never zero (barring a Redis outage) and never more than one. This is the same lock primitive `../modules/registration.md` uses for seat reservation, reused here for a structurally different purpose — job exclusivity, not write-path mutual exclusion — so the parameters differ even though the mechanism doesn't.
+**Rationale:** `architecture.md` §4.6 requires exactly one pod to execute a given scheduled job per cycle, never zero (barring a Redis outage) and never more than one. **What is enforced and tested is "never two executions at the same time"** (Phase 3 checklist C10): four of the five jobs run on `fixedDelay`, and the lock is released when the body finishes, so another pod may legitimately run the next execution right after — that is the next cycle, not a duplicate. Only the nightly sync is cron-aligned. Triggers are not changed to cron to make "per cycle" literal. This is the same lock primitive `../modules/registration.md` uses for seat reservation, reused here for a structurally different purpose — job exclusivity, not write-path mutual exclusion — so the parameters differ even though the mechanism doesn't.
 
 **Model:** one lock key per job, each with its own lease sized to comfortably exceed that job's expected runtime — a single shared lock/lease across all five jobs would either be too short for the slowest (nightly sync) or needlessly long for the fastest (the cleanup sweeps), and either way would leave a job type name resolving to logic totally unrelated to another's.
 
@@ -86,9 +87,12 @@ flowchart TB
 RLock lock = redisson.getLock("unihub:lock:job:" + jobName);
 boolean acquired;
 try {
+    if (lock.isHeldByCurrentThread()) { // a Redis round-trip, so inside the try
+        return; // RLock is reentrant; the JobLock port is not — a holder asking again gets nothing
+    }
     acquired = lock.tryLock(0, leaseSeconds, TimeUnit.SECONDS); // non-blocking: acquire now or skip
-} catch (RedisConnectionException e) {
-    return; // Redis unreachable — skip this cycle, next tick retries (§4.6)
+} catch (RedisException e) {
+    return; // any Redis failure, refused or hung (RedisTimeoutException) — skip this cycle (§4.6)
 }
 if (!acquired) {
     return; // another instance already claimed this cycle — skip, don't queue a retry
@@ -99,6 +103,8 @@ try {
     lock.unlock();
 }
 ```
+
+**Failure handling (Phase 3 checklist D20):** every `org.redisson.client.RedisException` counts as "no lock" — a refused connection and a hung one (which surfaces as `RedisTimeoutException` after the shared client's 0.5 s command timeout) alike; the same rule holds for the seat lock (`../modules/registration.md` §2). Lock ownership in Redisson is the client id plus the thread, so each application instance has its own `RedissonClient`.
 
 `tryLock` wait-time is **0** here, unlike the seat lock's 2 seconds (`../modules/registration.md`) — a scheduled tick isn't a user waiting on a response; there's no reason to block. Either this instance claims the cycle immediately, or it skips and trusts the next tick, exactly as `architecture.md` §4.6 describes.
 
@@ -154,7 +160,7 @@ One consolidated view across every Redis-backed subsystem in this system — eac
 | Subsystem | Redis unreachable → | Rationale |
 |---|---|---|
 | Workshop-catalog cache-aside (`../modules/workshop.md`) | Fall through to the PostgreSQL Replica directly, uncached. After a failure the cache is left alone for 5s (one failed attempt per 5s, not per request); a `DEL` is still always attempted | The cache is never authoritative (§4.2) — a miss only costs a Replica read, never a correctness problem. Redis client timeouts are 0.5s with no retry (`unihub.redis.*`), so the one failed attempt is cheap. |
-| Seat-reservation lock (`../modules/registration.md`) | **Reject** the registration write (`503`, `Retry-After`) | §4.2: coordination unavailable means the write must never proceed uncoordinated. Rejecting protects the anti-overbooking invariant when the advisory layer can't do its job — Postgres's check alone, absent the lock's throughput-shaping role, isn't treated as sufficient under the exact high-contention conditions (`docs/requirement.md` §1.4) this lock exists for. |
+| Seat-reservation lock (`../modules/registration.md`) | **Reject** the registration write (`503`, `Retry-After`); a seat-hold expiry waits in its retry chain, never parked (`../modules/registration.md` §3) | §4.2: coordination unavailable means the write must never proceed uncoordinated. Rejecting protects the anti-overbooking invariant when the advisory layer can't do its job — Postgres's check alone, absent the lock's throughput-shaping role, isn't treated as sufficient under the exact high-contention conditions (`docs/requirement.md` §1.4) this lock exists for. |
 | Scheduled-job lock (§2) | **Skip** this cycle; the next tick retries | §4.6: uncoordinated execution (two instances running the same job at once) is worse than a delayed one. |
 | Rate limiter (§3) | **Fail open** — allow the request through unthrottled | Not covered explicitly by §4.2. Proposed here because the one correctness-critical defense in this system (the seat lock) is already fail-closed during the same outage — failing the rate limiter open too doesn't reopen the overbooking risk, it only means abuse-prevention is temporarily degraded for the duration of the outage, which is an acceptable secondary-layer trade-off rather than a second correctness gap stacked on top of the first. |
 

@@ -68,7 +68,11 @@ finally:
 
 **Version shared with organizer edits (Phase 2 checklist D3, Q3):** `workshops.version` is bumped by seat claims and by organizer edits alike, so a claim can lose a race to an edit. The claim retries internally (3 attempts) instead of answering `409` to a student who did nothing wrong; an organizer edit never writes `seats_taken` (`../platform/database-schema.md` §3.1). Revisit thresholds for Phase 8 are in that section.
 
-**Lock adapter per phase (Phase 2 checklist D4, Q11):** the port is `SeatLock.tryAcquire(workshopId, waitTimeout, leaseTime)` returning a handle that is closed after commit (`../../guidelines/backend-coding-standards.md` §19.2, §25). **Phase 2** uses an in-process adapter — one lock per workshop, `tryLock` with the 2 s wait, entries cleaned up when unused; it ignores the lease and does **not** coordinate across instances, so in Phase 2 the database check is the only cross-instance guard (recorded in `../../testing/reports/test-matrix.md` §4.5 with the adapter). **Phase 3** replaces it with the Redisson lock whose parameters are tabled above, including the fail-closed `503` when Redis is unreachable (INV-08, M-34).
+**Lock adapter per phase (Phase 2 checklist D4, Q11):** the port is `SeatLock.tryAcquire(workshopId, waitTimeout, leaseTime)` returning a handle that is closed after commit (`../../guidelines/backend-coding-standards.md` §19.2, §25). **Phase 2** uses an in-process adapter — one lock per workshop, `tryLock` with the 2 s wait, entries cleaned up when unused; it ignores the lease and does **not** coordinate across instances, so in Phase 2 the database check is the only cross-instance guard (recorded in `../../testing/reports/test-matrix.md` §4.5 with the adapter). **Phase 3** replaces it with the Redisson lock whose parameters are tabled above, including the fail-closed `503` when Redis is unreachable (INV-08, M-34). Phase 3 decisions (checklist D20, D21, 2026-10-26):
+
+- **Any Redis failure means no lock.** The adapter maps every `org.redisson.client.RedisException` — connection refused, and the `RedisTimeoutException` a hung connection produces after the shared client's 0.5 s command timeout — to `SeatLockUnavailableException` (`503` + `Retry-After`). It uses the one shared `RedissonClient` (`../platform/distributed-coordination.md` §1).
+- **Redis is required configuration.** Without `unihub.redis.address` the application does not start; there is no fallback to an in-process lock, which would run uncoordinated on more than one pod without anyone noticing. An address that is set but unreachable is different: the application starts (lazy initialization) and refuses registrations with `503`, and Readiness stays `UP` (`../platform/observability.md` §5). The in-process adapters live only in test code from Phase 3.
+- **The lock is released only by its holder.** With a fixed 5 s lease the lock may already have expired and been taken by another pod; the adapter releases only a lock its own client and thread still hold (Trade-off below).
 
 **Two distinct failure responses, not one:** losing the lock race (contention) and the workshop actually being full are different facts and must not be collapsed into the same status code:
 
@@ -109,11 +113,19 @@ flowchart LR
                                                        as much a part of the anti-
                                                        overbooking critical section as
                                                        reserving one.
-2. Single Postgres transaction:
-     SELECT status, version FROM registrations WHERE id = ? (Master)
-     if status <> 'RESERVED': COMMIT, do nothing      -- already CONFIRMED or already
+                                                       Not acquired (contention, Redis
+                                                       down or hung) → transient failure,
+                                                       kept in the retry chain, never
+                                                       parked (see below)
+2. repeat up to 3 attempts:            -- each attempt is a NEW transaction, still inside the lock
+   single Postgres transaction:
+     SELECT status, hold_expires_at, version FROM registrations WHERE id = ? (Master)
+     if status <> 'RESERVED': COMMIT, do nothing      -- already CONFIRMED, EXPIRED or
                                                           CANCELLED by another path; a
                                                           safe no-op, not an error
+     if hold_expires_at > now (app Clock):            -- arrived early (clock skew between
+       ROLLBACK, transient failure                       broker and pods): retried by the
+                                                          chain's 5 s stage, never acted on
      UPDATE registrations SET status = 'EXPIRED', version = version + 1
        WHERE id = ? AND version = :expected AND status = 'RESERVED'
      if affected rows = 0: ROLLBACK, re-read, no-op  -- the payment-confirmation consumer
@@ -122,8 +134,18 @@ flowchart LR
      UPDATE workshops SET seats_taken = seats_taken - 1, version = version + 1
        WHERE id = ? AND version = :expected            -- same-transaction requirement,
                                                           §1 above
-3. Release the lock.
+     if 0 rows: ROLLBACK, next attempt                 -- an organizer edit bumped version
+     COMMIT; audit (Actor.system("seat-hold-expiry"))
+   all attempts lost the version race → transient failure, normal retry chain
+3. Release the lock (after commit or rollback).
 ```
+
+**Phase 3 decisions (checklist D19, D27, C2, C5, 2026-10-26):**
+
+- **A seat is never released without its registration moving to `EXPIRED` in the same transaction** — the `registrations` and `workshops` updates commit or roll back together. A lost version race on `workshops` (organizer edits are outside the seat lock) is retried as a new transaction, three attempts in all, exactly like a seat claim (§2).
+- **The hold's own clock decides.** The consumer acts only when `hold_expires_at <= now`. The delay queue's TTL starts when the outbox relay publishes the job, not when the hold is created, so the effective hold is 15 minutes plus the relay's delay (normally about a second, `../platform/messaging.md` §5). That gap is accepted rather than closed by polling (`architecture.md` §4.3); during it `chargePayment` already refuses the hold.
+- **One source for the 15 minutes.** The delay queue's `x-message-ttl` and `hold_expires_at` both come from `unihub.registration.seat-hold`. Because queue arguments cannot change once declared, changing that value where a broker already holds the queue means declaring a new queue.
+- **A Redis outage never parks an expiry.** The fail-closed seat lock (INV-08) and the guaranteed release (INV-07) meet here: if the lock cannot be taken, the message stays in the retry chain at its 5-minute stage for as long as it takes, instead of moving to `unihub.parking-lot` after three attempts (`../platform/messaging.md` §4, exception table). The seat is released at most about 5 minutes after Redis recovers, with no manual step; `unihub_seat_hold_expiry_lock_unavailable_total` counts the waits.
 
 **Guarantees:** a seat held past 15 minutes is always eventually released, exactly once in effect — a redelivered expiry message for an already-resolved registration is a no-op, never a double-release or an error. Retry/dead-lettering on consumer failure follows the generic mechanism in `../platform/messaging.md` §4, applied to `unihub.seat-hold-expiry.queue`.
 
@@ -185,7 +207,7 @@ The same lookup also runs once before the seat lock (fast replay path, `../../gu
 **Model — compensation (payment succeeded, registration no longer `RESERVED`):** the money was taken but the seat cannot be held — it was released by expiry (§3) or cancellation and may already belong to someone else. The seat is **never** re-granted (`EXPIRED → CONFIRMED` is a forbidden transition, `../../testing/guidelines/test-design-techniques.md` §2). Instead:
 
 1. The consumer leaves the registration unchanged and writes an outbox row `unihub.registration.confirmation.rejected` (payload: `paymentId`, `registrationId`, reason `HOLD_EXPIRED` | `REGISTRATION_CANCELLED`) → `unihub.payment-refund.queue`.
-2. The Payment module — the only module allowed to call the gateway — moves the payment `SUCCEEDED → REFUND_REQUIRED` by a conditional update and, from Phase 3, refunds it (`../modules/payment.md` §9).
+2. The Payment module — the only module allowed to call the gateway — moves the payment `SUCCEEDED → REFUND_REQUIRED` by a conditional update, writing `unihub.payment.refund.requested` in the same transaction; from Phase 3 that job's consumer refunds it (`../modules/payment.md` §9, Phase 3 checklist D26).
 
 **Deduplication without an inbox table:** every transition here is a conditional `UPDATE … WHERE status = <expected>` with an affected-rows check, so a redelivered message re-applies nothing. In the compensation branch the registration does not change, so every redelivery of `charge.succeeded` emits **another** `confirmation.rejected` event — deliberately: the Payment side deduplicates by its own conditional transition, keyed by the payment, never by event id (`../../guidelines/backend-coding-standards.md` §8.5). No inbox table is added — `architecture.md` §6.1 names exactly three Technical Pattern Entities.
 
@@ -203,7 +225,10 @@ The same lookup also runs once before the seat lock (fast replay path, `../../gu
 
 | Situation | Behavior | Why |
 |---|---|---|
-| `tryLock` times out or Redis unreachable | `503 Service Unavailable`, `Retry-After` header | §2 — coordination unavailable means the write must never proceed uncoordinated (`architecture.md` §4.2). Redis applies from Phase 3; Phase 2's in-process lock only times out. |
+| `tryLock` times out or Redis unreachable (refused or hung) | `503 Service Unavailable`, `Retry-After` header | §2 — coordination unavailable means the write must never proceed uncoordinated (`architecture.md` §4.2). Redis applies from Phase 3; Phase 2's in-process lock only times out. |
+| `unihub.redis.address` not configured | The application does not start | §2 — no silent fallback to an uncoordinated lock (Phase 3 checklist D21). |
+| Seat lock unavailable while a hold expires | The expiry message waits in its retry chain (5-minute stage) until the lock is taken; never parked | §3 — INV-07 and INV-08 both hold (Phase 3 checklist D19). |
+| `hold.expired` arrives before `hold_expires_at` | Not acted on; retried by the chain | §3 — the hold's own clock decides (Phase 3 checklist D27). |
 | Seat claim loses the version race 3 times (organizer edits) | `503`, `Retry-After`, not recorded | §2 — transient, never surfaced as `409`. |
 | Lock acquired, workshop full | `409 Conflict` | §2 — permanent for this attempt, distinct from the transient `503` above. |
 | Redelivered `hold.expired` message for an already-resolved registration | No-op, safe re-check before acting | §3 — `architecture.md` §4.3's at-least-once delivery is tolerated by design. |
@@ -223,14 +248,15 @@ Every key format, tuning parameter, and idempotency scope in this document, in o
 | Item | Value | Backs |
 |---|---|---|
 | Seat claim retry | 3 attempts on a lost version race, then `503` | Shared `workshops.version` (§2, `../platform/database-schema.md` §3.1) |
-| Seat lock adapter | Phase 2 in-process (per-workshop, no cross-instance guarantee); Phase 3 Redisson | §2 |
+| Seat lock adapter | Phase 2 in-process (per-workshop, no cross-instance guarantee); Phase 3 Redisson, required (no fallback), any `RedisException` → `503` | §2 |
 | Seat lock key | `unihub:lock:seat:{workshopId}`, 5s lease, 2s wait | Anti-overbooking coordination layer (`architecture.md` §6.1/§4.2, `proposal.md` §11.1) |
 | Seat lock failure response | `503` (contention/Redis down) vs. `409` (sold out) | Distinguishes transient from permanent rejection (§2) |
-| Hold-delay queue | `unihub.registration.hold-delay.queue`, TTL 900000ms (15 min), no consumer | Exact 15-minute hold window (`docs/requirement.md` §1.3.1) |
-| Seat-hold-expiry queue | `unihub.seat-hold-expiry.queue` | Consumer that releases an expired hold (§3) |
+| Hold-delay queue | `unihub.registration.hold-delay.queue`, TTL 900000ms (15 min) from `unihub.registration.seat-hold`, no consumer | Exact 15-minute hold window (`docs/requirement.md` §1.3.1) |
+| Seat-hold-expiry queue | `unihub.seat-hold-expiry.queue`; lock unavailable → stays in the chain, never parked | Consumer that releases an expired hold (§3) |
+| Seat release retry | 3 attempts on a lost version race, then the normal retry chain | §3, same rule as the seat claim (§2) |
 | Idempotency scope | `REGISTRATION_CREATE` | Composite uniqueness `(scope, actor_user_id, idempotency_key)` (`../platform/database-schema.md` §8.1), scoped to this module's create endpoint and the authenticated caller (§4) |
 | Payment-confirmation queue | `unihub.payment-confirmation.queue` ← `unihub.payment.charge.succeeded` | Paid registration `RESERVED → CONFIRMED` (§5) |
-| Compensation event | `unihub.registration.confirmation.rejected` → `unihub.payment-refund.queue` | Payment succeeded for a registration no longer `RESERVED` (§5) |
+| Compensation event | `unihub.registration.confirmation.rejected` → `unihub.payment-refund.queue`, then `unihub.payment.refund.requested` → `unihub.payment-refund-execution.queue` | Payment succeeded for a registration no longer `RESERVED` (§5) |
 
 ---
 
