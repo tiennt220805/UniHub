@@ -2,19 +2,19 @@
 
 Copy of `phase-template.md` §2–§6 for Phase 2. Bare filenames follow that template's citation convention (`test-plan.md`, `test-strategy.md` in `../../strategy/`; `test-matrix.md` in `../`).
 
-**Status: DRAFT — not signed, and not signable yet.** §6 is deliberately blank: it is the owner's personal confirmation. Three things stand between this copy and a signature, listed under "Blocking the sign-off" below. Nothing in this file is evidence of a result that was not observed; each cell says what was run and where.
+**Status: DRAFT — one condition left (B3) and the owner's signature (§6).** Every box in §3 and §4 is ticked except U4, which waits for CI on the final commit. §6 is deliberately blank: it is the owner's personal confirmation. Nothing in this file is evidence of a result that was not observed; each cell says what was run and where.
 
-Prepared 2026-10-26 from `checklists/phase-2-registration-payment.md`. The commit SHA is left to be filled in at the final commit (§2).
+Prepared 2026-10-26 from `checklists/phase-2-registration-payment.md`. The commit SHA is written into §2 once CI has been seen green on it.
 
 ---
 
-## Blocking the sign-off
+## Conditions settled, and the one left
 
-| # | What blocks it | Who resolves it |
+| # | What | State |
 |---|---|---|
-| B1 | **Exit criterion 5 cannot be met as written.** M-24 and M-27 carry INV-05 and are `Drafted`, because "never cascades into browsing/**check-in**" needs the Check-in module, which does not exist until Phase 5 (reporting does not either). `phase-template.md` §5 forbids listing a non-`Passing` INV as a deferral: it would make the sign-off void. Browsing and free registration *are* proven (`PaymentCircuitBreakerIT#freeRegistration_browsing_andTheWebhook_areUnaffected`, circuit CLOSED, OPEN and HALF_OPEN). Two ways out, both the owner's: **(a)** reword the Phase 2 criterion in `test-plan.md` §1 (and §3's INV-05 row) so check-in is proven in Phase 5 — the Phase 1 sign-off amended criterion 3 the same way; **(b)** keep Phase 2 open until Check-in exists | Nguyễn Thành Tiến |
-| B2 | **The browser check of the Content-Security-Policy (D18) is not done.** It needs a real browser; jsdom cannot enforce a CSP. M-78 stays `Drafted` until it is (it carries no INV, so it may be listed in §5 if the owner prefers to defer it) | Nguyễn Thành Tiến |
-| B3 | **CI must be green on the final commit.** The project owner reported CI green on `daa7b6a` (2026-10-26, after the `web` job was added). Commits made since then change code and documentation, so §4 U4 is ticked only once CI is reported green on the last commit | Nguyễn Thành Tiến, after the final push |
+| B1 | **Exit criterion 5 needed the Check-in module.** "Never cascades into browsing/check-in" could not be met in Phase 2 because Check-in does not exist until Phase 5, and `phase-template.md` §5 forbids listing a non-`Passing` INV as a deferral. | **Settled 2026-10-26 by the owner: the criterion was amended** in `test-plan.md` §1 (Phase 2 deliverable and exit criterion, Phase 5 rows) and `test-strategy.md` §2, the way Phase 1 amended its criterion 3. Phase 2 proves browsing and free registration (M-24, M-27, `Passing`); the check-in and reporting half is the new Phase 5 row **M-80** (INV-05, SC-07), so SC-07 stays covered. |
+| B2 | **The browser check of the Content-Security-Policy (D18).** | **Done 2026-10-26** in headless Google Chrome 155 against the production build: 0 violations over the whole journey (see M-78). It found and fixed a real one (Zod's `Function("")` probe reported as a `script-src` `eval` violation). |
+| B3 | **CI must be green on the final commit.** | **Open.** The owner reported CI green on `daa7b6a`; commits since then change code and documentation. U4 is ticked only once every job, including `dependency-check` read on its own (it has `continue-on-error`), is seen green on the last commit, which is then written into §2. |
 
 ---
 
@@ -33,7 +33,7 @@ Prepared 2026-10-26 from `checklists/phase-2-registration-payment.md`. The commi
 
 ## 3. Exit Criteria
 
-Copied verbatim from the **Exit criteria** cell of `test-plan.md` §1, Phase 2 row — five semicolon-separated claims, five rows.
+Copied verbatim from the **Exit criteria** cell of `test-plan.md` §1, Phase 2 row — five semicolon-separated claims, five rows. Criterion 5 is the text as amended on 2026-10-26 (see below).
 
 | # | Exit criterion (copy from `test-plan.md` §1, this phase's row) | Evidence | Met |
 |---|---|---|---|
@@ -41,7 +41,9 @@ Copied verbatim from the **Exit criteria** cell of `test-plan.md` §1, Phase 2 r
 | 2 | Master-routing test proves no stale-replica read can let a duplicate slip through | M-22 `Passing`: `MasterRoutingIT` (6 tests, WAL replay paused on a real streaming Replica, each with a control that proves the Replica is behind), `JdbcIdempotencyStoreIT#find_readsTheMaster_notTheStaleReplica`. Writing it found and fixed a real routing gap (`GetWorkshop` read the Replica for an organizer who had just written) | ☑ |
 | 3 | outbox test proves the event row and the business write commit or roll back together — never one without the other | M-25 `Passing`: `RegistrationOutboxAtomicityIT#committed_hasBothRows`, `#failureAfterTheInsert_leavesNeither`, `#failingInsert_leavesNoRegistration`, `PaymentConfirmationIT#confirmFailsAfterTheOutboxInsert_leavesNeither`, `ChargePaymentIT#syncSuccess_tx2Rollback_leavesNeither` | ☑ |
 | 4 | reconciliation test proves a stuck Pending payment resolves to Successful/Cancelled without ever receiving a webhook | M-23 `Passing`: `PaymentReconciliationIT#stuck_succeededAtTheGateway_isResolvedWithoutAWebhook`, `#raceWithTheWebhook_convergesOnOneStatusAndOneEvent`, `ReconciliationRequestedListenerIT#request_resolvesTheStuckPayment_withoutAWebhook`, `ReconcilePaymentTest` (one test per row of the D16 table) | ☑ |
-| 5 | circuit-breaker test proves a payment-gateway outage never cascades into browsing/check-in | M-24, M-27 are `Drafted`, not `Passing`. The browsing half is proven (`PaymentCircuitBreakerIT`, 5 tests; `ChargePaymentTimeBudgetIT`, 3 tests with the real 3 s limits); the **check-in half cannot be, until Phase 5** — see B1 | ☐ |
+| 5 | circuit-breaker test proves a payment-gateway outage never cascades into browsing or free registration (the check-in and reporting half is proven in Phase 5, once those modules exist: amended 2026-10-26, `../reports/test-matrix.md` §4.5, M-80) | M-24, M-27 `Passing`: `PaymentCircuitBreakerIT` (5 tests: a dead and a slow gateway open the one shared circuit, charges then fail fast with the gateway journal flat, recovery with no manual step, and browsing, free registration and the webhook keep answering with the circuit CLOSED, OPEN and HALF_OPEN), `ChargePaymentTimeBudgetIT` (3 tests with the real 3 s limits), `ResilientPaymentGatewayTest` (14), `BreakerGatewayAdmissionTest` | ☑ |
+
+**Criterion 5 — amended.** The original text ("… never cascades into browsing/check-in") assumed a Check-in module. None exists before Phase 5, so the claim could only be proven for browsing and free registration. The owner chose, on 2026-10-26, to amend the criterion rather than leave INV-05 `Drafted` or keep Phase 2 open: the Phase 2 criterion and deliverable in `test-plan.md` §1 now name browsing and free registration, the Phase 5 row names the check-in and reporting probe, `test-strategy.md` §2 lists INV-05 under phases 2 and 5, and the matrix carries the rest as M-80 so that SC-07 ("browsing, check-in, reporting") is still covered by a row. The evidence above meets the amended text; M-80 is a Phase 5 row and is not a Phase 2 gap.
 
 ---
 
@@ -49,24 +51,24 @@ Copied verbatim from the **Exit criteria** cell of `test-plan.md` §1, Phase 2 r
 
 | # | Check | How verified | Done |
 |---|---|---|---|
-| U1 | Every INV in scope has Status `Passing` in `test-matrix.md` | INV-02: M-20, M-21, M-26 · INV-03: M-22 · INV-04: M-23, M-26 · INV-10: M-25 — all `Passing`. **INV-05: M-24, M-27 are `Drafted`** (B1) | ☐ |
-| U2 | Every other matrix row of this phase is `Passing`, or is listed in §5 with a reason. No row is `Flaky — investigate` | M-08, M-18, M-19, M-75, M-77, M-79 `Passing`; M-78 `Drafted` and listed in §5; M-76 is Phase 3. None is `Flaky` | ☑ |
+| U1 | Every INV in scope has Status `Passing` in `test-matrix.md` | INV-02: M-20, M-21, M-26 · INV-03: M-22 · INV-04: M-23, M-26 · INV-05: M-24, M-27 (as amended) · INV-10: M-25 — all `Passing` | ☑ |
+| U2 | Every other matrix row of this phase is `Passing`, or is listed in §5 with a reason. No row is `Flaky — investigate` | M-08, M-18, M-19, M-75, M-77, M-78, M-79 `Passing`; M-76 is Phase 3 and M-80 Phase 5. None is `Flaky` | ☑ |
 | U3 | Coverage ≥80% on the core business-logic services in this phase's scope | `jacocoTestCoverageVerification` green locally on 2026-10-26 (CI runs it in `unit-test`); 12 packages gated, lowest 94.2%: `payment.application.usecase` 94.2%, `payment.domain.model` 98.8%, `registration.application.usecase` 99.4%, `registration.domain.model` 100% (`test-matrix.md` M-15) | ☑ |
 | U4 | Every CI stage that exists at this phase is green on the commit in §2 | The owner reported `lint`, `unit-test`, `integration-test`, `contract-diff`, `secret-scan-gitleaks` and the new `web` job green on `daa7b6a`. **Pending on the final commit** (B3) | ☐ |
 | U5 | No unresolved `TODO`/`FIXME` in this phase's test code | `grep -rnE 'TODO\|FIXME' apps/backend/src/test apps/backend/src/integrationTest apps/web/src apps/web/vite-plugins`: zero hits (2026-10-26) | ☑ |
 | U6 | No test backing an INV of this phase is skipped or weakened | The same search for `@Disabled`, `.skip(`, `it.todo`, `xit(`, `xdescribe(`, `.only(`: zero hits. No test backing an INV of this phase was skipped or had an assertion relaxed | ☑ |
 | U7 | `test-matrix.md` is updated for every row of this phase | Every `Class#method` cited anywhere in the matrix was machine-checked against the source on 2026-10-26 (wildcards and renamed tests fixed; M-77 filled in); no `chưa viết` on a `Passing` row | ☑ |
-| U8 | `test-matrix.md` §4 and §5 are refreshed to this sign-off | Recounted from the Status column on 2026-10-26: 79 rows, `Not started` 49 · `Drafted` 3 · `Passing` 27; §4.1, §4.2, §4.3, §4.5 and §5 rewritten. **Recount if any row changes before signing** (for example M-78 after D18, M-24/M-27 after B1) | ☑ |
+| U8 | `test-matrix.md` §4 and §5 are refreshed to this sign-off | Recounted from the Status column on 2026-10-26: 80 rows, `Not started` 50 · `Drafted` 0 · `Passing` 30; §4.1, §4.2, §4.3, §4.5 and §5 rewritten. **Recount if any row changes before signing** | ☑ |
 
 ---
 
 ## 5. Known Gaps and Deferred Items
 
-No INV appears in this table. The check-in half of INV-05 is a blocker (B1), not a deferral.
+No INV of this phase appears in this table. The check-in and reporting half of INV-05 is the Phase 5 row M-80 (see the amendment under §3), not a deferral.
 
 | # | What is not done | Matrix row(s) | Why it is acceptable to defer | Picked up in |
 |---|---|---|---|---|
-| 1 | The console check that no page violates the CSP on `vite preview` (D18) | M-78 (`Drafted`, no INV) | jsdom cannot enforce a CSP and Playwright is not installed; the built `index.html` is asserted instead (the nine directives, no inline script or style). Unless the owner does it before signing | Phase 7 (Playwright), `test-matrix.md` §4.5 |
+| 1 | An automated, repeatable browser check that no page violates the CSP | M-78 (`Passing`) | The check was run once, in headless Chrome, with 0 violations (M-78); `csp-build.test.ts` asserts the built `index.html`. Nothing re-runs the browser check on every change: Playwright is not installed in `apps/web` | Phase 7 (Playwright suite, M-69), `test-matrix.md` §4.5 |
 | 2 | Seat-hold expiry: a `RESERVED` seat of a paid registration never expires on its own | M-33 (Phase 3) | The `hold.reserved` job is written to the outbox in the same transaction as the hold; the consumer is Phase 3's (INV-07). Polling for expired holds is excluded by `architecture.md` §4.3, so no cron was added | Phase 3 |
 | 3 | The gateway refund (`REFUND_REQUIRED → REFUNDED`) | M-76 (Phase 3) | Nothing on the live path can reach the compensation yet (no hold-expiry consumer, no cancel endpoint); Phase 2 stops at `REFUND_REQUIRED`. Until then a payment that succeeded after its hold ended holds the student's money at that status | Phase 3 |
 | 4 | A payment the gateway keeps in `processing` for more than 24 h stays `PENDING` | M-23 (limit of `Passing`) | Reconciliation stops acting, logs `WARN` and counts `unihub_payment_reconciliation_stuck_total`; the alert on it needs the metrics stack | Phase 6 (alert rules) |
@@ -83,7 +85,7 @@ No INV appears in this table. The check-in half of INV-05 is a blocker (B1), not
 
 ## 6. Confirmation
 
-*Left blank on purpose. This is the owner's own statement, to be written when B1, B2 and B3 are settled and every box in §3 and §4 is ticked:*
+*Left blank on purpose. This is the owner's own statement, to be written when B3 is settled and every box in §3 and §4 is ticked:*
 
 > I have read the exit criteria for Phase 2 in `test-plan.md` §1, ticked every box in §3 and §4 above against the evidence cited, and listed every deferral in §5 — none of which is a Non-Negotiable Invariant.
 >

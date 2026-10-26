@@ -1,3 +1,5 @@
+// First, on purpose: see the module (Zod must not probe for eval under our CSP).
+import '@/shared/config/zod'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 

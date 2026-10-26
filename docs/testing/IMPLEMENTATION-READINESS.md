@@ -45,7 +45,6 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 | D3 | Gradle task `resilienceTest` cho kịch bản on-demand (kịch bản 3) — vẫn cần quyết, nhưng không còn chặn Phase 4 sign-off: M-40/M-41 (INV-11, INV-10 relay) có đường Passing riêng qua Integration level thường (`integration-testing.md` §4); kịch bản 3 chỉ là bằng chứng bổ sung | Q |
 | D4 | Mobile test runner; CI job cho test mobile chưa có | Q |
 | D5 | Hình dạng IT có ≥2 app instance (mở rộng `IntegrationTestSupport` hay tạo base class anh em) | Q |
-| D6 | Tạo secret `NVD_API_KEY`; ghim image Semgrep/Dependency-Check/Gitleaks (hiện là `latest`) | V |
 | D7 | Bộ rule Semgrep chỉ là giá trị khởi đầu | Q |
 
 ## E. Test/INV
@@ -88,3 +87,4 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 | E6 (một phần) | Phase sở hữu test chữ ký webhook S-17 | Phase 2, dòng `test-matrix.md` M-79 (Phase 2 checklist D13) | 2026-10-14 |
 | C8 (một phần) | Permission của Student | `REGISTRATION_CREATE`, seed bằng `V4` (`database-schema.md` §10.1; Phase 2 checklist D7) | 2026-10-14 |
 | F4 | Fixture replica (`pg_basebackup`, `pg_hba`) | Đã chạy thật: `ReplicaIntegrationTestSupport` clone Master bằng `pg_basebackup` qua bridge network mặc định, thêm dòng `host replication` vào `pg_hba.conf` rồi reload; `ReplicaFixtureIT` chứng minh standby nhận schema, pause replay làm replica cũ, resume thì hội tụ (Phase 2 checklist §1.1) | 2026-10-14 |
+| D6 | Tạo secret `NVD_API_KEY`; ghim image Semgrep/Dependency-Check/Gitleaks | Secret đã tạo ở Phase 1 (`phase-1-foundation.md` Mục 4). Image ghim đúng phiên bản mà `latest` trỏ tới lúc đó (cùng manifest digest, nên hành vi không đổi): Semgrep `1.181.1`, Dependency-Check `13.0.0`, Gitleaks `v8.30.1`; Gitleaks (job chặn) đã chạy bản ghim trên toàn bộ lịch sử repo, không phát hiện rò rỉ. Ghim image không ghim rule Semgrep hay dữ liệu NVD (`deployment-and-cicd.md` §5; Phase 2 checklist 5) | 2026-10-26 |

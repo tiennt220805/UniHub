@@ -234,4 +234,36 @@ class PaymentTest {
         assertThatThrownBy(() -> aPendingPayment().withCurrency(null).build())
                 .isInstanceOf(InvalidPaymentStateException.class);
     }
+
+    @Test
+    @DisplayName(
+            "a SUCCEEDED payment whose registration cannot be confirmed becomes REFUND_REQUIRED")
+    void requireRefund_fromSucceeded() {
+        var payment = aResolvedPayment(PaymentStatus.SUCCEEDED).build();
+
+        payment.requireRefund(NOW);
+
+        assertThat(payment.status()).isEqualTo(PaymentStatus.REFUND_REQUIRED);
+        assertThat(payment.resolvedAt())
+                .as("it was resolved when it succeeded; the refund duty does not re-stamp it")
+                .isEqualTo(RESOLVED_AT);
+        assertThat(payment.pullEvents()).as("no event: nothing waits for it").isEmpty();
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = PaymentStatus.class,
+            names = {"PENDING", "FAILED", "CANCELLED", "REFUND_REQUIRED", "REFUNDED"})
+    @DisplayName(
+            "only a SUCCEEDED payment can require a refund: no money, or already on its way, is refused")
+    void requireRefund_refusedElsewhere(PaymentStatus status) {
+        var payment =
+                status == PaymentStatus.PENDING
+                        ? aPendingPayment().build()
+                        : aResolvedPayment(status).build();
+
+        assertThatThrownBy(() -> payment.requireRefund(NOW))
+                .isInstanceOf(InvalidPaymentStateException.class);
+        assertThat(payment.status()).isEqualTo(status);
+    }
 }
