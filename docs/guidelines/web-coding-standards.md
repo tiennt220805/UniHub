@@ -194,9 +194,9 @@ is created when the first screen consuming those operations is built — never a
 | Feature | Backend module | Contract tag | Operations used by the Web Application | Status |
 |---|---|---|---|---|
 | `workshops` | Workshop | `Workshop` | `listWorkshops`, `getWorkshop`; Organizer: `createWorkshop`, `updateWorkshop`, `publishWorkshop`, `cancelWorkshop`, `requestBrochureUploadUrl`, `confirmBrochureUpload` | **active** — catalog + detail (`routes/public/`); Organizer CRUD planned |
-| `auth` | User | `User` | `login` | planned |
-| `registrations` | Registration | `Registration` | `createRegistration`, `listMyRegistrations`, `getRegistration` (renders/downloads the QR e-ticket), `cancelRegistration`; reporting: `listWorkshopRegistrations` | planned |
-| `payments` | Payment | `Payment` | `chargePayment`, `getPayment` | planned |
+| `auth` | User | `User` | `login` | **active** — sign-in (`routes/auth/`), session store, guards (`app/router/guards/`) |
+| `registrations` | Registration | `Registration` | `createRegistration`, `listMyRegistrations`, `getRegistration` (renders/downloads the QR e-ticket), `cancelRegistration`; reporting: `listWorkshopRegistrations` | **active** — register button, my-registrations list, hold countdown; `cancelRegistration`, `listWorkshopRegistrations` and the QR e-ticket planned |
+| `payments` | Payment | `Payment` | `chargePayment`, `getPayment` | **active** — checkout (`routes/me/`) with the test-token dropdown |
 | `checkin` | Check-in | `Check-in` | `listWorkshopAttendances` (Organizer check-in reporting only) | planned |
 | `notifications` | Notification | `Notification` | `listMyNotifications` | planned |
 | `legacy-sync` | User | `User` | `listSyncRuns`, `getSyncRun`, `listQuarantinedRecords`, `resolveQuarantinedRecord` | planned |
@@ -386,6 +386,7 @@ type CreateRegistrationHeaders = operations['createRegistration']['parameters'][
   (no token sent) means bad credentials, not an expired session (`paths/user.yaml#/login`).
 - The token is sent on public operations too: `getWorkshop` returns a `DRAFT` workshop only to a
   caller holding `WORKSHOP_CREATE`/`WORKSHOP_EDIT` (`paths/workshop.yaml#/workshopById`).
+- The callbacks live in `shared/api/http-client-config.ts` (`configureHttpClient`, re-exported by `http-client.ts`). `app/` imports them from there, because the lint rule of §2 (rule 6) lets only `features/<name>/api/` import `http-client.ts` itself.
 - The client does not generate `X-Correlation-Id`; the server always returns one, and errors carry
   it in the body (`common/headers.yaml#/CorrelationIdRequest`, `common/error.yaml`).
 - The client is for the Backend API only. The brochure upload `PUT`s directly to the presigned

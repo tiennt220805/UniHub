@@ -1,23 +1,15 @@
 import { env } from '@/shared/config/env'
 import { AppError, toAppError } from './errors'
+import { currentHooks } from './http-client-config'
 
-type HttpClientHooks = {
-  getAccessToken: () => string | null
-  onUnauthorized: () => void
-}
-
-// No session exists until the sign-in UI lands, so the defaults send no token and ignore 401s.
-let hooks: HttpClientHooks = { getAccessToken: () => null, onUnauthorized: () => {} }
-
-/** Called once by app/ at startup; shared/ never imports the session from features/auth. */
-export function configureHttpClient(next: HttpClientHooks): void {
-  hooks = next
-}
+// Re-exported so the client and its configuration read as one API to the code that may use both.
+export { configureHttpClient } from './http-client-config'
 
 /** The single way to call the Backend API (web-coding-standards.md §6). */
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json, application/problem+json')
+  const hooks = currentHooks()
   const token = hooks.getAccessToken()
   if (token) headers.set('Authorization', `Bearer ${token}`)
 

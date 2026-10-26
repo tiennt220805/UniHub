@@ -40,3 +40,16 @@ export async function toAppError(response: Response): Promise<AppError> {
     Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null,
   )
 }
+
+const PROBLEM_TYPE_PREFIX = 'urn:unihub:problem:'
+
+/**
+ * The slug of a `urn:unihub:problem:<slug>` problem type (backend-coding-standards.md §17), or null
+ * for `about:blank`, a missing body or any other URI. Callers branch on the slug and fall back to
+ * the HTTP status for a slug they do not know, so the server can add a type without breaking a
+ * deployed client (web-coding-standards.md §6).
+ */
+export function problemSlug(error: AppError): string | null {
+  const type = error.problem?.type
+  return type?.startsWith(PROBLEM_TYPE_PREFIX) ? type.slice(PROBLEM_TYPE_PREFIX.length) : null
+}

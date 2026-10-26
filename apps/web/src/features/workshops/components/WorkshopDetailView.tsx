@@ -1,4 +1,5 @@
 import type { UseQueryResult } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 
 import type { AppError } from '@/shared/api/errors'
 import { formatDateTime, formatNumber } from '@/shared/lib/format'
@@ -7,6 +8,8 @@ import { LoadError } from './LoadError'
 
 type Props = {
   query: UseQueryResult<Workshop, AppError>
+  /** Rendered under the details once the workshop has loaded: the route's call to action. */
+  children?: ReactNode
 }
 
 // A 404 is either an unknown id or a DRAFT hidden from this caller — deliberately
@@ -14,7 +17,7 @@ type Props = {
 // id that is not a UUID, which to the viewer is the same thing: there is no such workshop.
 const isNotFound = (error: AppError) => error.status === 404 || error.status === 400
 
-export function WorkshopDetailView({ query }: Props) {
+export function WorkshopDetailView({ query, children }: Props) {
   if (query.isPending) return <p>Đang tải…</p>
   if (query.isError) {
     return isNotFound(query.error) ? (
@@ -23,7 +26,7 @@ export function WorkshopDetailView({ query }: Props) {
       <LoadError error={query.error} message="Không tải được thông tin workshop." />
     )
   }
-  return <WorkshopDetail workshop={query.data} />
+  return <WorkshopDetail workshop={query.data}>{children}</WorkshopDetail>
 }
 
 const STATUS_NOTICE: Partial<Record<Workshop['status'], string>> = {
@@ -31,7 +34,7 @@ const STATUS_NOTICE: Partial<Record<Workshop['status'], string>> = {
   COMPLETED: 'Workshop này đã kết thúc.',
 }
 
-function WorkshopDetail({ workshop }: { workshop: Workshop }) {
+function WorkshopDetail({ workshop, children }: { workshop: Workshop; children: ReactNode }) {
   // seatsTaken is near-real-time and advisory (contract: Workshop.seatsTaken); the floor at 0 only
   // keeps a momentarily inconsistent read from rendering a negative count.
   const seatsLeft = Math.max(workshop.capacity - workshop.seatsTaken, 0)
@@ -83,6 +86,7 @@ function WorkshopDetail({ workshop }: { workshop: Workshop }) {
           <p>{workshop.speakerBio}</p>
         </section>
       )}
+      {children}
     </article>
   )
 }

@@ -1,6 +1,8 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll } from 'vitest'
+
+import { endSession } from '@/features/auth'
 import { server } from './msw-server'
 
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }))
@@ -9,5 +11,7 @@ beforeAll(() => server.listen({ onUnhandledFrame: 'error' }))
 afterEach(() => {
   cleanup()
   server.resetHandlers()
+  // The session lives in a module-level store and in sessionStorage: it must not leak between tests.
+  endSession()
 })
 afterAll(() => server.close())
