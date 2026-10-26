@@ -26,7 +26,10 @@ import org.springframework.stereotype.Component;
  *
  * <p><b>Any Redis failure means no lock</b> (checklist D20): refused or hung, the cycle is skipped,
  * never run uncoordinated. Release is holder-only and never throws — a lease that ran out and was
- * taken by another instance is not this holder's to free.
+ * taken by another instance is not this holder's to free. A request that timed out while Redis was
+ * paused can still be executed when it wakes, and then holds the key for a tick that is long gone:
+ * the job is skipped until that lease runs out (RedisOutageIT). Harmless, since every job is
+ * idempotent and the next cycle runs it.
  *
  * <p>Lock ownership in Redisson is the client id plus the thread, so each application instance must
  * have its own {@code RedissonClient}.
