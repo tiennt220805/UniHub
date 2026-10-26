@@ -24,6 +24,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -213,14 +214,16 @@ class RunNightlySyncIT extends IntegrationTestSupport {
     }
 
     /**
-     * user.md §8's lease-overrun case. The data always converges: no duplicate, no lost row, and
-     * neither run is left RUNNING. Whether the slower run COMPLETES is not asserted: ON CONFLICT
-     * only absorbs a race on its arbiter (legacy_student_id), so two runs inserting the same new
-     * student at once can still fail the slower one on UNIQUE (email), contrary to user.md §8.
-     * Phase 1 cannot hit this (one instance, in-process job lock); it is open for Phase 3 (INV-09).
+     * user.md §8's lease-overrun case, with the correction of checklist D28: both runs end {@code
+     * COMPLETED} (an email-index refusal of a student the other run has just written is retried
+     * once, not fatal), nothing lands in the error store, no duplicate and no lost row. The race is
+     * timing-dependent (before the fix it failed in 32 of 40 repetitions, hence the repetition), so
+     * this is the end-to-end check; the deterministic proof of the retry is {@code
+     * JdbcLegacyStudentAccountsIT}.
      */
-    @Test
-    @DisplayName("M-09: two runs over the same file at once leave no duplicate and no lost row")
+    @RepeatedTest(5)
+    @DisplayName(
+            "M-09: two runs over the same file at once both complete, no duplicate, no lost row")
     void m09_concurrentRuns_dataConverges() throws IOException {
         var lines = new ArrayList<String>(List.of(HEADER));
         for (int n = 1; n <= 20; n++) {
@@ -233,10 +236,10 @@ class RunNightlySyncIT extends IntegrationTestSupport {
         var results = List.of(first.join(), second.join());
         results.forEach(r -> runs.add(r.runId()));
 
-        assertThat(results).anyMatch(r -> r instanceof RunNightlySyncResult.Completed);
+        assertThat(results).allMatch(r -> r instanceof RunNightlySyncResult.Completed);
         assertThat(results)
-                .allSatisfy(
-                        r -> assertThat(runRow(r.runId()).get("status")).isNotEqualTo("RUNNING"));
+                .allSatisfy(r -> assertThat(runRow(r.runId()).get("status")).isEqualTo("COMPLETED"))
+                .allSatisfy(r -> assertThat(errorCount(r.runId())).isZero());
         assertThat(syncedUserCount()).isEqualTo(20);
         assertThat(
                         jdbc.queryForObject(

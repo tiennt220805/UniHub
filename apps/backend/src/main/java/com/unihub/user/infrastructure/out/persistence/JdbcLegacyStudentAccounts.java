@@ -2,22 +2,27 @@ package com.unihub.user.infrastructure.out.persistence;
 
 import com.unihub.user.application.port.out.LegacyStudentAccounts;
 import com.unihub.user.application.port.out.LegacyStudentRecord;
-import java.sql.Array;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.Savepoint;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Function;
+import org.postgresql.util.PSQLException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /**
- * The upsert of user.md §8, sent as one statement per batch: the batch's columns travel as three
- * arrays and {@code unnest} turns them back into rows. Each row is still its own atomic
- * insert-or-update on {@code legacy_student_id}, so a concurrent duplicate run converges.
+ * The upsert of user.md §8, one row at a time and each row inside its own SAVEPOINT. Each row is an
+ * atomic insert-or-update on {@code legacy_student_id}, so a concurrent duplicate run converges —
+ * except that {@code ON CONFLICT} absorbs a race only on its own arbiter. When a second run inserts
+ * the same new student at the same instant, the index on {@code email} can refuse the loser
+ * instead. That row is valid (the other run has just written it), so the savepoint undoes only it
+ * and the statement runs once more, this time through the {@code ON CONFLICT} path (checklist D28).
+ * A second refusal is a different account holding the email, a genuine data conflict: it propagates
+ * and fails the run, as before.
  */
 @Repository
 class JdbcLegacyStudentAccounts implements LegacyStudentAccounts {
@@ -26,12 +31,16 @@ class JdbcLegacyStudentAccounts implements LegacyStudentAccounts {
             "SELECT email, legacy_student_id FROM users WHERE email = ANY (?)";
 
     // password_hash and status are deliberately absent from DO UPDATE (user.md §8). The WHERE
-    // skips rows that did not change, so they return nothing. (xmax = 0) is true only for a row
+    // skips a row that did not change, so it returns nothing. (xmax = 0) is true only for a row
     // this statement inserted.
+
+    /** The unique index on {@code users.email} (V1: the implicit name of an inline UNIQUE). */
+    static final String EMAIL_CONSTRAINT = "users_email_key";
+
+    private static final String UNIQUE_VIOLATION = "23505";
     private static final String UPSERT =
             "INSERT INTO users (email, full_name, legacy_student_id, status)"
-                    + " SELECT e, n, l, 'ACTIVE'"
-                    + " FROM unnest(?::varchar[], ?::varchar[], ?::varchar[]) AS t (e, n, l)"
+                    + " VALUES (?, ?, ?, 'ACTIVE')"
                     + " ON CONFLICT (legacy_student_id) DO UPDATE"
                     + " SET email = EXCLUDED.email, full_name = EXCLUDED.full_name,"
                     + " updated_at = now()"
@@ -66,30 +75,75 @@ class JdbcLegacyStudentAccounts implements LegacyStudentAccounts {
 
     @Override
     public UpsertOutcome upsert(List<LegacyStudentRecord> students) {
-        if (students.isEmpty()) {
-            return new UpsertOutcome(0, 0);
-        }
-        var counts = new int[2];
-        jdbcTemplate.query(
-                con -> {
-                    var ps = con.prepareStatement(UPSERT);
-                    ps.setArray(1, varcharArray(con, students, LegacyStudentRecord::email));
-                    ps.setArray(2, varcharArray(con, students, LegacyStudentRecord::fullName));
-                    ps.setArray(
-                            3, varcharArray(con, students, LegacyStudentRecord::legacyStudentId));
-                    return ps;
-                },
-                rs -> {
-                    counts[rs.getBoolean("inserted") ? 0 : 1]++;
+        return jdbcTemplate.execute(
+                (Connection con) -> {
+                    int created = 0;
+                    int updated = 0;
+                    for (var student : students) {
+                        switch (upsertRow(con, student)) {
+                            case CREATED -> created++;
+                            case UPDATED -> updated++;
+                            case UNCHANGED -> {}
+                        }
+                    }
+                    return new UpsertOutcome(created, updated);
                 });
-        return new UpsertOutcome(counts[0], counts[1]);
     }
 
-    private static Array varcharArray(
-            Connection con,
-            List<LegacyStudentRecord> students,
-            Function<LegacyStudentRecord, String> column)
+    private enum RowOutcome {
+        CREATED,
+        UPDATED,
+        UNCHANGED
+    }
+
+    private static RowOutcome upsertRow(Connection con, LegacyStudentRecord student)
             throws SQLException {
-        return con.createArrayOf("varchar", students.stream().map(column).toArray());
+        var savepoint = con.setSavepoint();
+        try {
+            try {
+                return executeUpsert(con, student);
+            } catch (SQLException refused) {
+                if (!isEmailIndexViolation(refused)) {
+                    throw refused;
+                }
+                // only this row is undone; the batch transaction survives
+                con.rollback(savepoint);
+                return executeUpsert(con, student);
+            }
+        } finally {
+            releaseQuietly(con, savepoint);
+        }
+    }
+
+    private static RowOutcome executeUpsert(Connection con, LegacyStudentRecord student)
+            throws SQLException {
+        try (var ps = con.prepareStatement(UPSERT)) {
+            ps.setString(1, student.email());
+            ps.setString(2, student.fullName());
+            ps.setString(3, student.legacyStudentId());
+            try (var rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return RowOutcome.UNCHANGED;
+                }
+                return rs.getBoolean("inserted") ? RowOutcome.CREATED : RowOutcome.UPDATED;
+            }
+        }
+    }
+
+    /** By constraint name from the server's error, never by message text. */
+    static boolean isEmailIndexViolation(SQLException e) {
+        return UNIQUE_VIOLATION.equals(e.getSQLState())
+                && e instanceof PSQLException postgres
+                && postgres.getServerErrorMessage() != null
+                && EMAIL_CONSTRAINT.equals(postgres.getServerErrorMessage().getConstraint());
+    }
+
+    /** A savepoint after a rollback to it, or after the transaction ended, is already gone. */
+    private static void releaseQuietly(Connection con, Savepoint savepoint) {
+        try {
+            con.releaseSavepoint(savepoint);
+        } catch (SQLException alreadyGone) {
+            // nothing left to release; the outcome of the row is already decided
+        }
     }
 }

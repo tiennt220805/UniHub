@@ -259,6 +259,7 @@ for each VALID row in the batch transaction:
 ```
 
 - **Why retry, not quarantine:** the row is valid — it collided with the identical row the other run had just written. Quarantining it would report a source-data problem that does not exist, and would need a new `reason_code`, which the `legacy_sync_errors` CHECK does not allow.
+- **As built (2026-10-26):** `JdbcLegacyStudentAccounts` sends one single-row upsert per student, each inside its own savepoint, and recognizes "the e-mail index" by the constraint name PostgreSQL reports (`users_email_key`), never by message text; any other unique violation, and a second refusal, propagate. `RunNightlySyncIT#m09_concurrentRuns_dataConverges` meets the real race by repetition; `JdbcLegacyStudentAccountsIT` proves the retry deterministically by injecting the refusal.
 - **Why the savepoint is required:** without it the violation aborts the batch transaction and there is nothing left to retry in. A savepoint per row is a negligible cost for a nightly job.
 - **Out of scope — a real email collision:** if the retry is refused by the `email` index again, the email belongs to a *different* `legacy_student_id` already in `users` (for example, the legacy system reassigned it). That is a genuine data conflict, not a race. It already fails the run today, independent of overlapping runs; handling it (a new quarantine `reason_code`, which needs a migration) is a separate decision for the owner, not part of D28. The retry happens once only, so such a row cannot loop.
 

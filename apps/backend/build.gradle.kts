@@ -154,6 +154,10 @@ dependencies {
     // artifact separately for the Flyway Gradle plugin's own classloader (see that block's comment) —
     // the two are independent dependency graphs, so this is not a duplicate.
     runtimeOnly("org.postgresql:postgresql:42.7.13")
+    // Also visible at compile time, for one reason: the nightly sync's upsert must tell a refusal by
+    // the users.email index from any other unique violation, and only the driver's
+    // PSQLException#getServerErrorMessage carries the constraint name (user.md §8, checklist D28).
+    compileOnly("org.postgresql:postgresql:42.7.13")
     // Pinned explicitly to 2.6.0, NOT the newer 2.8.6 latest-stable: springdoc 2.7.0+ switched to
     // Spring Boot 3.4's webjars-locator-lite (references org.springframework.web.servlet.resource.
     // LiteWebJarsResourceResolver, a Spring Framework 6.2+ class) and fails to boot on this project's

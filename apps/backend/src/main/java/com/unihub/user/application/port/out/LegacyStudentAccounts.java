@@ -17,7 +17,9 @@ public interface LegacyStudentAccounts {
     /**
      * Inserts or refreshes each student by {@code legacy_student_id}. Never touches {@code
      * password_hash} or {@code status}; safe to apply again, or concurrently, with the same input.
-     * The records' legacy ids and emails must each be distinct.
+     * The records' legacy ids and emails must each be distinct. When a concurrent run has just
+     * written a student, the refusal of the e-mail index is absorbed by retrying that one student
+     * once (user.md §8); an e-mail held by another account still fails the call.
      */
     UpsertOutcome upsert(List<LegacyStudentRecord> students);
 
