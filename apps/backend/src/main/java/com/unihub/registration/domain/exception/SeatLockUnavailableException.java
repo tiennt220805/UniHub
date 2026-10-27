@@ -2,15 +2,18 @@ package com.unihub.registration.domain.exception;
 
 import com.unihub.shared.domain.DomainException;
 import com.unihub.shared.domain.ProblemKind;
+import com.unihub.shared.domain.RetryUntilAvailable;
 import com.unihub.shared.domain.RetryableUnavailable;
 import com.unihub.shared.domain.id.WorkshopId;
 import java.time.Duration;
 
 /**
  * The per-workshop seat lock could not be taken in time (and, from Phase 3, Redis is unreachable).
- * Never proceed without the lock; the request is not recorded under its idempotency key.
+ * Never proceed without the lock; the request is not recorded under its idempotency key. For the
+ * seat-hold expiry consumer it is the failure that is never parked (checklist D19).
  */
-public class SeatLockUnavailableException extends DomainException implements RetryableUnavailable {
+public class SeatLockUnavailableException extends DomainException
+        implements RetryableUnavailable, RetryUntilAvailable {
     private static final Duration RETRY_AFTER = Duration.ofSeconds(1);
 
     public SeatLockUnavailableException(WorkshopId workshopId) {

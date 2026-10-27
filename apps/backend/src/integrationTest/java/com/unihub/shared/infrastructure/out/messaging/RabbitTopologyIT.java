@@ -131,6 +131,9 @@ class RabbitTopologyIT extends IntegrationTestSupport {
                                 "unihub.registration.confirmation.rejected",
                                 "unihub.payment-refund.queue"),
                         Map.entry(
+                                "unihub.payment.refund.requested",
+                                "unihub.payment-refund-execution.queue"),
+                        Map.entry(
                                 "unihub.registration.hold.reserved",
                                 "unihub.registration.hold-delay.queue"),
                         Map.entry(

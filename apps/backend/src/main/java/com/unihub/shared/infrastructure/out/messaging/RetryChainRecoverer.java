@@ -1,7 +1,9 @@
 package com.unihub.shared.infrastructure.out.messaging;
 
+import com.unihub.shared.domain.RetryUntilAvailable;
 import com.unihub.shared.infrastructure.config.MessagingProperties;
 import com.unihub.shared.messaging.NonRetryableMessageException;
+import com.unihub.shared.messaging.ParkedMessageObserver;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -19,6 +21,10 @@ import org.springframework.messaging.handler.annotation.support.MethodArgumentNo
  * queues have no dead-letter exchange, so a failed message is <em>republished</em> by this class:
  * to the next retry stage of its own queue, or to {@code unihub.parking-lot} once the three stages
  * are used up or the failure is permanent.
+ *
+ * <p>One exception to the three retries (checklist D19, D25): on a queue that waits for its
+ * dependency, a failure marked {@link RetryUntilAvailable} is republished to the last stage again
+ * and again instead of being parked.
  *
  * <p>Called once per failed delivery, in place of a broker reject. Returning normally acks the
  * original, which is safe only because the republish was confirmed first; if it cannot be
@@ -42,9 +48,18 @@ public final class RetryChainRecoverer implements MessageRecoverer {
     private static final String DEFAULT_EXCHANGE = "";
 
     private final ConfirmedSender sender;
+    private final List<ParkedMessageObserver> observers;
 
     public RetryChainRecoverer(RabbitTemplate template, MessagingProperties properties) {
+        this(template, properties, List.of());
+    }
+
+    public RetryChainRecoverer(
+            RabbitTemplate template,
+            MessagingProperties properties,
+            List<ParkedMessageObserver> observers) {
         this.sender = new ConfirmedSender(template, properties.confirmTimeout());
+        this.observers = List.copyOf(observers);
     }
 
     @Override
@@ -66,6 +81,21 @@ public final class RetryChainRecoverer implements MessageRecoverer {
 
         var stages = Topology.retryStageQueues(queue);
         int retriesSoFar = retriesSoFar(properties, stages);
+        if (retriesSoFar >= stages.size() && waitsForDependency(queue, cause)) {
+            // The dependency is down, not the message bad: stay at the last stage, never park
+            // (messaging.md §4, checklist D19, D25).
+            var last = stages.getLast();
+            LOG.warn(
+                    "Message {} from {} is still waiting for its dependency (attempt {}), retrying"
+                            + " via {}: {}",
+                    properties.getMessageId(),
+                    queue,
+                    retriesSoFar + 1,
+                    last,
+                    failure.toString());
+            republish(message, last);
+            return;
+        }
         if (retriesSoFar >= stages.size()) {
             LOG.warn(
                     "Message {} from {} failed after {} retries, parking it: {}",
@@ -121,6 +151,16 @@ public final class RetryChainRecoverer implements MessageRecoverer {
         properties.setHeader(EXCEPTION_MESSAGE_HEADER, String.valueOf(failure.getMessage()));
         properties.setHeader(EXCEPTION_CLASS_HEADER, failure.getClass().getName());
         republish(message, Topology.PARKING_LOT);
+        // Only once the parked copy is confirmed: a republish that failed requeues the original and
+        // nothing is parked yet.
+        var queue = properties.getConsumerQueue();
+        for (var observer : observers) {
+            try {
+                observer.parked(queue);
+            } catch (RuntimeException e) {
+                LOG.warn("A parking observer failed for {}: {}", queue, e.toString());
+            }
+        }
     }
 
     private void republish(Message message, String queue) {
@@ -131,6 +171,26 @@ public final class RetryChainRecoverer implements MessageRecoverer {
             throw new ImmediateRequeueAmqpException(
                     "Could not republish to " + queue + "; requeueing the original", e);
         }
+    }
+
+    /**
+     * Whether the failure says a dependency is down AND this queue is one that waits for it. Both
+     * are needed: the same exception on another queue (the gateway is also called by the
+     * reconciliation consumer) follows the three-attempt rule.
+     */
+    static boolean waitsForDependency(String queue, Throwable cause) {
+        if (!Topology.waitsForDependency(queue)) {
+            return false;
+        }
+        for (Throwable t = cause; t != null; t = t.getCause()) {
+            if (t instanceof RetryUntilAvailable) {
+                return true;
+            }
+            if (t.getCause() == t) {
+                break;
+            }
+        }
+        return false;
     }
 
     private static boolean isPermanent(Throwable cause) {

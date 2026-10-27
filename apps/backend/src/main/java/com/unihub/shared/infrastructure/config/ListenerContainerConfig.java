@@ -2,11 +2,13 @@ package com.unihub.shared.infrastructure.config;
 
 import com.unihub.shared.infrastructure.in.messaging.CorrelationIdListenerAdvice;
 import com.unihub.shared.infrastructure.out.messaging.RetryChainRecoverer;
+import com.unihub.shared.messaging.ParkedMessageObserver;
 import org.aopalliance.aop.Advice;
 import org.springframework.amqp.rabbit.config.ContainerCustomizer;
 import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.rabbit.listener.SimpleMessageListenerContainer;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -29,8 +31,10 @@ class ListenerContainerConfig {
 
     @Bean
     RetryChainRecoverer retryChainRecoverer(
-            RabbitTemplate template, MessagingProperties properties) {
-        return new RetryChainRecoverer(template, properties);
+            RabbitTemplate template,
+            MessagingProperties properties,
+            ObjectProvider<ParkedMessageObserver> observers) {
+        return new RetryChainRecoverer(template, properties, observers.orderedStream().toList());
     }
 
     @Bean

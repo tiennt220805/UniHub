@@ -3,10 +3,13 @@ package com.unihub.shared.infrastructure.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.unihub.shared.infrastructure.out.messaging.CorrelationIdPostProcessor;
 import com.unihub.shared.infrastructure.out.messaging.Topology;
+import java.time.Duration;
 import org.springframework.amqp.core.Declarables;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.amqp.RabbitTemplateCustomizer;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -16,14 +19,17 @@ import org.springframework.context.annotation.Configuration;
  * connection itself is opened lazily by Spring AMQP, so declaring all this needs no broker at boot.
  */
 @Configuration
+@EnableConfigurationProperties(MessagingProperties.class)
 class RabbitMessagingConfig {
 
     /**
      * Picked up by Boot's {@code RabbitAdmin}, which declares it when the first connection opens.
      */
     @Bean
-    Declarables unihubTopology() {
-        return Topology.declarables();
+    Declarables unihubTopology(
+            @Value("${unihub.registration.seat-hold:PT15M}") Duration seatHold,
+            MessagingProperties messaging) {
+        return Topology.declarables(seatHold, messaging.retryDelays());
     }
 
     /**

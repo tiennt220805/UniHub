@@ -9,6 +9,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import com.unihub.shared.domain.RetryUntilAvailable;
 import com.unihub.shared.infrastructure.config.MessagingProperties;
 import com.unihub.shared.messaging.NonRetryableMessageException;
 import java.time.Duration;
@@ -33,7 +34,9 @@ class RetryChainRecovererTest {
 
     private final RabbitTemplate template = mock(RabbitTemplate.class);
     private final RetryChainRecoverer recoverer =
-            new RetryChainRecoverer(template, new MessagingProperties(Duration.ofSeconds(1)));
+            new RetryChainRecoverer(
+                    template,
+                    new MessagingProperties(Duration.ofSeconds(1), Topology.RETRY_DELAYS));
 
     /** Every send is acked and routed, unless a test overrides it. */
     @BeforeEach
@@ -55,8 +58,12 @@ class RetryChainRecovererTest {
     }
 
     private Message failedMessage(List<Map<String, ?>> xDeath) {
+        return failedMessageOn(QUEUE, xDeath);
+    }
+
+    private Message failedMessageOn(String queue, List<Map<String, ?>> xDeath) {
         var properties = new MessageProperties();
-        properties.setConsumerQueue(QUEUE);
+        properties.setConsumerQueue(queue);
         properties.setReceivedExchange("unihub.events");
         properties.setReceivedRoutingKey("unihub.registration.hold.expired");
         properties.setMessageId("11111111-1111-1111-1111-111111111111");
@@ -284,5 +291,168 @@ class RetryChainRecovererTest {
                                 recoverer.recover(
                                         failedMessage(null), new IllegalStateException("x")))
                 .isInstanceOf(ImmediateRequeueAmqpException.class);
+    }
+
+    /** A failure that says a dependency is down (the seat lock, the gateway), not a bad message. */
+    private static final class DependencyDown extends RuntimeException
+            implements RetryUntilAvailable {
+        DependencyDown() {
+            super("dependency down");
+        }
+    }
+
+    private static List<Map<String, ?>> chainUsedUp(String base) {
+        return List.of(
+                death(base + ".retry.5s", 1),
+                death(base + ".retry.30s", 1),
+                death(base + ".retry.5m", 1));
+    }
+
+    @Test
+    @DisplayName(
+            "a down dependency on a waiting queue stays at the 5m stage after the chain is used up")
+    void dependencyDown_onAWaitingQueue_neverParks() {
+        recoverer.recover(
+                failedMessageOn(QUEUE, chainUsedUp("unihub.seat-hold-expiry")),
+                new ListenerExecutionFailedException(
+                        "listener failed", new DependencyDown(), failedMessage(null)));
+
+        sentTo("unihub.seat-hold-expiry.retry.5m");
+    }
+
+    @Test
+    @DisplayName("long past the chain, it is still the 5m stage, never the parking lot")
+    void dependencyDown_manyAttemptsLater_stillWaits() {
+        recoverer.recover(
+                failedMessageOn(
+                        QUEUE,
+                        List.of(
+                                death("unihub.seat-hold-expiry.retry.5s", 1),
+                                death("unihub.seat-hold-expiry.retry.30s", 1),
+                                death("unihub.seat-hold-expiry.retry.5m", 40))),
+                new DependencyDown());
+
+        sentTo("unihub.seat-hold-expiry.retry.5m");
+    }
+
+    @Test
+    @DisplayName("a down dependency still walks the chain 5s, 30s, 5m before it settles at 5m")
+    void dependencyDown_walksTheChainFirst() {
+        recoverer.recover(failedMessageOn(QUEUE, null), new DependencyDown());
+
+        sentTo("unihub.seat-hold-expiry.retry.5s");
+    }
+
+    @Test
+    @DisplayName("the refund-execution queue waits for the gateway in the same way")
+    void dependencyDown_onTheRefundQueue_neverParks() {
+        recoverer.recover(
+                failedMessageOn(
+                        "unihub.payment-refund-execution.queue",
+                        chainUsedUp("unihub.payment-refund-execution")),
+                new DependencyDown());
+
+        sentTo("unihub.payment-refund-execution.retry.5m");
+    }
+
+    @Test
+    @DisplayName("the same exception on any other queue follows the three-attempt rule")
+    void dependencyDown_onAnotherQueue_isParkedAfterThree() {
+        // The reconciliation consumer also calls the gateway, and is not one that waits.
+        recoverer.recover(
+                failedMessageOn(
+                        "unihub.reconciliation.queue", chainUsedUp("unihub.reconciliation")),
+                new DependencyDown());
+
+        sentTo("unihub.parking-lot");
+    }
+
+    @Test
+    @DisplayName("any other failure on a waiting queue is parked after three attempts")
+    void otherFailure_onAWaitingQueue_isParkedAfterThree() {
+        recoverer.recover(
+                failedMessageOn(QUEUE, chainUsedUp("unihub.seat-hold-expiry")),
+                new IllegalStateException("not a down dependency"));
+
+        sentTo("unihub.parking-lot");
+    }
+
+    @Test
+    @DisplayName("a permanent failure on a waiting queue is still parked at once")
+    void permanentFailure_onAWaitingQueue_isParkedAtOnce() {
+        recoverer.recover(
+                failedMessageOn(QUEUE, null), new NonRetryableMessageException("bad payload"));
+
+        sentTo("unihub.parking-lot");
+    }
+
+    @Test
+    @DisplayName("only the seat-hold-expiry and refund-execution queues wait for their dependency")
+    void whichQueuesWait() {
+        assertThat(Topology.CONSUMED_QUEUES)
+                .filteredOn(Topology.ConsumedQueue::waitsForDependency)
+                .extracting(Topology.ConsumedQueue::name)
+                .containsExactlyInAnyOrder(
+                        "unihub.seat-hold-expiry.queue", "unihub.payment-refund-execution.queue");
+    }
+
+    // ---------- the parking observers (checklist D25: unihub_payment_refund_parked_total)
+    // ----------
+
+    @Test
+    @DisplayName("an observer is told, with the business queue, each time a message is parked")
+    void parked_isAnnouncedToObservers() {
+        var told = new java.util.ArrayList<String>();
+        var observing =
+                new RetryChainRecoverer(
+                        template,
+                        new MessagingProperties(Duration.ofSeconds(1), Topology.RETRY_DELAYS),
+                        List.of(told::add));
+
+        observing.recover(failedMessage(null), new NonRetryableMessageException("bad"));
+        observing.recover(
+                failedMessage(
+                        List.of(
+                                death("unihub.seat-hold-expiry.retry.5s", 1),
+                                death("unihub.seat-hold-expiry.retry.30s", 1),
+                                death("unihub.seat-hold-expiry.retry.5m", 1))),
+                new IllegalStateException("exhausted"));
+
+        assertThat(told).containsExactly(QUEUE, QUEUE);
+    }
+
+    @Test
+    @DisplayName("a retry is not a park: observers hear nothing while the chain still has stages")
+    void retry_isNotAnnounced() {
+        var told = new java.util.ArrayList<String>();
+        var observing =
+                new RetryChainRecoverer(
+                        template,
+                        new MessagingProperties(Duration.ofSeconds(1), Topology.RETRY_DELAYS),
+                        List.of(told::add));
+
+        observing.recover(failedMessage(null), new IllegalStateException("boom"));
+
+        assertThat(told).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an observer that throws neither fails the park nor hides it from the others")
+    void failingObserver_doesNotBreakThePark() {
+        var told = new java.util.ArrayList<String>();
+        var observing =
+                new RetryChainRecoverer(
+                        template,
+                        new MessagingProperties(Duration.ofSeconds(1), Topology.RETRY_DELAYS),
+                        List.of(
+                                queue -> {
+                                    throw new IllegalStateException("metrics down");
+                                },
+                                told::add));
+
+        observing.recover(failedMessage(null), new NonRetryableMessageException("bad"));
+
+        sentTo("unihub.parking-lot");
+        assertThat(told).containsExactly(QUEUE);
     }
 }

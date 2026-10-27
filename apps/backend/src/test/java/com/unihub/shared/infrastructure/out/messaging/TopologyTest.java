@@ -46,9 +46,9 @@ class TopologyTest {
     }
 
     @Test
-    @DisplayName("thirty queues: 8 business, 21 retry stages, 1 parking lot — all durable")
+    @DisplayName("thirty-four queues: 9 business, 24 retry stages, 1 parking lot — all durable")
     void queueInventory() {
-        assertThat(queues()).hasSize(30);
+        assertThat(queues()).hasSize(34);
         assertThat(queues().values()).allSatisfy(q -> assertThat(q.isDurable()).isTrue());
         assertThat(queues().values())
                 .allSatisfy(q -> assertThat(q.isAutoDelete() || q.isExclusive()).isFalse());
@@ -67,6 +67,8 @@ class TopologyTest {
                 .containsExactly("unihub.payment.charge.succeeded");
         assertThat(bindingsOf("unihub.payment-refund.queue"))
                 .containsExactly("unihub.registration.confirmation.rejected");
+        assertThat(bindingsOf("unihub.payment-refund-execution.queue"))
+                .containsExactly("unihub.payment.refund.requested");
         assertThat(bindingsOf("unihub.registration.hold-delay.queue"))
                 .containsExactly("unihub.registration.hold.reserved");
         assertThat(bindingsOf("unihub.seat-hold-expiry.queue"))
@@ -84,7 +86,7 @@ class TopologyTest {
     void noOtherBindings() {
         var bindings = Topology.bindingsOf(declared);
 
-        assertThat(bindings).hasSize(4 + 1 + 1 + 1 + 1 + 1 + 1 + 1);
+        assertThat(bindings).hasSize(4 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1);
         assertThat(bindings).allSatisfy(b -> assertThat(b.getExchange()).isEqualTo(EXCHANGE));
         assertThat(bindingsOf("unihub.parking-lot")).isEmpty();
         assertThat(bindingsOf("unihub.notification.retry.5s")).isEmpty();
@@ -102,6 +104,32 @@ class TopologyTest {
     }
 
     @Test
+    @DisplayName("the hold window and retry delays come from configuration, not from constants")
+    void holdWindowAndRetryDelaysAreConfigurable() {
+        var shortened =
+                Topology.declarables(
+                        java.time.Duration.ofSeconds(3),
+                        List.of(
+                                java.time.Duration.ofMillis(200),
+                                java.time.Duration.ofMillis(300),
+                                java.time.Duration.ofMillis(400)));
+        var byName =
+                Topology.queuesOf(shortened).stream()
+                        .collect(Collectors.toMap(Queue::getName, q -> q));
+
+        assertThat(byName.get("unihub.registration.hold-delay.queue").getArguments())
+                .containsEntry("x-message-ttl", 3000)
+                .containsEntry("x-dead-letter-routing-key", "unihub.registration.hold.expired");
+        assertThat(byName.get("unihub.seat-hold-expiry.retry.5s").getArguments())
+                .containsEntry("x-message-ttl", 200);
+        assertThat(byName.get("unihub.seat-hold-expiry.retry.30s").getArguments())
+                .containsEntry("x-message-ttl", 300);
+        assertThat(byName.get("unihub.payment-refund-execution.retry.5m").getArguments())
+                .containsEntry("x-message-ttl", 400);
+        assertThat(Topology.queuesOf(shortened)).hasSameSizeAs(queues().values());
+    }
+
+    @Test
     @DisplayName(
             "business queues have no dead-letter exchange: retries are an application republish")
     void businessQueuesHaveNoDeadLetterExchange() {
@@ -110,6 +138,7 @@ class TopologyTest {
                         "unihub.notification.queue",
                         "unihub.payment-confirmation.queue",
                         "unihub.payment-refund.queue",
+                        "unihub.payment-refund-execution.queue",
                         "unihub.seat-hold-expiry.queue",
                         "unihub.summarization.queue",
                         "unihub.reconciliation.queue",
@@ -135,7 +164,8 @@ class TopologyTest {
                         "unihub.reconciliation", "unihub.payment.reconciliation.requested",
                         "unihub.audit", "unihub.system.audit.created",
                         "unihub.payment-confirmation", "unihub.payment.charge.succeeded",
-                        "unihub.payment-refund", "unihub.registration.confirmation.rejected");
+                        "unihub.payment-refund", "unihub.registration.confirmation.rejected",
+                        "unihub.payment-refund-execution", "unihub.payment.refund.requested");
         var ttl = Map.of("5s", 5_000, "30s", 30_000, "5m", 300_000);
 
         expected.forEach(
@@ -170,7 +200,8 @@ class TopologyTest {
                         "unihub.payment.reconciliation.requested", "unihub.reconciliation.queue",
                         "unihub.system.audit.created", "unihub.audit.queue",
                         "unihub.payment.charge.succeeded", "unihub.payment-confirmation.queue",
-                        "unihub.registration.confirmation.rejected", "unihub.payment-refund.queue");
+                        "unihub.registration.confirmation.rejected", "unihub.payment-refund.queue",
+                        "unihub.payment.refund.requested", "unihub.payment-refund-execution.queue");
 
         chainOwner.forEach((key, owner) -> assertThat(bindingsOf(owner)).contains(key));
     }
