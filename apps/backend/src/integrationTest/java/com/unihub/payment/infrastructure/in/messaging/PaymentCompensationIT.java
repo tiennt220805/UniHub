@@ -18,7 +18,8 @@ import org.springframework.test.annotation.DirtiesContext;
  * The compensation branch of the hand-off, end to end through the broker and both real listeners
  * (checklist D2, AC2.4, AC2.4b, C11): a success for a registration that is no longer RESERVED makes
  * Registration reject it, and Payment moves to REFUND_REQUIRED exactly once however many times
- * either message is delivered. Phase 2 stops at the status: no gateway call is made to refund.
+ * either message is delivered, writing exactly one refund job with it. This consumer never calls
+ * the gateway: the refund is the job's consumer (RefundIT).
  */
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest
@@ -66,6 +67,9 @@ class PaymentCompensationIT extends HandOffITSupport {
                 .as("one conditional transition, however many messages")
                 .isEqualTo(versionBefore + 1);
         assertThat(registrationStatus(paid.registration())).isEqualTo("EXPIRED");
+        assertThat(outboxRows(paid.payment(), "unihub.payment.refund.requested"))
+                .as("one transition, one refund job (checklist D26, AC26.2)")
+                .isEqualTo(1);
         // the one charge made its two calls; the refund hand-off made none
         verify(gateway, times(1)).create(any(), any(), any(), any());
         verify(gateway, times(1)).confirm(any(), any());

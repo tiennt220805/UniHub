@@ -6,21 +6,26 @@ import com.stripe.exception.CardException;
 import com.stripe.exception.InvalidRequestException;
 import com.stripe.exception.StripeException;
 import com.stripe.model.PaymentIntent;
+import com.stripe.model.Refund;
 import com.stripe.net.RequestOptions;
 import com.stripe.param.PaymentIntentCancelParams;
 import com.stripe.param.PaymentIntentConfirmParams;
 import com.stripe.param.PaymentIntentCreateParams;
+import com.stripe.param.RefundCreateParams;
+import com.stripe.param.RefundListParams;
 import com.unihub.payment.application.port.out.ConfirmOutcome;
 import com.unihub.payment.application.port.out.GatewayCallFailedException;
 import com.unihub.payment.application.port.out.GatewayCancelRefusedException;
 import com.unihub.payment.application.port.out.GatewayNotReachedException;
 import com.unihub.payment.application.port.out.GatewayOutcomeUnknownException;
 import com.unihub.payment.application.port.out.GatewayPaymentState;
+import com.unihub.payment.application.port.out.GatewayRefundState;
 import com.unihub.payment.application.port.out.PaymentGateway;
 import com.unihub.payment.application.port.out.PaymentMethodRejectedException;
 import com.unihub.shared.domain.id.PaymentId;
 import java.math.BigDecimal;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * {@link PaymentGateway} over Stripe, sandbox only (payment.md §3, checklist D16). The only class
@@ -34,6 +39,9 @@ import java.util.Locale;
 final class StripePaymentGateway implements PaymentGateway {
     /** The error code Stripe gives for an operation the object's current status does not allow. */
     private static final String UNEXPECTED_STATE = "payment_intent_unexpected_state";
+
+    /** Far more refunds than one payment can have; a full refund is only ever made once. */
+    private static final long REFUND_LIST_LIMIT = 10L;
 
     private final StripeClient stripe;
 
@@ -186,6 +194,75 @@ final class StripePaymentGateway implements PaymentGateway {
         } catch (StripeException | RuntimeException e) {
             throw new GatewayCallFailedException("cancelling the payment failed", e);
         }
+    }
+
+    @Override
+    public Optional<GatewayRefundState> findRefund(String gatewayTransactionId) {
+        try {
+            var refunds =
+                    stripe.v1()
+                            .refunds()
+                            .list(
+                                    RefundListParams.builder()
+                                            .setPaymentIntent(gatewayTransactionId)
+                                            .setLimit(REFUND_LIST_LIMIT)
+                                            .build());
+            GatewayRefundState best = null;
+            for (var refund : refunds.getData()) {
+                var state = refundStateOf(refund);
+                if (best == null || state.ordinal() < best.ordinal()) {
+                    best = state;
+                }
+            }
+            return Optional.ofNullable(best);
+        } catch (ApiConnectionException e) {
+            throw refundConnectionFailure("listing the refunds failed", e);
+        } catch (StripeException | RuntimeException e) {
+            throw new GatewayCallFailedException("listing the refunds failed", e);
+        }
+    }
+
+    @Override
+    public GatewayRefundState refund(PaymentId paymentId, String gatewayTransactionId) {
+        // No amount: Stripe refunds what is left of the charge, which is all of it (checklist D25)
+        var params = RefundCreateParams.builder().setPaymentIntent(gatewayTransactionId).build();
+        try {
+            return refundStateOf(
+                    stripe.v1().refunds().create(params, options("refund", paymentId)));
+        } catch (ApiConnectionException e) {
+            throw refundConnectionFailure("creating the refund failed", e);
+        } catch (StripeException | RuntimeException e) {
+            throw new GatewayCallFailedException("creating the refund failed", e);
+        }
+    }
+
+    /**
+     * For a refund "not reached" only decides how long the message waits (never parked), and a
+     * wrongly reached one is retried safely because the refunds are listed first: so the allow-list
+     * of {@link GatewayFailures} is the same one, for a different reason than the confirm's.
+     */
+    private static RuntimeException refundConnectionFailure(
+            String message, ApiConnectionException e) {
+        if (GatewayFailures.provablyNotSent(e)) {
+            return new GatewayNotReachedException(message, e);
+        }
+        return new GatewayCallFailedException(message, e);
+    }
+
+    /** The values of {@code Refund.status} (payment.md §9). An unknown one is not guessed at. */
+    private static GatewayRefundState refundStateOf(Refund refund) {
+        var status = refund.getStatus();
+        if (status == null) {
+            throw new GatewayCallFailedException("the gateway answered without a status", null);
+        }
+        return switch (status) {
+            case "succeeded" -> GatewayRefundState.SUCCEEDED;
+            case "pending", "requires_action" -> GatewayRefundState.PENDING;
+            case "failed", "canceled" -> GatewayRefundState.FAILED;
+            default ->
+                    throw new GatewayCallFailedException(
+                            "the gateway answered with an unknown refund status " + status, null);
+        };
     }
 
     private static ConfirmOutcome outcomeOf(PaymentIntent intent) {

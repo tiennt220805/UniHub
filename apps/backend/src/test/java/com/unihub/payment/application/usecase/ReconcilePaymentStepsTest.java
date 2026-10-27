@@ -12,9 +12,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.unihub.payment.api.event.PaymentSucceededIntegrationEvent;
+import com.unihub.payment.application.event.PaymentRefundRequested;
 import com.unihub.payment.application.port.out.GatewayPaymentEvent.Outcome;
 import com.unihub.payment.application.port.out.PaymentRepository;
 import com.unihub.payment.application.usecase.PaymentWebhookTransaction.Effect;
@@ -26,6 +28,7 @@ import com.unihub.shared.application.port.out.EventPublisher;
 import com.unihub.shared.application.port.out.IdempotencyScope;
 import com.unihub.shared.application.port.out.IdempotencyStore;
 import com.unihub.shared.domain.id.PaymentId;
+import com.unihub.shared.event.OutboxMessage;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -158,7 +161,12 @@ class ReconcilePaymentStepsTest {
         assertThat(steps.resolve(payment.id(), Outcome.SUCCEEDED)).isEqualTo(Effect.LATE_SUCCESS);
 
         assertThat(payment.status()).isEqualTo(PaymentStatus.REFUND_REQUIRED);
-        verifyNoInteractions(events);
+        var message = ArgumentCaptor.forClass(OutboxMessage.class);
+        verify(events).publish(message.capture());
+        assertThat(message.getValue())
+                .as("a refund job, never charge.succeeded")
+                .isEqualTo(new PaymentRefundRequested(payment.id().value(), NOW));
+        verifyNoMoreInteractions(events);
     }
 
     // ---------- audit (checklist D6): reconciliation is a process, never a user ----------

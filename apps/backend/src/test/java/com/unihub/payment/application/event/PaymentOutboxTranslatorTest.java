@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.unihub.payment.api.event.PaymentSucceededIntegrationEvent;
 import com.unihub.payment.domain.event.PaymentDomainEvent;
 import com.unihub.payment.domain.event.PaymentSucceeded;
+import com.unihub.payment.domain.event.RefundRequired;
 import com.unihub.shared.domain.id.PaymentId;
 import com.unihub.shared.domain.id.RegistrationId;
 import java.time.Instant;
@@ -36,12 +37,26 @@ class PaymentOutboxTranslatorTest {
     }
 
     @Test
+    @DisplayName("RefundRequired becomes one refund job for the payment, to its own queue")
+    void refundRequired_becomesTheRefundJob() {
+        var messages =
+                PaymentOutboxTranslator.translate(new RefundRequired(PAYMENT, REGISTRATION, AT));
+
+        assertThat(messages).containsExactly(new PaymentRefundRequested(PAYMENT.value(), AT));
+        var message = messages.getFirst();
+        assertThat(message.routingKey()).isEqualTo("unihub.payment.refund.requested");
+        assertThat(message.aggregateType()).isEqualTo("PAYMENT");
+        assertThat(message.aggregateId()).isEqualTo(PAYMENT.value());
+        assertThat(message.schemaVersion()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("every permitted domain event has a translation (the switch is exhaustive)")
     void everyPermittedEvent_isCovered() {
         for (var permitted : PaymentDomainEvent.class.getPermittedSubclasses()) {
             assertThat(permitted)
                     .as("a new Payment event needs a case in the translator and a test here")
-                    .isIn(PaymentSucceeded.class);
+                    .isIn(PaymentSucceeded.class, RefundRequired.class);
         }
     }
 }

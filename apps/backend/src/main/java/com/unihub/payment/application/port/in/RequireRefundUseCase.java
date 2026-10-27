@@ -6,7 +6,7 @@ public interface RequireRefundUseCase {
 
     /**
      * {@code SUCCEEDED → REFUND_REQUIRED}, once per payment however many times the message is
-     * delivered. Changes the status only: calling the gateway to refund is Phase 3.
+     * delivered, with the refund job written in the same transaction. Never calls the gateway.
      */
     void requireRefund(RequireRefundCommand command);
 }

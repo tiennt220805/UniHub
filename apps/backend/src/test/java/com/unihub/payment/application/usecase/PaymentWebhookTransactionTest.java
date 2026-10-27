@@ -11,9 +11,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.unihub.payment.api.event.PaymentSucceededIntegrationEvent;
+import com.unihub.payment.application.event.PaymentRefundRequested;
 import com.unihub.payment.application.port.out.GatewayPaymentEvent;
 import com.unihub.payment.application.port.out.GatewayPaymentEvent.Outcome;
 import com.unihub.payment.application.port.out.PaymentRepository;
@@ -130,7 +132,7 @@ class PaymentWebhookTransactionTest {
             value = PaymentStatus.class,
             names = {"FAILED", "CANCELLED"})
     @DisplayName(
-            "a success for a FAILED or CANCELLED payment is a late success: REFUND_REQUIRED, no event")
+            "a success for a FAILED or CANCELLED payment is a late success: REFUND_REQUIRED + a refund job, no confirmation")
     void closed_lateSuccess(PaymentStatus closed) {
         var payment = found(aResolvedPayment(closed).build());
 
@@ -138,7 +140,14 @@ class PaymentWebhookTransactionTest {
 
         assertThat(payment.status()).isEqualTo(PaymentStatus.REFUND_REQUIRED);
         verify(payments).save(payment);
-        verifyNoInteractions(events, idempotency);
+        var message = ArgumentCaptor.forClass(OutboxMessage.class);
+        verify(events).publish(message.capture());
+        assertThat(message.getValue())
+                .as("the refund job, never charge.succeeded: nothing may confirm the registration")
+                .isInstanceOf(PaymentRefundRequested.class);
+        assertThat(message.getValue().aggregateId()).isEqualTo(payment.id().value());
+        verifyNoMoreInteractions(events);
+        verifyNoInteractions(idempotency);
     }
 
     @ParameterizedTest

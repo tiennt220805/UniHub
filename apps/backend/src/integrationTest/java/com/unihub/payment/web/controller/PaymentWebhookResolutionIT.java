@@ -90,6 +90,14 @@ class PaymentWebhookResolutionIT extends PaymentWebhookITSupport {
         assertThat(fixtures.paymentOutboxRows(pending.registration()))
                 .as("no charge.succeeded, so no registration can be confirmed by it")
                 .isZero();
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM event_publications WHERE aggregate_id = ?"
+                                        + " AND routing_key = 'unihub.payment.refund.requested'",
+                                Integer.class,
+                                pending.payment()))
+                .as("the one refund job that nothing else would ever write (checklist D26, AC26.1)")
+                .isEqualTo(1);
     }
 
     @Test

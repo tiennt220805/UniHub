@@ -2,6 +2,7 @@ package com.unihub.payment.domain.model;
 
 import com.unihub.payment.domain.event.PaymentDomainEvent;
 import com.unihub.payment.domain.event.PaymentSucceeded;
+import com.unihub.payment.domain.event.RefundRequired;
 import com.unihub.payment.domain.exception.InvalidPaymentStateException;
 import com.unihub.shared.domain.Version;
 import com.unihub.shared.domain.id.PaymentId;
@@ -18,8 +19,8 @@ import java.util.Objects;
  * webhook or the reconciliation sweep gets there first (payment.md §6). Every resolved status
  * rejects every further transition: no crossing between resolved states and no way back to {@code
  * PENDING} (test-design-techniques.md §2). The transitions out of {@code SUCCEEDED}/{@code
- * CANCELLED}/{@code FAILED} toward {@code REFUND_REQUIRED} belong to the compensation branch and
- * are added with it.
+ * CANCELLED}/{@code FAILED} toward {@code REFUND_REQUIRED} belong to the compensation branch; the
+ * only way out of {@code REFUND_REQUIRED} is {@code REFUNDED}.
  */
 public final class Payment {
     /** {@code payments.currency} defaults to VND (database-schema.md §5.1). */
@@ -148,7 +149,8 @@ public final class Payment {
      * The gateway reports success for a payment this side already closed as {@code FAILED} or
      * {@code CANCELLED}: the money moved, so it goes straight to {@code REFUND_REQUIRED} and never
      * through {@code SUCCEEDED}, which would confirm a registration (payment.md §6, §9, checklist
-     * D5 constraint 5). Records no event for the same reason.
+     * D5 constraint 5). Records {@link RefundRequired}, never {@link PaymentSucceeded}, for the
+     * same reason: the refund job is the only thing that follows.
      */
     public void lateSuccess(Instant now) {
         Objects.requireNonNull(now);
@@ -156,12 +158,13 @@ public final class Payment {
             throw new InvalidPaymentStateException(id, status, "take a late success");
         }
         this.status = PaymentStatus.REFUND_REQUIRED;
+        events.add(new RefundRequired(id, registrationId, now));
     }
 
     /**
      * The payment succeeded but its registration can no longer be confirmed (hold ended or
      * cancelled): the money is to be returned (payment.md §9, checklist D2). Only a {@code
-     * SUCCEEDED} payment qualifies; the refund call itself is Phase 3.
+     * SUCCEEDED} payment qualifies. Records {@link RefundRequired}, which becomes the refund job.
      */
     public void requireRefund(Instant now) {
         Objects.requireNonNull(now);
@@ -169,6 +172,19 @@ public final class Payment {
             throw new InvalidPaymentStateException(id, status, "require a refund");
         }
         this.status = PaymentStatus.REFUND_REQUIRED;
+        events.add(new RefundRequired(id, registrationId, now));
+    }
+
+    /**
+     * The gateway reports the refund {@code succeeded}: the money is back with the student. Only
+     * {@code REFUND_REQUIRED} qualifies, and {@code REFUNDED} leaves for nowhere (payment.md §9).
+     */
+    public void refund(Instant now) {
+        Objects.requireNonNull(now);
+        if (status != PaymentStatus.REFUND_REQUIRED) {
+            throw new InvalidPaymentStateException(id, status, "be refunded");
+        }
+        this.status = PaymentStatus.REFUNDED;
     }
 
     private void resolve(PaymentStatus target, Instant now, String attempted) {

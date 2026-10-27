@@ -49,7 +49,8 @@ final class PaymentAudit {
             case FAILED -> AuditActions.PAYMENT_FAILED;
             case CANCELLED -> AuditActions.PAYMENT_CANCELLED;
             case REFUND_REQUIRED -> AuditActions.PAYMENT_REFUND_REQUIRED;
-            case PENDING, REFUNDED ->
+            case REFUNDED -> AuditActions.PAYMENT_REFUNDED;
+            case PENDING ->
                     throw new IllegalStateException(
                             "no audit action for a payment that moved to " + payment.status());
         };

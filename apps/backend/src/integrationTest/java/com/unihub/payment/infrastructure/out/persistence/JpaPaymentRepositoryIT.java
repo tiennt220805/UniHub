@@ -53,6 +53,7 @@ class JpaPaymentRepositoryIT extends IntegrationTestSupport {
     }
 
     @Autowired private PaymentRepository payments;
+    @Autowired private com.unihub.payment.application.port.out.RefundBacklog backlog;
     @Autowired private RegistrationRepository registrations;
     @Autowired private WorkshopRepository workshops;
     @Autowired private JdbcTemplate jdbc;
@@ -104,6 +105,78 @@ class JpaPaymentRepositoryIT extends IntegrationTestSupport {
         assertThat(payment.status()).isEqualTo(PaymentStatus.PENDING);
         assertThat(payment.amount()).isEqualByComparingTo("100000.00");
         assertThat(payment.version()).isEqualTo(Version.initial());
+    }
+
+    @Test
+    @DisplayName("SUCCEEDED -> REFUND_REQUIRED -> REFUNDED persists each status, one version each")
+    void save_refundTransitions_persist() {
+        var saved = saveNew(pending());
+        tx.executeWithoutResult(
+                s -> {
+                    var loaded = payments.findById(saved.id()).orElseThrow();
+                    loaded.succeed(NOW.plusSeconds(30));
+                    payments.save(loaded);
+                });
+        tx.executeWithoutResult(
+                s -> {
+                    var loaded = payments.findById(saved.id()).orElseThrow();
+                    loaded.requireRefund(NOW.plusSeconds(60));
+                    payments.save(loaded);
+                });
+        assertThat(find(saved.id()).status()).isEqualTo(PaymentStatus.REFUND_REQUIRED);
+
+        tx.executeWithoutResult(
+                s -> {
+                    var loaded = payments.findById(saved.id()).orElseThrow();
+                    loaded.refund(NOW.plusSeconds(90));
+                    payments.save(loaded);
+                });
+
+        var refunded = find(saved.id());
+        assertThat(refunded.status()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(refunded.version()).isEqualTo(new Version(3));
+    }
+
+    @Test
+    @DisplayName(
+            "the oldest refund owed is when the longest-waiting REFUND_REQUIRED row entered it")
+    void refundBacklog_isTheOldestOwed() {
+        var saved = saveNew(pending());
+        tx.executeWithoutResult(
+                s -> {
+                    var loaded = payments.findById(saved.id()).orElseThrow();
+                    loaded.succeed(NOW.plusSeconds(30));
+                    payments.save(loaded);
+                });
+        tx.executeWithoutResult(
+                s -> {
+                    var loaded = payments.findById(saved.id()).orElseThrow();
+                    loaded.requireRefund(NOW.plusSeconds(60));
+                    payments.save(loaded);
+                });
+        var enteredAt =
+                jdbc.queryForObject(
+                        "SELECT updated_at FROM payments WHERE id = ?",
+                        java.sql.Timestamp.class,
+                        saved.id().value());
+
+        var oldest = backlog.oldestOwedSince();
+
+        // other classes may hold older rows; this one is owed, so it is never later than that
+        assertThat(oldest).isPresent();
+        assertThat(oldest.get()).isBeforeOrEqualTo(enteredAt.toInstant());
+
+        tx.executeWithoutResult(
+                s -> {
+                    var loaded = payments.findById(saved.id()).orElseThrow();
+                    loaded.refund(NOW.plusSeconds(90));
+                    payments.save(loaded);
+                });
+        assertThat(backlog.oldestOwedSince())
+                .as("a refunded payment is no longer owed")
+                .satisfiesAnyOf(
+                        o -> assertThat(o).isEmpty(),
+                        o -> assertThat(o.get()).isAfterOrEqualTo(oldest.get()));
     }
 
     @Test

@@ -6,6 +6,7 @@ import com.unihub.payment.application.port.out.GatewayCircuitOpenException;
 import com.unihub.payment.application.port.out.GatewayNotReachedException;
 import com.unihub.payment.application.port.out.GatewayOutcomeUnknownException;
 import com.unihub.payment.application.port.out.GatewayPaymentState;
+import com.unihub.payment.application.port.out.GatewayRefundState;
 import com.unihub.payment.application.port.out.PaymentGateway;
 import com.unihub.shared.domain.id.PaymentId;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
@@ -16,6 +17,7 @@ import io.github.resilience4j.retry.RetryConfig;
 import io.github.resilience4j.timelimiter.TimeLimiter;
 import io.github.resilience4j.timelimiter.TimeLimiterConfig;
 import java.math.BigDecimal;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -35,6 +37,10 @@ import java.util.function.Function;
  *       retry — a charge is never retried blindly.
  *   <li>{@code retrieve} (reconciliation, off the critical path): breaker, retry, async time limit.
  *       A pure read, so retrying cannot charge twice.
+ *   <li>{@code findRefund}, {@code refund} (the refund consumer, off the critical path): breaker
+ *       and the async time limit, no retry here either — the consumer's own retry chain is the
+ *       retry, and retrying inside it too would multiply the attempts (checklist D25). The third
+ *       call-site of the one shared circuit.
  *   <li>{@code cancel}: breaker and the async time limit, no retry here. The gateway key of a
  *       cancel is fixed per payment, so a retried 5xx would only be the gateway replaying its saved
  *       answer; the broker's retry chain covers a lost connection.
@@ -163,6 +169,30 @@ public final class ResilientPaymentGateway implements PaymentGateway, AutoClosea
                 timedOut ->
                         new GatewayCallFailedException(
                                 "cancelling the payment took too long", timedOut));
+    }
+
+    @Override
+    public Optional<GatewayRefundState> findRefund(String gatewayTransactionId) {
+        return call(
+                asyncLimit,
+                false,
+                () -> delegate.findRefund(gatewayTransactionId),
+                ResilientPaymentGateway::circuitOpen,
+                timedOut ->
+                        new GatewayCallFailedException(
+                                "listing the refunds took too long", timedOut));
+    }
+
+    @Override
+    public GatewayRefundState refund(PaymentId paymentId, String gatewayTransactionId) {
+        return call(
+                asyncLimit,
+                false,
+                () -> delegate.refund(paymentId, gatewayTransactionId),
+                ResilientPaymentGateway::circuitOpen,
+                timedOut ->
+                        new GatewayCallFailedException(
+                                "creating the refund took too long", timedOut));
     }
 
     private static RuntimeException circuitOpen(Throwable refused) {

@@ -3,6 +3,7 @@ package com.unihub.payment.application.event;
 import com.unihub.payment.api.event.PaymentSucceededIntegrationEvent;
 import com.unihub.payment.domain.event.PaymentDomainEvent;
 import com.unihub.payment.domain.event.PaymentSucceeded;
+import com.unihub.payment.domain.event.RefundRequired;
 import com.unihub.shared.event.OutboxMessage;
 import java.util.List;
 
@@ -23,6 +24,8 @@ public final class PaymentOutboxTranslator {
                                     e.paymentId().value(),
                                     e.registrationId().value(),
                                     e.occurredAt()));
+            case RefundRequired e ->
+                    List.of(new PaymentRefundRequested(e.paymentId().value(), e.occurredAt()));
         };
     }
 }

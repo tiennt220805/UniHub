@@ -6,8 +6,8 @@ import java.time.Instant;
 
 /**
  * The gateway took the money. Recorded only when a {@code PENDING} payment becomes {@code
- * SUCCEEDED}; a late success for a closed payment goes to the refund branch and never records it
- * (payment.md §9), so it cannot confirm a registration.
+ * SUCCEEDED}; a late success for a closed payment goes to the refund branch and records {@link
+ * RefundRequired} instead (payment.md §9), so it cannot confirm a registration.
  */
 public record PaymentSucceeded(
         PaymentId paymentId, RegistrationId registrationId, Instant occurredAt)

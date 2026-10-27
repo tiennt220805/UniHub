@@ -1,8 +1,10 @@
 package com.unihub.payment.application.usecase;
 
 import com.unihub.payment.application.command.RequireRefundCommand;
+import com.unihub.payment.application.event.PaymentOutboxTranslator;
 import com.unihub.payment.application.port.out.PaymentRepository;
 import com.unihub.shared.application.port.out.AuditTrail;
+import com.unihub.shared.application.port.out.EventPublisher;
 import com.unihub.shared.security.Actor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +15,8 @@ import org.springframework.transaction.annotation.Transactional;
  * One attempt at moving a payment to {@code REFUND_REQUIRED}, in one transaction at the Master
  * (payment.md §9). The dedup point is the payment's own conditional transition, never the event:
  * the registration re-emits its rejection on every redelivery of the success, with a new event id.
+ * The transition writes the refund job in the same transaction; this consumer never calls the
+ * gateway.
  */
 @Service
 class RequireRefundTransaction {
@@ -24,12 +28,17 @@ class RequireRefundTransaction {
     }
 
     private final PaymentRepository payments;
+    private final EventPublisher events;
     private final PaymentAudit audit;
     private final java.time.Clock clock;
 
     RequireRefundTransaction(
-            PaymentRepository payments, AuditTrail auditTrail, java.time.Clock clock) {
+            PaymentRepository payments,
+            EventPublisher events,
+            AuditTrail auditTrail,
+            java.time.Clock clock) {
         this.payments = payments;
+        this.events = events;
         this.audit = new PaymentAudit(auditTrail);
         this.clock = clock;
     }
@@ -47,7 +56,13 @@ class RequireRefundTransaction {
             case SUCCEEDED -> {
                 var now = clock.instant();
                 payment.requireRefund(now);
+                var recorded = payment.pullEvents();
                 payments.save(payment);
+                // The refund job commits with the transition (payment.md §9, checklist D26): a
+                // crash before the gateway is called loses nothing, the relay delivers the job.
+                recorded.stream()
+                        .flatMap(e -> PaymentOutboxTranslator.translate(e).stream())
+                        .forEach(events::publish);
                 audit.moved(Actor.system(PaymentAudit.REFUND_CONSUMER), payment, now);
                 return Effect.REFUND_REQUIRED;
             }

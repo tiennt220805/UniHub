@@ -6,8 +6,13 @@ package com.unihub.payment.application.port.out;
  * PENDING} and lets the next sweep try again (payment.md §5). The charge's own calls get {@link
  * GatewayCallFailedException} or {@link GatewayNotReachedException} instead, because the
  * orchestrator must know whether anything could have been sent.
+ *
+ * <p>For the refund consumer this is a gateway that was never asked: the refund is owed and nothing
+ * was attempted, so the message waits in its retry chain instead of being parked (checklist D25,
+ * messaging.md §4). Any other queue that meets it follows the three-attempt rule.
  */
-public final class GatewayCircuitOpenException extends RuntimeException {
+public final class GatewayCircuitOpenException extends RuntimeException
+        implements com.unihub.shared.domain.RetryUntilAvailable {
     public GatewayCircuitOpenException(String message, Throwable cause) {
         super(message, cause);
     }

@@ -16,6 +16,10 @@ interface SpringDataPaymentRepository extends JpaRepository<PaymentJpaEntity, UU
 
     boolean existsByRegistrationIdAndStatusIn(UUID registrationId, Collection<String> statuses);
 
+    /** When the oldest refund owed entered {@code REFUND_REQUIRED} (observability.md §4). */
+    @Query("select min(p.updatedAt) from PaymentJpaEntity p where p.status = 'REFUND_REQUIRED'")
+    Optional<Instant> oldestRefundRequiredSince();
+
     /** Rides {@code idx_payments_pending_scan} (initiated_at WHERE status = 'PENDING'). */
     @Query(
             "select p.id from PaymentJpaEntity p where p.status = 'PENDING'"

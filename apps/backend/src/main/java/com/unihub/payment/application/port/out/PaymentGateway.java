@@ -2,6 +2,7 @@ package com.unihub.payment.application.port.out;
 
 import com.unihub.shared.domain.id.PaymentId;
 import java.math.BigDecimal;
+import java.util.Optional;
 
 /**
  * The Payment Gateway (payment.md §3, backend-coding-standards.md §19.4). Only Payment calls it.
@@ -11,7 +12,8 @@ import java.math.BigDecimal;
  *
  * <p>The charge is split so that only {@link #confirm} can move money (checklist D16).
  * Reconciliation reads the gateway's record with {@link #retrieve} and, for a charge that was
- * provably never confirmed, closes it with {@link #cancel} (payment.md §6).
+ * provably never confirmed, closes it with {@link #cancel} (payment.md §6). The refund is two
+ * calls, {@link #findRefund} and {@link #refund}, for the same reason (payment.md §9).
  */
 public interface PaymentGateway {
 
@@ -51,4 +53,28 @@ public interface PaymentGateway {
      * @throws GatewayCallFailedException on any other failure
      */
     void cancel(PaymentId paymentId, String gatewayTransactionId);
+
+    /**
+     * The refund the gateway already holds for this payment, if any: a plain read (payment.md §9).
+     * When more than one exists the best state wins ({@code SUCCEEDED}, then {@code PENDING}).
+     * Asked before {@link #refund}, because the gateway replays the saved answer of a repeated
+     * idempotency key and forgets the key after a day, so creating again can neither show a refund
+     * progressing nor prevent a second one for long.
+     *
+     * @throws GatewayCircuitOpenException when the circuit refuses the call
+     * @throws GatewayNotReachedException when the request provably never left UniHub
+     * @throws GatewayCallFailedException on any other failure
+     */
+    Optional<GatewayRefundState> findRefund(String gatewayTransactionId);
+
+    /**
+     * Creates a refund of the whole amount, under the fixed key {@code refund:{paymentId}}
+     * (checklist D25).
+     *
+     * @throws GatewayCircuitOpenException when the circuit refuses the call
+     * @throws GatewayNotReachedException when the request provably never left UniHub
+     * @throws GatewayCallFailedException on any other failure, a timeout included: asking again is
+     *     safe, because {@link #findRefund} is asked first
+     */
+    GatewayRefundState refund(PaymentId paymentId, String gatewayTransactionId);
 }

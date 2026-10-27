@@ -8,34 +8,41 @@ import static com.unihub.payment.domain.model.PaymentBuilder.aResolvedPayment;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.unihub.payment.application.command.RequireRefundCommand;
+import com.unihub.payment.application.event.PaymentRefundRequested;
 import com.unihub.payment.application.port.out.PaymentRepository;
 import com.unihub.payment.application.usecase.RequireRefundTransaction.Effect;
 import com.unihub.payment.domain.model.Payment;
 import com.unihub.payment.domain.model.PaymentStatus;
 import com.unihub.shared.application.port.out.AuditActions;
 import com.unihub.shared.application.port.out.AuditTrail;
+import com.unihub.shared.application.port.out.EventPublisher;
 import com.unihub.shared.domain.id.PaymentId;
+import com.unihub.shared.event.OutboxMessage;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class RequireRefundTransactionTest {
     private static final Instant NOW = Instant.parse("2026-12-01T09:00:00Z");
 
     private final PaymentRepository payments = mock(PaymentRepository.class);
     private final AuditTrail audit = mock(AuditTrail.class);
+    private final EventPublisher events = mock(EventPublisher.class);
     private final RequireRefundTransaction transaction =
-            new RequireRefundTransaction(payments, audit, Clock.fixed(NOW, ZoneOffset.UTC));
+            new RequireRefundTransaction(payments, events, audit, Clock.fixed(NOW, ZoneOffset.UTC));
 
     private RequireRefundCommand found(Payment payment) {
         when(payments.findById(payment.id())).thenReturn(Optional.of(payment));
@@ -54,6 +61,23 @@ class RequireRefundTransactionTest {
     }
 
     @Test
+    @DisplayName("the move writes exactly one refund job, after the save, in the same transaction")
+    void succeeded_writesTheRefundJob() {
+        var payment = aResolvedPayment(PaymentStatus.SUCCEEDED).build();
+
+        transaction.attempt(found(payment));
+
+        var order = inOrder(payments, events);
+        order.verify(payments).save(payment);
+        var message = ArgumentCaptor.forClass(OutboxMessage.class);
+        order.verify(events).publish(message.capture());
+        assertThat(message.getValue())
+                .isEqualTo(new PaymentRefundRequested(payment.id().value(), NOW));
+        assertThat(message.getValue().routingKey()).isEqualTo("unihub.payment.refund.requested");
+        verifyNoMoreInteractions(events);
+    }
+
+    @Test
     @DisplayName(
             "a payment already REFUND_REQUIRED or REFUNDED is a no-op however often it is told")
     void alreadyOnItsWay_isNoOp() {
@@ -65,6 +89,7 @@ class RequireRefundTransactionTest {
             assertThat(payment.status()).isEqualTo(status);
         }
         verify(payments, never()).save(any());
+        verifyNoInteractions(events);
     }
 
     @Test
@@ -79,6 +104,7 @@ class RequireRefundTransactionTest {
             assertThat(transaction.attempt(found(payment))).isEqualTo(Effect.NO_OP);
         }
         verify(payments, never()).save(any());
+        verifyNoInteractions(events);
     }
 
     @Test

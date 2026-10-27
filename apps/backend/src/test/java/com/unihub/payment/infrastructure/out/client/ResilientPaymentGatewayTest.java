@@ -10,6 +10,7 @@ import com.unihub.payment.application.port.out.GatewayCircuitOpenException;
 import com.unihub.payment.application.port.out.GatewayNotReachedException;
 import com.unihub.payment.application.port.out.GatewayOutcomeUnknownException;
 import com.unihub.payment.application.port.out.GatewayPaymentState;
+import com.unihub.payment.application.port.out.GatewayRefundState;
 import com.unihub.payment.application.port.out.PaymentGateway;
 import com.unihub.payment.application.port.out.PaymentMethodRejectedException;
 import com.unihub.shared.domain.id.PaymentId;
@@ -18,6 +19,7 @@ import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
@@ -74,6 +76,19 @@ class ResilientPaymentGatewayTest {
         public void cancel(PaymentId id, String gatewayId) {
             calls.incrementAndGet();
             behaviour.get();
+        }
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public Optional<GatewayRefundState> findRefund(String gatewayId) {
+            calls.incrementAndGet();
+            return (Optional<GatewayRefundState>) behaviour.get();
+        }
+
+        @Override
+        public GatewayRefundState refund(PaymentId id, String gatewayId) {
+            calls.incrementAndGet();
+            return (GatewayRefundState) behaviour.get();
         }
     }
 
@@ -291,6 +306,59 @@ class ResilientPaymentGatewayTest {
         stub.behaviour = throwing(new GatewayCallFailedException("blip", null));
         assertThatThrownBy(this::create).isInstanceOf(GatewayCallFailedException.class);
         assertThat(stub.calls).as("a charge is never retried blindly").hasValue(1);
+    }
+
+    // ---------- the refund: the third call-site of the one circuit (checklist D25) ----------
+
+    @Test
+    @DisplayName("the refund calls pass answers through, are never retried, and time out as failed")
+    void refund_isNotRetried_andTimesOutAsFailed() {
+        stub.behaviour = () -> Optional.of(GatewayRefundState.PENDING);
+        assertThat(gateway.findRefund("pi_1")).contains(GatewayRefundState.PENDING);
+        stub.behaviour = () -> GatewayRefundState.SUCCEEDED;
+        assertThat(gateway.refund(PAYMENT, "pi_1")).isEqualTo(GatewayRefundState.SUCCEEDED);
+        stub.calls.set(0);
+
+        stub.behaviour = throwing(new GatewayCallFailedException("blip", null));
+        assertThatThrownBy(() -> gateway.findRefund("pi_1"))
+                .isInstanceOf(GatewayCallFailedException.class);
+        assertThatThrownBy(() -> gateway.refund(PAYMENT, "pi_1"))
+                .isInstanceOf(GatewayCallFailedException.class);
+        assertThat(stub.calls).as("the consumer's retry chain is the retry").hasValue(2);
+
+        stub.calls.set(0);
+        breaker.reset();
+        stub.behaviour = sleeping(Duration.ofSeconds(5));
+        assertThatThrownBy(() -> gateway.findRefund("pi_1"))
+                .isExactlyInstanceOf(GatewayCallFailedException.class);
+        assertThatThrownBy(() -> gateway.refund(PAYMENT, "pi_1"))
+                .isExactlyInstanceOf(GatewayCallFailedException.class);
+        assertThat(stub.calls).hasValue(2);
+    }
+
+    @Test
+    @DisplayName("an open circuit refuses the refund calls without reaching the gateway")
+    void refund_openCircuit_isRefused() {
+        openTheCircuit();
+
+        assertThatThrownBy(() -> gateway.findRefund("pi_1"))
+                .isExactlyInstanceOf(GatewayCircuitOpenException.class);
+        assertThatThrownBy(() -> gateway.refund(PAYMENT, "pi_1"))
+                .isExactlyInstanceOf(GatewayCircuitOpenException.class);
+
+        assertThat(stub.calls).as("the gateway was never reached").hasValue(0);
+    }
+
+    @Test
+    @DisplayName("refund failures count toward the shared circuit like every other call")
+    void refundFailures_openTheSharedCircuit() {
+        stub.behaviour = throwing(new GatewayCallFailedException("down", null));
+        for (int i = 0; i < SETTINGS.minimumNumberOfCalls(); i++) {
+            assertThatThrownBy(() -> gateway.refund(PAYMENT, "pi_1"))
+                    .isInstanceOf(GatewayCallFailedException.class);
+        }
+
+        assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
     }
 
     // ---------- recovery ----------

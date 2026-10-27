@@ -229,7 +229,7 @@ UPDATE idempotency_keys SET status = 'COMPLETED', result_type = :type, result_bo
 if :resolved = 'SUCCEEDED': write outbox unihub.payment.charge.succeeded   -- §9
 ```
 
-**One mapping for "the gateway says it succeeded", on every path.** The webhook (§7), this consumer and the charge's own second transaction (§8) apply the same rule to the row they find: `PENDING` → `SUCCEEDED` (with the `charge.succeeded` outbox row, §9); already `SUCCEEDED`, `REFUND_REQUIRED` or `REFUNDED` → no-op; **`CANCELLED` or `FAILED` → `REFUND_REQUIRED` directly** — never through `SUCCEEDED`, and **without** a `charge.succeeded` event, so it can never confirm a registration (checklist D5, C33). **From Phase 3 (not built yet)** the same transaction writes the outbox row `unihub.payment.refund.requested` (§9; Phase 3 checklist D26) — without it nothing would ever refund this payment. With create/confirm split this late success is practically impossible — a payment is only `CANCELLED` after its PaymentIntent was never confirmed or was cancelled — so this is defence in depth; the live-payment index covers only `PENDING`/`SUCCEEDED`, so the transition never collides with another live payment.
+**One mapping for "the gateway says it succeeded", on every path.** The webhook (§7), this consumer and the charge's own second transaction (§8) apply the same rule to the row they find: `PENDING` → `SUCCEEDED` (with the `charge.succeeded` outbox row, §9); already `SUCCEEDED`, `REFUND_REQUIRED` or `REFUNDED` → no-op; **`CANCELLED` or `FAILED` → `REFUND_REQUIRED` directly** — never through `SUCCEEDED`, and **without** a `charge.succeeded` event, so it can never confirm a registration (checklist D5, C33). **From Phase 3 (built 2026-10-27)** the same transaction writes the outbox row `unihub.payment.refund.requested` (§9; Phase 3 checklist D26) — without it nothing would ever refund this payment. With create/confirm split this late success is practically impossible — a payment is only `CANCELLED` after its PaymentIntent was never confirmed or was cancelled — so this is defence in depth; the live-payment index covers only `PENDING`/`SUCCEEDED`, so the transition never collides with another live payment.
 
 **Why this is safe without searching the gateway (Phase 2 checklist C31 → D16):** Stripe offers no lookup by idempotency key — a result is stored "only after the execution of an endpoint begins" and a reused key "generate[s] a new request" once pruned (≥ 24 h) — so re-sending a create to "find" a transaction could charge late; and its Search API is not read-after-write ("Don't use search for read-after-write flows"). Splitting create from confirm removes the need for either: a `NULL` id is itself the evidence that nothing was confirmed.
 
@@ -271,7 +271,7 @@ if :resolved = 'SUCCEEDED': write outbox unihub.payment.charge.succeeded   -- §
    if status in (CANCELLED, FAILED) and the gateway reports success:
      UPDATE payments SET status = 'REFUND_REQUIRED', version = version + 1
        WHERE id = ? AND version = :expected      -- late success: never a no-op (§6, §9)
-     write outbox unihub.payment.refund.requested  -- same transaction (§9) — Phase 3, not built yet
+     write outbox unihub.payment.refund.requested  -- same transaction (§9)
    if status = 'PENDING':
      UPDATE payments SET status = :resolved, resolved_at = now(), version = version + 1
        WHERE gateway_transaction_id = ? AND version = :expected
@@ -370,7 +370,7 @@ flowchart TD
 | `PAYMENT_SUCCEEDED` / `PAYMENT_FAILED` / `PAYMENT_CANCELLED` | the webhook settles a `PENDING` payment | `payment-webhook` |
 | same | reconciliation settles a `PENDING` payment | `payment-reconciliation` |
 | `PAYMENT_REFUND_REQUIRED` | a success arrives for a closed payment (webhook), or the registration rejected the confirmation (refund consumer) | `payment-webhook` / `payment-refund` |
-| `PAYMENT_REFUNDED` *(Phase 3)* | the gateway reports the refund `succeeded` (§9) | `payment-refund` |
+| `PAYMENT_REFUNDED` *(built, Phase 3)* | the gateway reports the refund `succeeded` (§9) | `payment-refund` |
 
 A payment that stays `PENDING` (outcome unknown) has not moved, so nothing is recorded; a redelivery to a payment that already moved is a no-op and records nothing. The registration's own confirmation by the consumer is recorded as `REGISTRATION_CONFIRMED` under `payment-confirmation`. The refund call and `REFUNDED` are Phase 3 (M-76).
 
@@ -397,7 +397,7 @@ A payment that stays `PENDING` (outcome unknown) has not moved, so nothing is re
 ```
 UPDATE payments SET status = 'REFUND_REQUIRED', version = version + 1
   WHERE id = :paymentId AND status = 'SUCCEEDED'
-affected rows = 1 → write outbox unihub.payment.refund.requested (Phase 3); COMMIT
+affected rows = 1 → write outbox unihub.payment.refund.requested; COMMIT
 affected rows = 0 → re-read:
   REFUND_REQUIRED → no-op (its refund.requested row was written with that transition)
   REFUNDED        → no-op
@@ -405,13 +405,13 @@ affected rows = 0 → re-read:
 
 **Deduplication is per payment, never per event:** in the compensation branch the registration does not change, so every redelivery of `charge.succeeded` makes Registration emit a **new** `confirmation.rejected` event with a new event id. Deduplicating by event id would refund once per redelivery; the conditional transition above, keyed by the payment, is what makes it happen once. No inbox table is added (`architecture.md` §6.1 names exactly three Technical Pattern Entities; `../../guidelines/backend-coding-standards.md` §8.5).
 
-**Every move to `REFUND_REQUIRED` writes a refund job (Phase 3 checklist D26, 2026-10-26; Phase 3, not built yet — Phase 2 code writes no job and calls no refund).** Both ways into `REFUND_REQUIRED` — this consumer, and the late success of §6/§7 — write the outbox row `unihub.payment.refund.requested` (payload: `paymentId`) in the same transaction as the transition. It is a Deferred Job Payment sends to itself (`../../guidelines/backend-coding-standards.md` §8.4), routed to its own queue, `unihub.payment-refund-execution.queue`, with its own retry chain (`../platform/messaging.md` §2, §4). That queue's consumer is the **only** code that calls the gateway refund. Consequences:
+**Every move to `REFUND_REQUIRED` writes a refund job (Phase 3 checklist D26, 2026-10-26; built 2026-10-27 — Phase 2 code wrote no job and called no refund).** Both ways into `REFUND_REQUIRED` — this consumer, and the late success of §6/§7 — write the outbox row `unihub.payment.refund.requested` (payload: `paymentId`) in the same transaction as the transition. It is a Deferred Job Payment sends to itself (`../../guidelines/backend-coding-standards.md` §8.4), routed to its own queue, `unihub.payment-refund-execution.queue`, with its own retry chain (`../platform/messaging.md` §2, §4). That queue's consumer is the **only** code that calls the gateway refund. Consequences:
 
 - The late success, which had no trigger at all in Phase 2, is refunded like the compensation.
 - A crash after the transition commits and before the gateway is called loses nothing: the job row commits with the transition and the outbox relay delivers it. This replaces Phase 2's rule (checklist D2, constraint 3) that the `confirmation.rejected` consumer must refund again when it finds `REFUND_REQUIRED`; that consumer now never calls the gateway.
 - Messages are never told apart by routing key: each queue carries exactly one kind.
 
-**Model — the refund (Phase 3, checklist D25):**
+**Model — the refund (Phase 3, checklist D25; built 2026-10-27 as `RefundPayment` → `RefundPaymentSteps`, listener `RefundRequestedListener`, port methods `PaymentGateway#findRefund` and `#refund` — two methods because the gateway is listed and then asked, one call each, checklist D17):**
 
 ```
 consumer of unihub.payment-refund-execution.queue (paymentId):

@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.unihub.payment.domain.event.PaymentSucceeded;
+import com.unihub.payment.domain.event.RefundRequired;
 import com.unihub.payment.domain.exception.InvalidPaymentStateException;
 import com.unihub.shared.domain.Version;
 import com.unihub.shared.domain.id.PaymentId;
@@ -116,8 +117,9 @@ class PaymentTest {
         assertThat(payment.status()).isEqualTo(PaymentStatus.REFUND_REQUIRED);
         assertThat(payment.resolvedAt()).as("it was resolved before, and still is").isNotNull();
         assertThat(payment.pullEvents())
-                .as("never through SUCCEEDED, so it can never confirm a registration")
-                .isEmpty();
+                .as(
+                        "never through SUCCEEDED, so it can never confirm a registration: the refund job")
+                .containsExactly(new RefundRequired(payment.id(), payment.registrationId(), NOW));
     }
 
     @ParameterizedTest
@@ -247,7 +249,9 @@ class PaymentTest {
         assertThat(payment.resolvedAt())
                 .as("it was resolved when it succeeded; the refund duty does not re-stamp it")
                 .isEqualTo(RESOLVED_AT);
-        assertThat(payment.pullEvents()).as("no event: nothing waits for it").isEmpty();
+        assertThat(payment.pullEvents())
+                .as("the refund job is the only thing that follows")
+                .containsExactly(new RefundRequired(payment.id(), payment.registrationId(), NOW));
     }
 
     @ParameterizedTest
@@ -265,5 +269,52 @@ class PaymentTest {
         assertThatThrownBy(() -> payment.requireRefund(NOW))
                 .isInstanceOf(InvalidPaymentStateException.class);
         assertThat(payment.status()).isEqualTo(status);
+    }
+
+    @Test
+    @DisplayName("a REFUND_REQUIRED payment becomes REFUNDED when the gateway reports the refund")
+    void refund_fromRefundRequired() {
+        var payment = aResolvedPayment(PaymentStatus.REFUND_REQUIRED).build();
+
+        payment.refund(NOW);
+
+        assertThat(payment.status()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(payment.pullEvents()).as("nothing follows a refund").isEmpty();
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = PaymentStatus.class,
+            names = {"PENDING", "SUCCEEDED", "FAILED", "CANCELLED", "REFUNDED"})
+    @DisplayName("only a REFUND_REQUIRED payment can be refunded: REFUNDED -> * is refused too")
+    void refund_refusedElsewhere(PaymentStatus status) {
+        var payment =
+                status == PaymentStatus.PENDING
+                        ? aPendingPayment().build()
+                        : aResolvedPayment(status).build();
+
+        assertThatThrownBy(() -> payment.refund(NOW))
+                .isInstanceOf(InvalidPaymentStateException.class);
+        assertThat(payment.status()).isEqualTo(status);
+    }
+
+    @Test
+    @DisplayName("REFUNDED is final: no transition leaves it")
+    void refunded_isFinal() {
+        var payment = aResolvedPayment(PaymentStatus.REFUNDED).build();
+
+        assertThatThrownBy(() -> payment.succeed(NOW))
+                .isInstanceOf(InvalidPaymentStateException.class);
+        assertThatThrownBy(() -> payment.fail(NOW))
+                .isInstanceOf(InvalidPaymentStateException.class);
+        assertThatThrownBy(() -> payment.cancel(NOW))
+                .isInstanceOf(InvalidPaymentStateException.class);
+        assertThatThrownBy(() -> payment.lateSuccess(NOW))
+                .isInstanceOf(InvalidPaymentStateException.class);
+        assertThatThrownBy(() -> payment.requireRefund(NOW))
+                .isInstanceOf(InvalidPaymentStateException.class);
+        assertThatThrownBy(() -> payment.refund(NOW))
+                .isInstanceOf(InvalidPaymentStateException.class);
+        assertThat(payment.status()).isEqualTo(PaymentStatus.REFUNDED);
     }
 }

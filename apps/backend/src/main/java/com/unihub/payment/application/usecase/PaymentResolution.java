@@ -70,7 +70,13 @@ final class PaymentResolution {
                     return PaymentWebhookTransaction.Effect.NO_OP;
                 }
                 payment.lateSuccess(now);
+                var recorded = payment.pullEvents();
                 payments.save(payment);
+                // Nothing else would ever refund this money (checklist D26): the job commits with
+                // the transition.
+                recorded.stream()
+                        .flatMap(e -> PaymentOutboxTranslator.translate(e).stream())
+                        .forEach(events::publish);
                 audit.moved(actor, payment, now);
                 return PaymentWebhookTransaction.Effect.LATE_SUCCESS;
             }

@@ -2,8 +2,7 @@ package com.unihub.payment.domain.model;
 
 /**
  * Mirrors the CHECK on {@code payments.status} (database-schema.md §5.1), all six values, so that
- * {@link Payment#restore} can read any valid row. The aggregate implements only the transitions out
- * of {@code PENDING} today; the refund transitions arrive with the compensation branch.
+ * {@link Payment#restore} can read any valid row.
  */
 public enum PaymentStatus {
     PENDING,
