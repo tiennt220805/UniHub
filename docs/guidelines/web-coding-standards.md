@@ -551,7 +551,11 @@ export const env = { apiBaseUrl: parsed.VITE_API_BASE_URL }
 - **Status polling.** `getPayment` and `getRegistration` poll every 2s while a payment or a paid
   registration is not final — including the "payment `SUCCEEDED`, registration still `RESERVED`"
   window (`technical-design/modules/registration.md` §5). Polling stops at a final state, or after
-  2 minutes, when the UI shows "still processing" with a manual refresh.
+  2 minutes, when the UI shows "still processing" with a manual refresh. A registration that has
+  ended (`EXPIRED`, `CANCELLED`) does not end the payment's story: a payment still `PENDING`, a
+  late `SUCCEEDED`, and a `REFUND_REQUIRED` are followed on until `FAILED`, `CANCELLED` or
+  `REFUNDED`, because the refund is made in the background after the registration is final
+  (Phase 3 checklist 6.1).
 - **Retry policy.** Queries never retry a `4xx`; other failures use TanStack's default retry.
   Mutations never retry automatically, except those guarded by `Idempotency-Key` (§10), which may
   be retried — manually by the user after any transient failure, or automatically only after a
@@ -1113,7 +1117,7 @@ fills gaps with its own guesses becomes a second, conflicting source of truth.
 | 4 | ~~**Permission source for UI gating.**~~ **Done (2026-10-14).** `LoginResponse.permissions`; the token stays opaque (`schemas/user.yaml`, `auth-and-identity.md` §7; §11 here) | `packages/api-contract/schemas/user.yaml` | — |
 | 5 | ~~**Machine-readable conflict reasons.**~~ **Done (2026-10-14).** One problem `type` URI per client-branching reason, a stable contract (`backend-coding-standards.md` §17, `common/error.yaml`; §6 here) | `packages/api-contract/common/error.yaml` | — |
 | 6 | ~~**Payment `503` replay semantics conflict.**~~ **Done (2026-10-14).** `technical-design/modules/payment.md` §8 now follows `backend-coding-standards.md` §21: a `503` is never recorded under the key, so a same-key retry executes for real (Phase 2 checklist D1). §10 already followed this | `technical-design/modules/payment.md` §8 | — |
-| 7 | ~~**Client timing values.**~~ **Done (2026-10-14).** Seats `staleTime` 3s / `refetchInterval` 5s while visible; status polling every 2s, stop at a final state or after 2 minutes; `503` auto-retry ≤ 3 with `Retry-After` + jitter, same key (§7, §10; Phase 2 checklist D15) | this file | — |
+| 7 | ~~**Client timing values.**~~ **Done (2026-10-14).** Seats `staleTime` 3s / `refetchInterval` 5s while visible; status polling every 2s, stop at a final state (a payment owed a refund is not final until `REFUNDED`) or after 2 minutes; `503` auto-retry ≤ 3 with `Retry-After` + jitter, same key (§7, §10; Phase 2 checklist D15) | this file | — |
 | 8 | ~~**Client-side payment collection flow.**~~ **Done (2026-10-14).** Phase 2 uses a dropdown of Stripe test tokens (success and decline), shown only with a test key; `paymentMethodToken` stays a generic opaque token so Stripe.js can be added later without an API change (Phase 2 checklist D11) | `technical-design/modules/payment.md` | — |
 | 9 | **E2E tooling not installed.** Playwright is decided (`e2e-testing.md` §2) but not in `apps/web/package.json`, and `apps/web/e2e/` does not exist | `apps/web` | Phase 7 (`e2e-testing.md` §3) |
 | 10 | **No list of `DRAFT` (or `CANCELLED`/`COMPLETED`) workshops.** `listWorkshops` returns only `PUBLISHED` workshops regardless of caller, and no other endpoint lists workshops, so the `administration/` catalog cannot list drafts to edit or publish, nor past workshops to report on | `technical-design/modules/workshop.md`, `paths/workshop.yaml` | Phase 2 Organizer catalog UI |

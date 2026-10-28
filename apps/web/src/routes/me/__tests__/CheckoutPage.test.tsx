@@ -197,6 +197,101 @@ describe('CheckoutPage: waiting for the result (D15)', () => {
     expect(screen.getByRole('button', { name: 'Thanh toán' })).toBeInTheDocument()
   })
 
+  it('a hold that runs out while a payment is pending: expired, no payment offered, the payment still followed', async () => {
+    // Phase 3 makes RESERVED -> EXPIRED happen for real (the seat-hold expiry consumer).
+    const state = serveCheckout()
+    state.onCharge = () => aPayment({ status: 'PENDING' })
+    const user = userWithTimers()
+    renderRoute(PATH)
+    await user.click(await payButton())
+    await screen.findByText('Đang xử lý thanh toán…')
+    expect(screen.getByText(/Chỗ của bạn được giữ trong/)).toBeInTheDocument()
+
+    state.registration = aRegistration({ ticketType: 'PAID', status: 'EXPIRED' })
+    await vi.advanceTimersByTimeAsync(2_100)
+
+    expect(await screen.findByText('Đã hết thời gian giữ chỗ cho đăng ký này.')).toBeInTheDocument()
+    expect(screen.queryByText(/Chỗ của bạn được giữ trong/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Thanh toán' })).not.toBeInTheDocument()
+    // the charge was still in flight: the page keeps asking about it
+    const reads = state.paymentReads
+    await vi.advanceTimersByTimeAsync(2_100)
+    expect(state.paymentReads).toBeGreaterThan(reads)
+  })
+
+  it('follows a late success to its refund: PENDING, SUCCEEDED, REFUND_REQUIRED, REFUNDED, then stops', async () => {
+    const state = serveCheckout()
+    state.onCharge = () => aPayment({ status: 'PENDING' })
+    const user = userWithTimers()
+    renderRoute(PATH)
+    await user.click(await payButton())
+    await screen.findByText('Đang xử lý thanh toán…')
+    state.registration = aRegistration({ ticketType: 'PAID', status: 'EXPIRED' })
+
+    // the gateway reports success after the hold has already been released
+    state.payment = aPayment({ status: 'SUCCEEDED' })
+    await vi.advanceTimersByTimeAsync(2_100)
+    expect(await screen.findByText('Thanh toán thành công.')).toBeInTheDocument()
+
+    state.payment = aPayment({ status: 'REFUND_REQUIRED' })
+    await vi.advanceTimersByTimeAsync(2_100)
+    expect(await screen.findByText(/Khoản tiền sẽ được hoàn lại/)).toBeInTheDocument()
+
+    state.payment = aPayment({ status: 'REFUNDED' })
+    await vi.advanceTimersByTimeAsync(2_100)
+    expect(await screen.findByText('Khoản thanh toán đã được hoàn lại.')).toBeInTheDocument()
+    expect(screen.getByText('Đã hết thời gian giữ chỗ cho đăng ký này.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Thanh toán' })).not.toBeInTheDocument()
+
+    const reads = state.paymentReads
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(state.paymentReads).toBe(reads)
+  })
+
+  it('a refund still to be made is followed after a reload, until it is REFUNDED', async () => {
+    const state = serveCheckout({
+      registration: aRegistration({ ticketType: 'PAID', status: 'EXPIRED' }),
+      payment: aPayment({ status: 'REFUND_REQUIRED' }),
+    })
+    renderRoute(`${PATH}?payment=${PAYMENT_ID}`)
+    expect(await screen.findByText(/Khoản tiền sẽ được hoàn lại/)).toBeInTheDocument()
+
+    state.payment = aPayment({ status: 'REFUNDED' })
+    await vi.advanceTimersByTimeAsync(2_100)
+
+    expect(await screen.findByText('Khoản thanh toán đã được hoàn lại.')).toBeInTheDocument()
+    const reads = state.paymentReads
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(state.paymentReads).toBe(reads)
+  })
+
+  it('a refund that never completes ends in "still processing" and a manual refresh', async () => {
+    serveCheckout({
+      registration: aRegistration({ ticketType: 'PAID', status: 'EXPIRED' }),
+      payment: aPayment({ status: 'REFUND_REQUIRED' }),
+    })
+    renderRoute(`${PATH}?payment=${PAYMENT_ID}`)
+    await screen.findByText(/Khoản tiền sẽ được hoàn lại/)
+
+    await vi.advanceTimersByTimeAsync(121_000)
+
+    expect(await screen.findByText(/Vẫn đang xử lý/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Làm mới' })).toBeInTheDocument()
+  })
+
+  it('a refunded payment is not asked about again', async () => {
+    const state = serveCheckout({
+      registration: aRegistration({ ticketType: 'PAID', status: 'EXPIRED' }),
+      payment: aPayment({ status: 'REFUNDED' }),
+    })
+    renderRoute(`${PATH}?payment=${PAYMENT_ID}`)
+    expect(await screen.findByText('Khoản thanh toán đã được hoàn lại.')).toBeInTheDocument()
+
+    await vi.advanceTimersByTimeAsync(20_000)
+
+    expect(state.paymentReads).toBe(1)
+  })
+
   it('gives up after 2 minutes: "still processing" and a manual refresh (AC15.2)', async () => {
     const state = serveCheckout()
     state.onCharge = () => aPayment({ status: 'PENDING' })
@@ -366,8 +461,8 @@ describe('CheckoutPage: the registration it pays for', () => {
     expect(screen.queryByRole('button', { name: 'Thanh toán' })).not.toBeInTheDocument()
   })
 
-  it('an expired registration whose payment needs a refund says so, with no form and no polling', async () => {
-    const state = serveCheckout({
+  it('an expired registration whose payment needs a refund says so, with no payment form', async () => {
+    serveCheckout({
       registration: aRegistration({ ticketType: 'PAID', status: 'EXPIRED' }),
       payment: aPayment({ status: 'REFUND_REQUIRED' }),
     })
@@ -376,7 +471,6 @@ describe('CheckoutPage: the registration it pays for', () => {
     expect(await screen.findByText(/Khoản tiền sẽ được hoàn lại/)).toBeInTheDocument()
     expect(screen.getByText('Đã hết thời gian giữ chỗ cho đăng ký này.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Thanh toán' })).not.toBeInTheDocument()
-    expect(state.paymentReads).toBe(1)
   })
 
   it.each([

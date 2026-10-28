@@ -10,3 +10,10 @@ export const isPaymentResolved = (status: PaymentStatus): boolean => status !== 
 /** Resolved without taking the student's money, or giving it back: the student may try again. */
 export const isPaymentRetryable = (status: PaymentStatus): boolean =>
   status === 'FAILED' || status === 'CANCELLED'
+
+/**
+ * The money is owed back and the refund has not been made yet. It is made in the background (the
+ * refund consumer), so the status moves on to REFUNDED by itself: a screen showing this status is
+ * showing something that is still happening.
+ */
+export const isRefundPending = (status: PaymentStatus): boolean => status === 'REFUND_REQUIRED'

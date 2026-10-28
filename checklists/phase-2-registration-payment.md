@@ -368,6 +368,7 @@ Chốt bởi Nguyễn Thành Tiến: D1–D4 ngày 2026-10-13; C2, C6, C10, C11 
   1. Số ghế: `staleTime` 3s, `refetchInterval` 5s, **chỉ** khi tab đang hiển thị và đang ở trang chi tiết.
   2. Poll `getPayment`/`getRegistration` mỗi 2s, gồm cả cửa sổ "payment thành công, registration vẫn `RESERVED`"; dừng khi đạt kết cục cuối, hoặc sau 2 phút thì hiện "đang xử lý" + nút làm mới thủ công.
   3. Tự retry `503` tối đa 3 lần, tôn trọng `Retry-After`, có jitter, và **bắt buộc giữ nguyên `Idempotency-Key`**.
+- **Sửa ở Phase 3 (2026-10-28, mục 6.1, owner chọn "poll tới khi REFUNDED"):** "kết cục cuối" của payment không phải `REFUND_REQUIRED` (refund chạy nền sau đó) mà là `FAILED`, `CANCELLED` hoặc `REFUNDED`; một đăng ký đã `EXPIRED`/`CANCELLED` không làm dừng việc theo dõi payment còn `PENDING`, `SUCCEEDED` muộn hoặc `REFUND_REQUIRED`. Cửa sổ 2 phút vẫn áp dụng. Lúc quyết định D15 (Phase 2) chưa có gì đưa payment từ `REFUND_REQUIRED` sang `REFUNDED`.
 - **Rủi ro ghi lại để xem ở Phase 8:** poll số ghế ~2.400 rps ở 12.000 CCU, nặng hơn nếu cache M-08 bị hoãn (`IMPLEMENTATION-READINESS.md` mục C).
 - **Acceptance criteria:** **AC15.1** tab ẩn hoặc rời trang chi tiết → ngừng poll số ghế; **AC15.2** poll dừng đúng ở kết cục cuối hoặc sau 2 phút; **AC15.3** retry `503` dùng cùng key, ≤ 3 lần, tôn trọng `Retry-After`.
 - **Test cần có:** Mục 0C, nhóm T-WEB.

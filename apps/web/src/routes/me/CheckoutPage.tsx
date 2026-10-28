@@ -6,6 +6,7 @@ import {
   CheckoutForm,
   isPaymentResolved,
   isPaymentRetryable,
+  isRefundPending,
   type Payment,
   PaymentStatusNotice,
   usePayment,
@@ -49,12 +50,29 @@ export function CheckoutPage() {
   const holdLeft = useCountdown(registration.data?.holdExpiresAt)
 
   // Poll while there is a payment to follow and nothing has settled: not a failure the student can
-  // retry, not a refund, and the registration still RESERVED — which includes the window where the
-  // payment has SUCCEEDED but the registration is not yet confirmed.
+  // retry, and the registration still RESERVED — which includes the window where the payment has
+  // SUCCEEDED but the registration is not yet confirmed.
+  //
+  // A registration that has ended (EXPIRED, CANCELLED) does not end the payment's story: a charge
+  // still PENDING can succeed late, a late success becomes REFUND_REQUIRED and the refund consumer
+  // then moves it to REFUNDED, all after the registration is final (Phase 3). Those payments are
+  // followed until they reach FAILED, CANCELLED or REFUNDED.
   const paymentEndedWithoutConfirming =
     payment.data !== undefined && isPaymentResolved(payment.data.status) && payment.data.status !== 'SUCCEEDED'
+  const registrationEnded =
+    registration.data !== undefined &&
+    registration.data.status !== 'CONFIRMED' &&
+    isRegistrationFinal(registration.data.status)
+  const paymentStillMoving =
+    payment.data !== undefined &&
+    registration.data !== undefined &&
+    registration.data.status !== 'CONFIRMED' &&
+    (!isPaymentResolved(payment.data.status) ||
+      isRefundPending(payment.data.status) ||
+      (payment.data.status === 'SUCCEEDED' && registrationEnded))
   const settled =
     registration.data !== undefined &&
+    !paymentStillMoving &&
     (isRegistrationFinal(registration.data.status) || paymentEndedWithoutConfirming)
   const active =
     paymentId !== null && registration.data !== undefined && !payment.isError && !settled
