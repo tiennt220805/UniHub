@@ -415,6 +415,10 @@ data:
   REDIS_HOST: "redis"
   RABBITMQ_HOST: "rabbitmq"
   S3_ENDPOINT: "http://minio:9000"
+  # UNIHUB_NOTIFICATION_SMTP_HOST is required (blank stops startup, notification.md §2) and has
+  # no placeholder here on purpose: a non-blank dummy value would pass that check and silently
+  # turn every email into UNAVAILABLE. Each overlay sets the real SMTP host.
+  UNIHUB_NOTIFICATION_SMTP_PORT: "587"
 ---
 # secret.example.yaml — committed as a template, never as `secret.yaml` with real values;
 # `.gitignore` excludes any locally-generated `secret.yaml`. Real values are created via
@@ -432,6 +436,8 @@ stringData:
   DB_PASSWORD: "<injected at runtime>"
   JWT_SIGNING_KEY: "<injected at runtime>"
   PAYMENT_GATEWAY_API_KEY: "<injected at runtime>"
+  UNIHUB_NOTIFICATION_SMTP_USERNAME: "<injected at runtime>"   # Phase 4 checklist D36
+  UNIHUB_NOTIFICATION_SMTP_PASSWORD: "<injected at runtime>"
 ```
 
 `base/postgres-master-statefulset.yaml` gives PostgreSQL the stable identity and persistent storage `docs/requirement.md` §3.3 requires; `database-schema.md` owns everything about the schema this instance holds, not this document:

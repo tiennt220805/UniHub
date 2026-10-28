@@ -124,6 +124,8 @@ flowchart LR
 
 **Guarantee:** every `CONFIRMED` registration has exactly one signed ticket payload, generated once, by the one module authorized to generate it, and never regenerated from scratch afterward.
 
+**Hook into the confirmation email (Phase 4 checklist D37):** `docs/requirement.md` §1.3.2 sends the confirmation "with their e-ticket". Phase 4 ships the confirmation without the QR (`notification.md` §4); when this issuance flow is built in Phase 5, the `REGISTRATION_CONFIRMED` email template gains the e-ticket, and M-37's e-ticket half is closed then.
+
 ---
 
 ## 5. Why ECDSA, Not RSA — the QR Capacity Constraint

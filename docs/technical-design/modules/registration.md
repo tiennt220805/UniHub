@@ -258,6 +258,9 @@ Every key format, tuning parameter, and idempotency scope in this document, in o
 | Payment-confirmation queue | `unihub.payment-confirmation.queue` ← `unihub.payment.charge.succeeded` | Paid registration `RESERVED → CONFIRMED` (§5) |
 | Compensation event | `unihub.registration.confirmation.rejected` → `unihub.payment-refund.queue`, then `unihub.payment.refund.requested` → `unihub.payment-refund-execution.queue` | Payment succeeded for a registration no longer `RESERVED` (§5) |
 
+
+**Internal read for Notification (Phase 4 checklist D35):** `registration.api` exposes a read interface returning the `(userId, registrationId)` pairs of a workshop's registrations in `CONFIRMED` or `RESERVED` (`EXPIRED`/`CANCELLED` excluded). Notification calls it through its own `WorkshopRecipients` port (`notification.md` §3), at the Master, when it consumes a cancellation or reschedule. When "workshop cancelled → cancel its registrations" is built (`backend-coding-standards.md` §27 #8), registrations cancelled for that reason must still be returned for the cancellation notice.
+
 ---
 
 ## API Surface

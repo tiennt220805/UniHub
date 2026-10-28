@@ -24,6 +24,7 @@ File ingestion in this document targets a Kubernetes-mounted shared volume, not 
 - [8. Upsert Idempotency & Concurrent-Run Safety](#8-upsert-idempotency-concurrent-run-safety)
 - [9. Reference Table](#9-reference-table)
 - [10. Login Credentials in Phase 2 & First-Login Setup (Open)](#10-login-credentials-in-phase-2-first-login-setup-open)
+- [11. Internal Read for Notification](#11-internal-read-for-notification)
 - [API Surface](#api-surface)
 
 ---
@@ -313,6 +314,12 @@ Every table, convention, and tuning parameter this document introduces, traced b
 | First-login setup | **Open item** — to be designed when an e-mail channel exists (Phase 4 or later); tracked in the Phase 2 checklist |
 
 **Guarantee:** no environment other than a developer's or a test's ever contains an account that was not created through a designed path.
+
+---
+
+## 11. Internal Read for Notification
+
+**Decision:** Phase 4 checklist D35. `user.api` exposes a read interface returning a user's email and full name by `userId`, and nothing else (no entity, no password hash). Notification calls it through its own `RecipientDirectory` port (`notification.md` §3), at the Master.
 
 ---
 

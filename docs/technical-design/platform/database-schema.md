@@ -39,6 +39,7 @@ All SQL in this document targets PostgreSQL (the Master; DDL runs once, ahead of
 - [9. Consolidated Entity-Relationship Diagram](#9-consolidated-entity-relationship-diagram)
 - [10. DDL Appendix](#10-ddl-appendix)
   - [10.1 Pending migration `V3` — specification](#101-pending-migration-v3--specification-phase-2-not-yet-a-file)
+  - [10.2 Migration `V5` — specification](#102-migration-v5--specification-phase-4-not-yet-a-file)
 - [11. Traceability Matrix](#11-traceability-matrix)
 
 ---
@@ -324,8 +325,12 @@ Rationale for each column, and the channel-abstraction design that reads `channe
 | `status` | VARCHAR(20) | NOT NULL, DEFAULT `'PENDING'`, CHECK IN (`PENDING`, `SENT`, `FAILED`) | |
 | `sent_at` | TIMESTAMPTZ | NULL | |
 | `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | |
+| `source_event_id` | UUID | NOT NULL; part of `UNIQUE (source_event_id, user_id, channel)` | *Migration `V5` (§10.2).* AMQP `message-id` of the event that produced the row = `event_publications.id`. The unique key is the redelivery dedup (INV-11): the consumer inserts with `ON CONFLICT DO NOTHING` (`../modules/notification.md` §3; Phase 4 checklist D31). `user_id` is in the key because one event fans out to many recipients. |
+| `claimed_at` | TIMESTAMPTZ | NULL | *Migration `V5` (§10.2).* Send lease: set by a conditional `UPDATE … WHERE status = 'PENDING' AND (claimed_at IS NULL OR claimed_at < now() - <lease>)` before the provider is called, so two concurrent deliveries never both send a row (`../modules/notification.md` §3; D33). Set back to `NULL` by its own holder when the provider was unavailable, so the next retry can claim the row at once; left as is once the row is `SENT`/`FAILED`, where it no longer means anything. |
+| `title` | VARCHAR(200) | NULL | *Migration `V5` (§10.2).* Rendered in-app title; filled only for `IN_APP` rows, at insert, never re-rendered (`../modules/notification.md` §1; Phase 4 checklist D38). |
+| `body` | TEXT | NULL | *Migration `V5` (§10.2).* Rendered in-app body; same rule as `title`. No read/unread column, by decision (D38). |
 
-**Indexes:** `(user_id, status)` — in-app notification inbox queries.
+**Indexes:** `(user_id, status)` — from `V1`. `(user_id, channel, created_at DESC)` — *`V5`*, the in-app inbox read (`channel = 'IN_APP'` for one user, newest first, paginated). The unique constraint's own index, led by `source_event_id`, serves the consumer's "rows of this event still `PENDING`" read.
 
 ---
 
@@ -954,6 +959,30 @@ ON CONFLICT (role_id, permission_id) DO NOTHING;
 `V4` is **forward-only**, like every migration here: there is no down migration; withdrawing the permission is a new migration. `REGISTRATION_CREATE` covers charging one's own registration as well as creating it (`../modules/payment.md` §8).
 
 Compatibility: an old pod never checks `REGISTRATION_CREATE` (the endpoints do not exist before Phase 2), and a token issued before `V4` simply lacks the code until its holder logs in again (≤ 30 minutes, `auth-and-identity.md` §4). Dev/test student accounts are **not** seeded here — they never enter a production migration (`../modules/user.md` §10).
+
+### 10.2 Migration `V5` — specification (Phase 4; not yet a file)
+
+Specified here first, per the rule above. Decisions: Phase 4 checklist D31 (dedup key), D33 (send lease), D38 (in-app content, inbox index).
+
+```sql
+ALTER TABLE notifications ADD COLUMN source_event_id UUID NOT NULL;
+ALTER TABLE notifications ADD COLUMN claimed_at TIMESTAMPTZ;
+ALTER TABLE notifications ADD COLUMN title VARCHAR(200);
+ALTER TABLE notifications ADD COLUMN body TEXT;
+ALTER TABLE notifications
+    ADD CONSTRAINT uq_notifications_source_event_user_channel
+    UNIQUE (source_event_id, user_id, channel);
+CREATE INDEX idx_notifications_inbox ON notifications (user_id, channel, created_at DESC);
+```
+
+| Change | Old pod (before `V5`) | New pod | Verdict |
+|---|---|---|---|
+| `source_event_id` `NOT NULL`, no default | Never writes `notifications` (no consumer exists before Phase 4) | Always writes it | Safe only because the table is empty in every environment: the `ADD COLUMN … NOT NULL` without a default must fail, not default, if it ever meets rows |
+| `claimed_at`, `title`, `body` nullable | Never writes `notifications` | Writes them | Safe |
+| Index `idx_notifications_inbox` | — | Reads through it | Safe; empty table, no build cost |
+| `UNIQUE (source_event_id, user_id, channel)` | — | Relies on it | Safe; created on an empty table |
+
+`V5` is forward-only, like every migration here.
 
 ---
 

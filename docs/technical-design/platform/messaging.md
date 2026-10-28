@@ -78,6 +78,8 @@ Every queue below is durable; message bodies are JSON (Jackson-serialized), matc
 
 Each of the eight consumed queues (including `unihub.payment-refund-execution.queue`, built in Phase 3) has its own dedicated 3-stage retry chain (§4) — not a single chain shared across all of them. §4 explains why a shared chain doesn't actually work once a manual, application-level republish step is involved.
 
+**Message properties set by the relay (Phase 4 checklist D34):** every message carries `message-id` = `event_publications.id` and the AMQP `type` property = the row's routing key, plus the `correlationId` header (§5). `type` exists because one queue, `unihub.notification.queue`, receives three payload types and the received routing key is replaced after a retry hop (§4); both properties live on the `Message` object, so they survive every retry hop and the parking-lot. A consumer of a single-type queue may ignore `type`. Messages published before `type` existed have none; the notification consumer's fallback for them is in `../modules/notification.md` §3.
+
 ```mermaid
 flowchart TB
     Producers["Backend API Instances\n(any of N parallel pods)"]
@@ -211,6 +213,8 @@ Each of the other seven business queues has an identical-shaped chain and diagra
 
 Every other failure on these two queues, and every failure on the other six, follows the 3-attempt rule above. The alerts on both signals are Phase 6 (`observability.md` §6).
 
+`unihub.notification.queue` follows the 3-attempt rule too, deliberately (Phase 4 checklist D32): a notification provider that is unavailable leaves the affected rows `PENDING` and the consumer throws, so the message walks 5s → 30s → 5m and then parks. Notification holds neither money nor a seat, so it is not a must-not-park exception; a replay of the parked message sends only the rows still `PENDING` (`../modules/notification.md` §3, §5).
+
 **Guarantees:** a transient consumer failure is retried up to 3 times with increasing delay before requiring human attention; the Parking Lot Queue is where the Organizing Committee's operational visibility (`architecture.md`'s Observability Stack) picks up a genuinely stuck message — never a silent drop.
 
 ---
@@ -242,7 +246,8 @@ every 1s (fixedDelay), on every pod:
   for each row:
     MDC.put("correlationId", row.correlation_id)                  -- observability.md §1: the global
     publish to unihub.events with routing_key,                    --   RabbitTemplate post-processor copies it
-            message-id = row.id, persistent, mandatory = true     --   into the correlationId header
+            message-id = row.id, type = routing_key,              --   into the correlationId header
+            persistent, mandatory = true                          -- type: §2 (Phase 4 checklist D34)
     wait for the publisher confirm (timeout 5s)
     ack and not returned  → UPDATE event_publications                        -- autocommit, one row
                                SET status = 'PUBLISHED', published_at = now()

@@ -357,6 +357,9 @@ Every algorithm, threshold, TTL, and naming decision in this document, in one pl
 | AI Summarization timeout | 15s connect+read, no inner retry | Relies on outer consumer-level retry (`../platform/messaging.md` §4) |
 | AI Summarization outcomes | `200` → persist; `422 UNSUPPORTED_CONTENT` → terminal, ack; other 4xx/5xx/timeout → retry/dead-letter | Distinguishes deterministic-failure from transient-failure without inventing a new mechanism |
 
+
+**Internal read for Notification (Phase 4 checklist D35):** `workshop.api` exposes a read interface returning a workshop's title, start/end time, location and status by `workshopId`. Notification calls it through its own `WorkshopDetails` port (`notification.md` §3), at the Master; the status and times are what let Notification skip a stale reschedule.
+
 ---
 
 ## API Surface
