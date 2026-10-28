@@ -90,15 +90,22 @@ class SeatHoldExpiryIT extends ShortChainITSupport {
 
     @Test
     @DisplayName("while a hold is being released, other registrations of the workshop go through")
-    void expiry_doesNotBlockRegistration() {
-        var workshop = aWorkshop(400);
+    void expiry_doesNotBlockRegistration() throws Exception {
+        // Room for far more registrations than the release can take: how many fit in the hold
+        // window depends on the machine (about 200 on a laptop, more on a faster runner), so a
+        // capacity close to that number turns a fast machine into a sold-out workshop.
+        var workshop = aWorkshop(2000);
         var held = reserveForNewStudent(workshop);
         relayHold(held.id().value());
 
-        // register as fast as possible until the release has happened, across it
+        // register steadily (at most one per 10 ms) until the release has happened, across it
         var slowest = Duration.ZERO;
         var registered = 0;
+        var deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
         while (!registrationStatus(held.id().value()).equals("EXPIRED")) {
+            assertThat(System.nanoTime())
+                    .as("the hold was not released within 30 s; registrations made: " + registered)
+                    .isLessThan(deadline);
             var started = System.nanoTime();
             reserveForNewStudent(workshop);
             var took = Duration.ofNanos(System.nanoTime() - started);
@@ -106,7 +113,10 @@ class SeatHoldExpiryIT extends ShortChainITSupport {
                 slowest = took;
             }
             registered++;
-            assertThat(registered).as("registrations made while waiting").isLessThan(380);
+            var pause = Duration.ofMillis(10).minus(took);
+            if (!pause.isNegative()) {
+                Thread.sleep(pause.toMillis());
+            }
         }
 
         assertThat(registered).isPositive();
