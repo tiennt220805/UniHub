@@ -8,7 +8,7 @@
 |---|---|
 | Phase | 3 — Concurrency Protection |
 | Ngày bắt đầu | 2026-10-26 |
-| Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☑ Đang làm` / `☐ Chờ sign-off` / `☐ Hoàn tất` — **Mục 0 đã chốt 2026-10-26 (D19–D30, Mục 0A)**; tài liệu sở hữu đã sửa, Q2 đã kiểm chứng; **Mục 1: 1.1–1.4 xong**; **Mục 2: 2.1–2.4 xong, CI xanh**; **Mục 3: 3.1–3.5 xong, CI xanh**; **Mục 4: 4.1–4.5 xong, CI xanh trên `59e4f4c`**; **Mục 5: 5.1 xong (smoke local)**; **Mục 6: 6.1 xong (local)**; chưa bắt đầu Mục 7 (cập nhật 2026-10-28) |
+| Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☐ Đang làm` / `☐ Chờ sign-off` / `☑ Hoàn tất` — **Mục 0 đã chốt 2026-10-26 (D19–D30, Mục 0A)**; tài liệu sở hữu đã sửa, Q2 đã kiểm chứng; **Mục 1: 1.1–1.4 xong**; **Mục 2: 2.1–2.4 xong, CI xanh**; **Mục 3: 3.1–3.5 xong, CI xanh**; **Mục 4: 4.1–4.5 xong, CI xanh trên `59e4f4c`**; **Mục 5: 5.1 xong (smoke local)**; **Mục 6: 6.1 xong, CI xanh**; **Mục 7: 7.1–7.3 xong**; **Mục 8: 8.1–8.4 xong**; **Phase 3 hoàn tất:** owner ký `phase-3.md` §6 ngày 2026-10-28 (cập nhật 2026-10-28) |
 | Nhánh làm việc | `main` (push thẳng, không PR — `test-matrix.md` §4.4) |
 | INV trong scope | INV-06, INV-07, INV-08, INV-09 (`test-plan.md` §3) |
 | Matrix rows | M-28 … M-36 (Phase 3), M-76 (derived DR-PAY-2, Phase 3†), các mục hoãn sang Phase 3 ở `test-matrix.md` §4.5: M-09 (`RedissonJobLock`; chạy chồng lấn `UNIQUE (email)`), M-11 (hoãn từ Phase 1), M-28/M-32/M-34 (`InProcessSeatLock`) |
@@ -272,9 +272,9 @@ Ba biến thể đầu **là** bảng quyết định `test-design-techniques.md
 ## 8. Đồng bộ tài liệu & Test Matrix
 
 - [x] **8.1** Sau mỗi task ở Mục 1–6: cập nhật dòng tương ứng trong `test-matrix.md` §2.2 (Status, `Class#method` thật). — **(2026-10-28)** M-28…M-36, M-76 và M-78 đã cập nhật ở cùng commit với test của từng task (Status, `Class#method` thật); M-78 đang `Drafted` tới khi job `web` xanh.
-- [ ] **8.2** Cập nhật `test-matrix.md` §4.1, §4.2 (M-31, M-32), §4.5 (gỡ các dòng đã đóng, sửa dòng M-11 nếu hoãn tiếp) và §5 trước khi sign-off; đếm lại từ cột Status.
+- [x] **8.2** Cập nhật `test-matrix.md` §4.1, §4.2 (M-31, M-32), §4.5 (gỡ các dòng đã đóng, sửa dòng M-11 nếu hoãn tiếp) và §5 trước khi sign-off; đếm lại từ cột Status. — **(2026-10-28) Xong:** đếm lại từ cột Status: 80 dòng, `Not started` 40 · `Drafted` 1 (M-36) · `Passing` 39; §4.1, §4.2 (17 → 15 dòng `⚠`), §4.5 và §5 đã viết lại. M-78 về `Passing` sau khi job `web` xanh trên `3c8111e`.
 - [x] **8.3** Đánh dấu các TODO đã giải quyết trong `resilience-testing.md` §2.3 (Redisson hung connection; hold-expiry khi Redis sập lâu) và `performance-load.md` §2.2/§2.3. — **(2026-10-28)** `resilience-testing.md` §2.3 không còn TODO nào; `performance-load.md` §2.2/§2.3 chỉ còn TODO cố ý "biến thể paid" (D30: không làm ở Phase 3).
-- [ ] **8.4** Cập nhật "Project Status" trong `CLAUDE.md` (Phase 3 xong, các adapter Redisson, consumer hold-expiry, refund).
+- [x] **8.4** Cập nhật "Project Status" trong `CLAUDE.md` (Phase 3 xong, các adapter Redisson, consumer hold-expiry, refund). — **(2026-10-28) Xong:** dòng trạng thái trong `CLAUDE.md` đã nói Phase 3 chờ sign-off; chỉ cần sửa lại thành "Phase 3 signed off" khi owner ký §6.
 
 ## 9. Đóng Phase 3 (Exit / Sign-off)
 
@@ -285,12 +285,12 @@ Exit criteria, chép nguyên văn từ `test-plan.md` §1 dòng Phase 3 (4 khẳ
 3. "seat-hold release test proves automatic release with no blocked request (INV-07)" → M-33
 4. "one-instance test proves no duplicate job execution across parallel instances (INV-09)" → M-35 (theo C1, **không** dựa vào test trả ghế)
 
-- [ ] Mọi dòng INV-06/07/08/09 = `Passing`; M-36 và M-76 `Passing` hoặc ghi ở §5 với lý do (M-36 là smoke, không phải gate)
-- [ ] Coverage ≥ 80% (JaCoCo xanh), gồm use case mới (`ExpireSeatHold`, refund)
-- [ ] CI xanh toàn bộ trên **cùng một commit SHA**
-- [ ] Không `TODO`/`FIXME` trong test code; không `@Disabled`/`.skip` trên test của INV-06…INV-09
-- [ ] Copy `phase-template.md` → `docs/testing/reports/release-sign-offs/phase-3.md`, điền §2–§6 với evidence thật; §5 mang sang các mục còn hoãn của `phase-2.md` §5 chưa đóng ở Phase 3 (ví dụ hàng 4, 5, 7–11)
-- [ ] Owner ký §6 của `phase-3.md`
+- [x] Mọi dòng INV-06/07/08/09 = `Passing`; M-36 và M-76 `Passing` hoặc ghi ở §5 với lý do (M-36 là smoke, không phải gate) — M-28…M-35 `Passing`, M-76 `Passing`, M-36 `Drafted` ghi ở `phase-3.md` §5 hàng 1.
+- [x] Coverage ≥ 80% (JaCoCo xanh), gồm use case mới (`ExpireSeatHold`, refund) — `jacocoTestCoverageVerification` nằm trong job `unit-test`, xanh trên `3c8111e`.
+- [x] CI xanh toàn bộ trên **cùng một commit SHA** — 8 job xanh trên `3c8111e` (run 40648810191).
+- [x] Không `TODO`/`FIXME` trong test code; không `@Disabled`/`.skip` trên test của INV-06…INV-09 — `grep` trên `apps/backend/src/test`, `src/integrationTest`, `apps/web/src`, `tests/load`: 0 kết quả (2026-10-28).
+- [x] Copy `phase-template.md` → `docs/testing/reports/release-sign-offs/phase-3.md`, điền §2–§6 với evidence thật; §5 mang sang các mục còn hoãn của `phase-2.md` §5 chưa đóng ở Phase 3 (ví dụ hàng 4, 5, 7–11) — `docs/testing/reports/release-sign-offs/phase-3.md` đã soạn (bản nháp, §6 chưa ký).
+- [x] Owner ký §6 của `phase-3.md` — **(2026-10-28)** Nguyễn Thành Tiến đã ký.
 
 > Phase 3 chỉ hoàn tất khi `phase-3.md` tồn tại, mọi ô được tick với evidence thật, và §6 đã ký — **không phải khi code chạy được**.
 
