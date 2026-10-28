@@ -80,6 +80,8 @@ Each of the eight consumed queues (including `unihub.payment-refund-execution.qu
 
 **Message properties set by the relay (Phase 4 checklist D34):** every message carries `message-id` = `event_publications.id` and the AMQP `type` property = the row's routing key, plus the `correlationId` header (§5). `type` exists because one queue, `unihub.notification.queue`, receives three payload types and the received routing key is replaced after a retry hop (§4); both properties live on the `Message` object, so they survive every retry hop and the parking-lot. A consumer of a single-type queue may ignore `type`. Messages published before `type` existed have none; the notification consumer's fallback for them is in `../modules/notification.md` §3.
 
+**Transition (Phase 4 checklist D44):** from Phase 2 until the Notification consumer existed, the relay published `ticket.confirmed`, `event.cancelled` and `event.rescheduled` to `unihub.notification.queue` with nothing consuming them, so any long-lived broker (the local docker-compose one) holds a backlog of stale messages, some pointing at data that no longer exists. Before the first run of the consumer against such a broker, count, then purge `unihub.notification.queue` and its three retry queues once (`docker exec unihub-rabbitmq rabbitmqctl list_queues name messages`, then `rabbitmqctl purge_queue` for `unihub.notification.queue`, `unihub.notification.retry.5s`, `.retry.30s`, `.retry.5m`); the run (date, counts) is recorded in the Phase 4 checklist. The consumer's `type` fallback (D34) and its `NonRetryableMessageException` for missing data (D35) remain as the fence, so an unpurged broker parks stale messages instead of blocking the queue. CI brokers are fresh per run and need nothing.
+
 ```mermaid
 flowchart TB
     Producers["Backend API Instances\n(any of N parallel pods)"]
@@ -252,7 +254,9 @@ every 1s (fixedDelay), on every pod:
     ack and not returned  → UPDATE event_publications                        -- autocommit, one row
                                SET status = 'PUBLISHED', published_at = now()
                              WHERE id = :id AND status = 'PENDING'
-    nack / timeout / returned (unroutable) → leave PENDING, log WARN, continue with the next row
+    nack / returned (unroutable)  → leave PENDING, log WARN, continue with the next row
+    no confirm within 5s, or connection refused
+                                  → leave PENDING, log WARN, END THE CYCLE    -- Phase 4 checklist D42
     finally MDC.remove("correlationId")
   unlock
 ```
@@ -270,7 +274,8 @@ every 1s (fixedDelay), on every pod:
 | Situation | Outcome | Why it is acceptable |
 |---|---|---|
 | Redis unavailable | No pod claims the cycle; rows stay `PENDING` and publish once Redis returns | Delay, not loss. During a Redis outage registration writes are already rejected (`architecture.md` §4.2), so few new rows arrive. |
-| Pod dies after the broker confirmed but before the `UPDATE` | The row is published again next cycle | At-least-once is the contract (`architecture.md` §4.3); every consumer is idempotent (§4) and deduplicates on `message-id` where it has external side effects |
+| Broker reachable but not confirming (hung, paused) | The first confirm timeout ends the cycle; rows stay `PENDING` and the next cycle (1s later) tries again | Treating a timeout as a per-row failure would wait 5s for **every** row: a 200-row cycle would take ≈ 17 min against a 30s lease, so the lease would expire mid-batch and a second pod would start a parallel relay on every broker hang (Phase 4 checklist D42). A nack or a returned (unroutable) message is still a failure of that row. `RetryChainRecoverer`, which uses the same sender, requeues the original on any republish failure, so the change loses nothing there |
+| Pod dies after the broker confirmed but before the `UPDATE` | The row is published again next cycle | At-least-once is the contract (`architecture.md` §4.3); every consumer is idempotent under redelivery (§4). Most consumers deduplicate on the state of their own aggregate (`backend-coding-standards.md` §8.5); only the Notification consumer keys on `message-id` (`../modules/notification.md` §3) |
 | Lease expires mid-batch, a second pod starts | Some rows may be published twice | Same as above |
 | One row keeps failing (unroutable key, oversized payload) | It stays `PENDING`; the relay skips past it every cycle, so it never blocks rows behind it | `unihub_outbox_oldest_pending_age_seconds` (`observability.md`) grows and alerts; an operator fixes the cause |
 | Relay throughput insufficient | Backlog and the same metric grow | Upgrade path: the claim-with-lease option above. The change stays inside `shared.infrastructure` and touches no module. |

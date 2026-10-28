@@ -311,7 +311,7 @@ Every table, convention, and tuning parameter this document introduces, traced b
 | Idempotency | Re-running the seeder creates nothing new; an account that already exists (same email) is left untouched, including its password hash |
 | How it is wired | `DevStudentSeedRunner` (`@Profile("dev")`) → `SeedDevStudentsUseCase`. Password from `UNIHUB_DEV_SEED_STUDENT_PASSWORD` (`unihub.dev-seed.student-password`); with it unset or blank the runner logs a warning and seeds nothing. Accounts default to `student1..3@dev.unihub.local`, overridable via `unihub.dev-seed.students` |
 | Legacy-synced students | Cannot sign in until first-login setup exists; login treats them exactly like a wrong password (`../platform/auth-and-identity.md` §7) |
-| First-login setup | **Open item** — to be designed when an e-mail channel exists (Phase 4 or later); tracked in the Phase 2 checklist |
+| First-login setup | **Open item** — the e-mail channel exists from Phase 4 (`notification.md` §2), but the design (reset token, expiry, endpoint, rate limit) does not; deliberately left out of Phase 4's scope by the owner (Phase 4 checklist D43) and recorded in the Phase 4 sign-off §5. Not yet scheduled |
 
 **Guarantee:** no environment other than a developer's or a test's ever contains an account that was not created through a designed path.
 

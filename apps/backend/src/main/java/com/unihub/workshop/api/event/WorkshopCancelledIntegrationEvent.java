@@ -6,8 +6,11 @@ import java.util.UUID;
 
 /**
  * A workshop was cancelled. Consumed by Notification (tells registered students) and, later, by
- * Registration (cancels the registrations and releases the seats). Ids are plain UUIDs so the wire
- * format is flat, not a nested value-object shape.
+ * Registration (cancels the registrations and releases the seats; not scheduled yet,
+ * backend-coding-standards.md §27 #8). Notification reads the recipients when it consumes this
+ * event, so registrations cancelled because of it must still count as recipients, or those students
+ * are never told (registration.md, "Internal read for Notification"). Ids are plain UUIDs so the
+ * wire format is flat, not a nested value-object shape.
  */
 public record WorkshopCancelledIntegrationEvent(UUID workshopId, Instant occurredAt)
         implements OutboxMessage {

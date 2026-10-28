@@ -62,7 +62,7 @@ This file is the physical-level completion of `../strategy/test-strategy.md` §1
 
 Scenarios 1–6 run at Integration level on local Testcontainers — **only scenario 7 (and 1b, 2b) needs Minikube.**
 
-**Scenario 3 is on-demand by design, and is not what proves INV-10/INV-11 for Phase 4.** It checks real *recovery* behavior when RabbitMQ is interrupted (container stop/restart) — additional evidence, stronger than the per-push proof, not a condition for Phase 4's INV-10/INV-11 rows to be `Passing`. Those rows are proven per-push at ordinary Integration level (`integration-testing.md` §4's INV-10 pattern; `test-matrix.md` M-40, M-41).
+**Scenario 3 is on-demand by design, and is not what proves INV-10/INV-11 for Phase 4.** It checks real *recovery* behavior when RabbitMQ is interrupted (container stop/restart) — additional evidence, stronger than the per-push proof, not a condition for Phase 4's INV-10/INV-11 rows to be `Passing`. Those rows are proven per-push at ordinary Integration level (`integration-testing.md` §4's INV-10 and INV-11 rows; `test-matrix.md` M-40, M-41). Per push, Phase 4 also covers a broker that is **paused** (reachable, not confirming) for the relay half of INV-10 (Phase 4 checklist D42); the container *stop/restart* of this scenario stays on-demand.
 
 ### 2.2 Scenario 1 — Payment Gateway dead or slow (INV-05)
 
@@ -93,7 +93,7 @@ This is the scenario `test-design-techniques.md` §3.1's note hands off to this 
   1. *Write path unaffected while the broker is down:* a free `POST /api/v1/registrations` still returns `201` and its outbox row commits `PENDING` — the publish is asynchronous by design (`architecture.md` §6.1).
   2. *Zero stranded events after recovery:* every `PENDING` row reaches `PUBLISHED`.
   3. *Durability:* the delay-queue message survives (b) and still dead-letters to `hold.expired` (`architecture.md` §4.3's durability guarantee).
-  4. *Effects, not messages, are counted:* one seat release per expired hold, one reconciliation resolution per payment, one dispatched notification per fact. **The suite must not assert "no duplicate message" — at-least-once means the relay may legitimately republish a row whose confirm was lost; INV-11 is that a duplicate has no duplicate effect.** Notification is the one consumer with a documented looser guarantee (check-then-insert race under *concurrent* redelivery, `notification.md` §3), so its effect count is asserted under sequential redelivery only; a concurrent-duplicate notification is a known limit, not a failure.
+  4. *Effects, not messages, are counted:* one seat release per expired hold, one reconciliation resolution per payment, one dispatched notification per fact. **The suite must not assert "no duplicate message" — at-least-once means the relay may legitimately republish a row whose confirm was lost; INV-11 is that a duplicate has no duplicate effect.** The Notification consumer is no longer an exception (Phase 4 checklist D31, D33): duplicate rows are closed by a unique key and duplicate sends by a per-row claim, so its effect count is asserted under concurrent redelivery too; only the documented provider-side at-least-once window (a crash after the provider accepted, before the row is marked, `notification.md` §3) may add one send.
 - **Must stay unaffected (probe):** browsing, reporting, check-in sync.
 - **Not repeated:** a consumer's re-check-before-acting mechanics (Phase 4's INV-11 test).
 
