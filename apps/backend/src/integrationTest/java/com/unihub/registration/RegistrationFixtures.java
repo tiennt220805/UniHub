@@ -71,6 +71,15 @@ public final class RegistrationFixtures {
                 id.value());
     }
 
+    /** Registrations that hold a seat: {@code RESERVED} or {@code CONFIRMED}. */
+    public int holdingRows(WorkshopId id) {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM registrations WHERE workshop_id = ?"
+                        + " AND status IN ('RESERVED', 'CONFIRMED')",
+                Integer.class,
+                id.value());
+    }
+
     /** {@code event_publications} rows announcing this registration (INV-10). */
     public int outboxRows(UUID registrationId) {
         return jdbc.queryForObject(

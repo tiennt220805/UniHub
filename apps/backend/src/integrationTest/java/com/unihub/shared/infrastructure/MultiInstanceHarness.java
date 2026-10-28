@@ -1,7 +1,12 @@
 package com.unihub.shared.infrastructure;
 
 import com.unihub.UniHubApplication;
+import com.unihub.registration.application.port.out.SeatLock;
+import com.unihub.registration.application.port.out.SeatLockHandle;
+import com.unihub.registration.domain.exception.SeatLockUnavailableException;
+import com.unihub.registration.infrastructure.out.lock.InProcessSeatLock;
 import com.unihub.shared.application.port.out.JobLock;
+import com.unihub.shared.domain.id.WorkshopId;
 import com.unihub.shared.infrastructure.out.lock.InProcessJobLock;
 import com.unihub.shared.security.TestJwts;
 import java.time.Duration;
@@ -24,16 +29,17 @@ import org.springframework.context.ConfigurableApplicationContext;
  * the thread, so a shared client would make the two "instances" one.
  *
  * <p>What it measures is the lock, not the business outcome: the database check already makes the
- * outcome correct without any lock. A recording decorator wraps the {@link JobLock} of every
- * context and logs each hold as an interval (acquired → released) in one {@link HoldLog} that all
- * contexts write to; a test then asks whether two holds of the same key overlap in time.
+ * outcome correct without any lock. A recording decorator wraps the {@link JobLock} and the {@link
+ * SeatLock} of every context and logs each hold as an interval (acquired → released) in one {@link
+ * HoldLog} that all contexts write to; a test then asks whether two holds of the same key overlap
+ * in time. A seat lock's key is {@code seat:{workshopId}}, so the two kinds never mix.
  *
  * <p>The decorator and its {@code BeanPostProcessor} are registered programmatically, never as
  * beans: classes under {@code com.unihub} in the test source set are component-scanned into every
  * {@code @SpringBootTest} context. {@link Locking#IN_PROCESS} is the control — each context gets
- * its own {@link InProcessJobLock} in place of the Redisson one. Two instances sharing nothing must
- * then overlap; if they do not, the harness is not separating the instances and a "no overlap"
- * result with Redisson proves nothing.
+ * its own {@link InProcessJobLock} and {@link InProcessSeatLock} in place of the Redisson ones. Two
+ * instances sharing nothing must then overlap; if they do not, the harness is not separating the
+ * instances and a "no overlap" result with Redisson proves nothing.
  */
 public final class MultiInstanceHarness implements AutoCloseable {
 
@@ -107,16 +113,33 @@ public final class MultiInstanceHarness implements AutoCloseable {
     }
 
     /**
-     * Starts {@code instances} contexts. {@code holdPadding} is added to every hold right after the
-     * lock is taken: a real job body takes milliseconds, too short for two holds to overlap
-     * reliably, so the control would flake without it.
+     * Starts {@code instances} contexts. {@code holdPadding} is added to every job-lock hold right
+     * after the lock is taken: a real job body takes milliseconds, too short for two holds to
+     * overlap reliably, so the control would flake without it. Seat-lock holds are not padded.
      */
     public static MultiInstanceHarness start(
             int instances, Locking locking, Duration holdPadding, String... properties) {
+        return start(instances, locking, holdPadding, Duration.ZERO, properties);
+    }
+
+    /**
+     * As above, with {@code seatHoldPadding} added to every seat-lock hold. A real seat claim is a
+     * few milliseconds under the lock; padding it makes a pair of requests that would otherwise
+     * slip past each other certain to contend. Keep it far below the 5s lease (there is no
+     * watchdog: a hold that outlives its lease is legitimately taken over, which would show as a
+     * false overlap) and below the 2s wait times the number of racers (or the losers get 503s).
+     */
+    public static MultiInstanceHarness start(
+            int instances,
+            Locking locking,
+            Duration holdPadding,
+            Duration seatHoldPadding,
+            String... properties) {
         var harness = new MultiInstanceHarness(instances);
         try {
             for (int i = 0; i < instances; i++) {
-                harness.contexts.add(harness.startContext(i, locking, holdPadding, properties));
+                harness.contexts.add(
+                        harness.startContext(i, locking, holdPadding, seatHoldPadding, properties));
             }
         } catch (RuntimeException | Error failed) {
             harness.close();
@@ -126,7 +149,11 @@ public final class MultiInstanceHarness implements AutoCloseable {
     }
 
     private ConfigurableApplicationContext startContext(
-            int instance, Locking locking, Duration holdPadding, String[] extra) {
+            int instance,
+            Locking locking,
+            Duration holdPadding,
+            Duration seatHoldPadding,
+            String[] extra) {
         var properties = new ArrayList<String>();
         properties.add("spring.datasource.url=" + IntegrationTestSupport.POSTGRES.getJdbcUrl());
         properties.add(
@@ -146,8 +173,12 @@ public final class MultiInstanceHarness implements AutoCloseable {
                                 ((ConfigurableApplicationContext) context)
                                         .getBeanFactory()
                                         .addBeanPostProcessor(
-                                                new RecordingJobLocks(
-                                                        instance, locking, holdPadding, log)))
+                                                new RecordingLocks(
+                                                        instance,
+                                                        locking,
+                                                        holdPadding,
+                                                        seatHoldPadding,
+                                                        log)))
                 .run();
     }
 
@@ -190,29 +221,84 @@ public final class MultiInstanceHarness implements AutoCloseable {
         }
     }
 
-    /** Wraps (or, for the control, replaces) the context's {@link JobLock}. */
-    private static final class RecordingJobLocks implements BeanPostProcessor {
+    /** Wraps (or, for the control, replaces) the context's {@link JobLock} and {@link SeatLock}. */
+    private static final class RecordingLocks implements BeanPostProcessor {
 
         private final int instance;
         private final Locking locking;
         private final Duration holdPadding;
+        private final Duration seatHoldPadding;
         private final HoldLog log;
 
-        private RecordingJobLocks(
-                int instance, Locking locking, Duration holdPadding, HoldLog log) {
+        private RecordingLocks(
+                int instance,
+                Locking locking,
+                Duration holdPadding,
+                Duration seatHoldPadding,
+                HoldLog log) {
             this.instance = instance;
             this.locking = locking;
             this.holdPadding = holdPadding;
+            this.seatHoldPadding = seatHoldPadding;
             this.log = log;
         }
 
         @Override
         public Object postProcessAfterInitialization(Object bean, String beanName) {
-            if (!(bean instanceof JobLock real)) {
-                return bean;
+            if (bean instanceof JobLock real) {
+                var delegate = locking == Locking.IN_PROCESS ? new InProcessJobLock() : real;
+                return new RecordingJobLock(instance, delegate, holdPadding, log);
             }
-            var delegate = locking == Locking.IN_PROCESS ? new InProcessJobLock() : real;
-            return new RecordingJobLock(instance, delegate, holdPadding, log);
+            if (bean instanceof SeatLock real) {
+                var delegate = locking == Locking.IN_PROCESS ? new InProcessSeatLock() : real;
+                return new RecordingSeatLock(instance, delegate, seatHoldPadding, log);
+            }
+            return bean;
+        }
+    }
+
+    /** The recording wrapper of the seat lock; a hold is keyed {@code seat:{workshopId}}. */
+    private static final class RecordingSeatLock implements SeatLock {
+
+        private final int instance;
+        private final SeatLock delegate;
+        private final Duration holdPadding;
+        private final HoldLog log;
+
+        private RecordingSeatLock(
+                int instance, SeatLock delegate, Duration holdPadding, HoldLog log) {
+            this.instance = instance;
+            this.delegate = delegate;
+            this.holdPadding = holdPadding;
+            this.log = log;
+        }
+
+        @Override
+        public SeatLockHandle tryAcquire(
+                WorkshopId workshopId, Duration waitTimeout, Duration leaseTime) {
+            SeatLockHandle taken;
+            try {
+                taken = delegate.tryAcquire(workshopId, waitTimeout, leaseTime);
+            } catch (SeatLockUnavailableException refused) {
+                log.skips.incrementAndGet(instance);
+                throw refused;
+            }
+            var key = "seat:" + workshopId.value();
+            long start = System.nanoTime();
+            try {
+                Thread.sleep(holdPadding.toMillis());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            var released = new AtomicBoolean();
+            return () -> {
+                if (released.compareAndSet(false, true)) {
+                    // the hold ends before the key is given back, so a genuine next holder always
+                    // starts after this end
+                    log.holds.add(new Hold(instance, key, start, System.nanoTime()));
+                }
+                taken.close();
+            };
         }
     }
 
