@@ -51,6 +51,20 @@ public final class Mailpit {
                 .toList();
     }
 
+    /**
+     * The recipient addresses of every message whose subject contains {@code token}, read from the
+     * search summaries without fetching each message (a fan-out is counted by the hundred). Use a
+     * unique ASCII token.
+     */
+    public static List<String> recipientsOfSubject(String token) {
+        var query = URLEncoder.encode("subject:\"" + token + "\"", StandardCharsets.UTF_8);
+        var addresses = new ArrayList<String>();
+        for (var summary : get("/api/v1/search?limit=1000&query=" + query).path("messages")) {
+            addresses.add(summary.path("To").path(0).path("Address").asText());
+        }
+        return addresses;
+    }
+
     private static List<Mail> fetch(String listPath) {
         var list = get(listPath);
         var mails = new ArrayList<Mail>();

@@ -12,7 +12,9 @@ import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.stream.IntStream;
 import org.awaitility.Awaitility;
@@ -83,6 +85,7 @@ class NotificationDeliveryIT extends NotificationITSupport {
 
     private static final List<Call> CALLS = new CopyOnWriteArrayList<>();
     private static volatile BiConsumer<String, NotificationDeliveryResult> afterSend;
+    private static final AtomicInteger SENT_EMAILS = new AtomicInteger();
 
     /** Wraps every {@link NotificationChannel} bean; the real channel still does the sending. */
     @TestConfiguration
@@ -148,6 +151,7 @@ class NotificationDeliveryIT extends NotificationITSupport {
     void healthyProvider() {
         CALLS.clear();
         afterSend = null;
+        SENT_EMAILS.set(0);
         SMTP.mode(Mode.FORWARD);
     }
 
@@ -287,5 +291,66 @@ class NotificationDeliveryIT extends NotificationITSupport {
                     assertThat(notificationRows(s, "IN_APP", "SENT")).isEqualTo(1);
                     assertThat(notificationRows(s, "EMAIL", "PENDING")).isEqualTo(1);
                 });
+    }
+
+    @Test
+    @DisplayName(
+            "AC39.1, AC39.2: a fan-out of 60 whose email channel fails midway still tells everyone"
+                    + " in-app at once, and the retry sends only the emails still PENDING")
+    void fanOutWithAChannelFailingMidway() {
+        var recipients = 60;
+        var sentBeforeTheOutage = 20;
+        var token = "fanout" + UUID.randomUUID().toString().substring(0, 8);
+        var workshop = aWorkshop("Fan-out " + token);
+        var students = IntStream.range(0, recipients).mapToObj(i -> student()).toList();
+        students.forEach(s -> registration(s, workshop, "CONFIRMED"));
+        // the provider goes down after 20 emails and is back as soon as one send has failed
+        afterSend =
+                (channel, result) -> {
+                    if (!channel.equals("EMAIL")) {
+                        return;
+                    }
+                    if (result == NotificationDeliveryResult.SENT
+                            && SENT_EMAILS.incrementAndGet() == sentBeforeTheOutage) {
+                        SMTP.mode(Mode.CLOSE);
+                    } else if (result == NotificationDeliveryResult.UNAVAILABLE) {
+                        SMTP.mode(Mode.FORWARD);
+                    }
+                };
+
+        publishCancelled(workshop);
+
+        Awaitility.await()
+                .atMost(LONG_ENOUGH)
+                .untilAsserted(
+                        () ->
+                                assertThat(
+                                                jdbc.queryForObject(
+                                                        "SELECT count(*) FROM notifications"
+                                                                + " WHERE related_entity_id = ? AND"
+                                                                + " status = 'SENT'",
+                                                        Integer.class,
+                                                        workshop.value()))
+                                        .isEqualTo(recipients * 2));
+        assertThat(Mailpit.recipientsOfSubject(token))
+                .as("exactly one email per student: the retry did not repeat the first twenty")
+                .hasSize(recipients)
+                .doesNotHaveDuplicates();
+        var email = calls("EMAIL");
+        assertThat(email)
+                .as("60 emails and the one that found the provider down")
+                .hasSize(recipients + 1);
+        assertThat(email.stream().filter(c -> c.result() == NotificationDeliveryResult.UNAVAILABLE))
+                .hasSize(1);
+        var inApp = calls("IN_APP");
+        assertThat(inApp)
+                .as("each in-app row sent once, the retry never touched one")
+                .hasSize(recipients);
+        // the failing channel did not hold the other back: every in-app row was sent in the first
+        // delivery, before the retry sent the first of the emails that were left
+        var firstRetriedEmail = CALLS.indexOf(email.get(sentBeforeTheOutage + 1));
+        assertThat(CALLS.subList(firstRetriedEmail, CALLS.size()))
+                .noneMatch(c -> c.channel().equals("IN_APP"));
+        assertThat(parkedMessages()).isZero();
     }
 }

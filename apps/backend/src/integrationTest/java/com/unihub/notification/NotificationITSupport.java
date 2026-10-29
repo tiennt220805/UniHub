@@ -99,19 +99,22 @@ public abstract class NotificationITSupport extends IntegrationTestSupport {
     }
 
     /**
-     * A free registration in this state (a {@code RESERVED} one gets a hold, as the table needs).
+     * A registration in this state. Only a paid ticket can be {@code RESERVED} (the domain refuses
+     * to load anything else), so that one is {@code PAID} with a hold, the others {@code FREE}.
      */
     protected UUID registration(UUID user, WorkshopId workshop, String status) {
         var id = UUID.randomUUID();
+        var reserved = status.equals("RESERVED");
         jdbc.update(
                 "INSERT INTO registrations (id, workshop_id, user_id, ticket_type, status,"
-                        + " hold_expires_at) VALUES (?, ?, ?, 'FREE', ?, CASE WHEN ? = 'RESERVED'"
-                        + " THEN now() + interval '1 hour' END)",
+                        + " hold_expires_at) VALUES (?, ?, ?, ?, ?, CASE WHEN ? THEN now() +"
+                        + " interval '1 hour' END)",
                 id,
                 workshop.value(),
                 user,
+                reserved ? "PAID" : "FREE",
                 status,
-                status);
+                reserved);
         return id;
     }
 

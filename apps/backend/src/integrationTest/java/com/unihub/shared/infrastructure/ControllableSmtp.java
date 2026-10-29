@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.time.Duration;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -15,6 +16,9 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <ul>
  *   <li>{@link Mode#FORWARD}: bytes go to Mailpit and back, so the mail really arrives;
+ *   <li>{@link Mode#SLOW}: as {@code FORWARD}, after a pause per connection, which is a provider
+ *       that answers but takes its time (the pause is on a thread of the connection, so the proxy
+ *       never holds up another connection);
  *   <li>{@link Mode#CLOSE}: the connection is accepted and dropped at once, which is what a
  *       provider that is down in front of a load balancer looks like;
  *   <li>{@link Mode#HANG}: the connection is accepted and never answered, not even the greeting,
@@ -25,6 +29,7 @@ public final class ControllableSmtp implements AutoCloseable {
 
     public enum Mode {
         FORWARD,
+        SLOW,
         CLOSE,
         HANG
     }
@@ -34,6 +39,7 @@ public final class ControllableSmtp implements AutoCloseable {
     private final int upstreamPort;
     private final Set<Socket> held = ConcurrentHashMap.newKeySet();
     private volatile Mode mode = Mode.FORWARD;
+    private volatile Duration slowBy = Duration.ofMillis(300);
 
     private ControllableSmtp(String upstreamHost, int upstreamPort) {
         this.upstreamHost = upstreamHost;
@@ -67,6 +73,11 @@ public final class ControllableSmtp implements AutoCloseable {
         this.mode = mode;
     }
 
+    /** The pause {@link Mode#SLOW} adds to every connection. */
+    public void slowBy(Duration pause) {
+        this.slowBy = pause;
+    }
+
     public Mode mode() {
         return mode;
     }
@@ -79,6 +90,7 @@ public final class ControllableSmtp implements AutoCloseable {
                     case CLOSE -> client.close();
                     case HANG -> held.add(client);
                     case FORWARD -> forward(client);
+                    case SLOW -> forwardLater(client, slowBy);
                 }
             } catch (IOException e) {
                 if (server.isClosed()) {
@@ -86,6 +98,25 @@ public final class ControllableSmtp implements AutoCloseable {
                 }
             }
         }
+    }
+
+    private void forwardLater(Socket client, Duration pause) {
+        var thread =
+                new Thread(
+                        () -> {
+                            try {
+                                Thread.sleep(pause);
+                                forward(client);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                closeQuietly(client);
+                            } catch (IOException e) {
+                                closeQuietly(client);
+                            }
+                        },
+                        "controllable-smtp-slow");
+        thread.setDaemon(true);
+        thread.start();
     }
 
     private void forward(Socket client) throws IOException {
