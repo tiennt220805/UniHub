@@ -16,7 +16,7 @@ info:
     Registration, Payment, Check-in, User, Notification. See `README.md`
     for what's still intentionally out of scope even so (RBAC
     administration, first-login password setup, user suspension/
-    reactivation, notification read/unread state).
+    reactivation; a notification read/unread flag is deliberately absent).
   contact:
     name: UniHub Engineering
   license:

@@ -42,8 +42,7 @@ endpoint).
 **"Drafted" does not mean every gap is closed** — several endpoints and
 fields are explicitly flagged in-file as inferred (not narrated in any
 `modules/*.md`), and several real gaps are stated rather than invented
-around: `notifications` has no persisted rendered-content column and no
-read/unread column (Notification); first-login password setup for a
+around: first-login password setup for a
 legacy-synced account has no designed mechanism anywhere in this corpus,
 and no endpoint suspends or reactivates a user despite `auth-and-
 identity.md` §4 naming this directory as where that belongs (both User —
@@ -51,7 +50,9 @@ identity.md` §4 naming this directory as where that belongs (both User —
 "flagged as an assumption" / "flagged as a known limitation" / "unresolved
 gap" to find every one of them — they're deliberately left visible in the
 spec itself, not collected in a separate document that could drift out of
-sync with it.
+sync with it. (The two gaps Notification used to carry were settled on
+2026-10-28, Phase 4 checklist D38: the inbox returns stored `title`/`body`,
+and there is deliberately no read/unread state.)
 
 ## Structure
 

@@ -5,6 +5,7 @@ import com.unihub.registration.domain.model.RegistrationStatus;
 import com.unihub.shared.domain.id.RegistrationId;
 import com.unihub.shared.domain.id.UserId;
 import com.unihub.shared.domain.id.WorkshopId;
+import java.util.List;
 import java.util.Optional;
 
 public interface RegistrationRepository {
@@ -19,6 +20,13 @@ public interface RegistrationRepository {
      * @param status only this status, or null for all
      */
     RegistrationPage findByUser(UserId userId, RegistrationStatus status, int page, int size);
+
+    /**
+     * The workshop's {@code RESERVED} and {@code CONFIRMED} registrations, oldest first (the id
+     * breaks ties), so a fan-out walks them in the same order on every retry. Read at the Master by
+     * the use case that calls it.
+     */
+    List<Registration> findHoldingSeats(WorkshopId workshopId);
 
     /** Whether the student holds a {@code RESERVED} or {@code CONFIRMED} registration here. */
     boolean existsActive(WorkshopId workshopId, UserId userId);

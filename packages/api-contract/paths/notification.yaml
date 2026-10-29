@@ -3,37 +3,40 @@ notifications:
     operationId: listMyNotifications
     summary: List the caller's in-app notification inbox
     description: >-
-      **Inferred route — flagged as an assumption.**
-      `../../../docs/technical-design/modules/notification.md`'s own scope note confirms this
-      endpoint's *existence* ("the JWT that authenticates the in-app
-      notification inbox's own read endpoint" is explicitly out of that
-      file's scope, implying the endpoint itself is in scope somewhere) but
-      never fixes its path, request, or response shape anywhere in this
-      corpus — this is that endpoint.
+      The caller's in-app notification inbox (REQ-1.3.2: "an in-app
+      notification"; `../../../docs/technical-design/modules/notification.md`
+      §1, §3; Phase 4 checklist D38). Each item carries the `title` and
+      `body` rendered once when the notification was created, so a client
+      shows them as they are and never rebuilds the wording itself.
 
       **Always scoped to the authenticated caller — there is no query
       parameter to list another user's notifications from this endpoint**,
       the same guarantee `../paths/registration.yaml#/registrations`'s
-      `listMyRegistrations` states for its own "my X" read.
+      `listMyRegistrations` states for its own "my X" read. The caller is the
+      JWT's `sub`.
 
-      **Always scoped to `channel = IN_APP` for the caller — not
-      configurable.** This models specifically the "in-app notification
-      inbox" `notification.md`'s scope note names; an `EMAIL` row exists in
-      the same `notifications` table but has no reason to appear here — a
-      student reads their email in their actual mail client, not through
-      this API. No `channel` query parameter is offered, since there is
-      exactly one channel this endpoint ever returns.
+      **Authorization: any authenticated user, no permission code** — like
+      `listMyRegistrations`, the scope-to-caller rule above is the whole
+      check, so a `403` never applies here (a missing or invalid token is
+      `401`).
 
-      **See `../schemas/notification.yaml#/Notification` for two real gaps
-      this endpoint does not paper over:** no rendered content is
-      persisted anywhere for this response to return, and there is no
-      read/unread column in the underlying table for a "mark as read"
-      operation to exist against.
+      **Always scoped to `channel = IN_APP` — not configurable.** An `EMAIL`
+      row lives in the same `notifications` table but a student reads that in
+      their mail client, not through this API. No `channel` query parameter
+      is offered, since exactly one channel is ever returned.
+
+      **Newest first** (`created_at` descending), paginated. A reschedule that
+      follows another one is a second, separate notification.
+
+      **No read/unread state, by decision (D38).** No requirement asks for
+      one, so the table has no such column and there is no "mark as read"
+      operation; it can be added later by an additive migration.
     tags: [Notification]
     parameters:
       - name: status
         in: query
         required: false
+        description: Delivery status of the row (not read status), to narrow the list. Omit for all.
         schema:
           $ref: '../schemas/notification.yaml#/NotificationDeliveryStatus'
       - $ref: '../common/pagination.yaml#/PageParam'
@@ -41,7 +44,7 @@ notifications:
       - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     responses:
       '200':
-        description: The caller's in-app notifications.
+        description: The caller's in-app notifications, newest first.
         headers:
           X-Correlation-Id:
             $ref: '../common/headers.yaml#/CorrelationIdResponse'

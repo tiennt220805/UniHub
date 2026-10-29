@@ -18,6 +18,12 @@ import org.springframework.stereotype.Component;
  * The only class that publishes outbox traffic (backend-coding-standards.md §8.3). The row's JSON
  * payload goes out as the body unchanged — converting it again would encode it a second time as a
  * JSON string. {@code message-id} is the outbox row id, the event id consumers deduplicate on.
+ *
+ * <p>{@code type} is the row's routing key, on every message (Phase 4 checklist D34, messaging.md
+ * §2). It is the only thing that still tells a consumer which payload it holds once the message has
+ * been through a retry hop, where the received routing key becomes the stage's fixed redelivery
+ * key. A property of the {@link Message} itself, it survives the retry chain and the parking lot,
+ * which republish that same object.
  */
 @Component
 @EnableConfigurationProperties(MessagingProperties.class)
@@ -37,6 +43,7 @@ class RabbitMessageBroker implements MessageBroker {
         properties.setContentType(MessageProperties.CONTENT_TYPE_JSON);
         properties.setContentEncoding(StandardCharsets.UTF_8.name());
         properties.setMessageId(event.id().toString());
+        properties.setType(event.routingKey());
         properties.setDeliveryMode(MessageDeliveryMode.PERSISTENT);
         var message = new Message(event.payload().getBytes(StandardCharsets.UTF_8), properties);
 

@@ -261,6 +261,8 @@ Every key format, tuning parameter, and idempotency scope in this document, in o
 
 **Internal read for Notification (Phase 4 checklist D35):** `registration.api` exposes a read interface returning the `(userId, registrationId)` pairs of a workshop's registrations in `CONFIRMED` or `RESERVED` (`EXPIRED`/`CANCELLED` excluded). Notification calls it through its own `WorkshopRecipients` port (`notification.md` §3), at the Master, when it consumes a cancellation or reschedule. When "workshop cancelled → cancel its registrations" is built (`backend-coding-standards.md` §27 #8), registrations cancelled for that reason must still be returned for the cancellation notice.
 
+**As built (Phase 4 checklist 1.3, 2026-10-29):** `registration.api.WorkshopAttendees` with two reads, both returning `Attendee(registrationId, userId, workshopId)`: `holdingSeatsFor(WorkshopId)` — the `RESERVED`/`CONFIRMED` list above, oldest first so a retried fan-out walks the same order — and `find(RegistrationId)` — one registration in **any** status, which is how a `REGISTRATION_CONFIRMED` message naming a registration that does not exist is recognised (AC35.3). Both are `@Transactional(readOnly = true) @ReadFromPrimary` reads, not `MANDATORY` (the consumer holds no transaction while it sends).
+
 ---
 
 ## API Surface

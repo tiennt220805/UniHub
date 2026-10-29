@@ -321,6 +321,8 @@ Every table, convention, and tuning parameter this document introduces, traced b
 
 **Decision:** Phase 4 checklist D35. `user.api` exposes a read interface returning a user's email and full name by `userId`, and nothing else (no entity, no password hash). Notification calls it through its own `RecipientDirectory` port (`notification.md` §3), at the Master.
 
+**As built (Phase 4 checklist 1.3, 2026-10-29):** `user.api.UserContacts` — `find(UserId)` and `findAll(Collection<UserId>)` (one query for a whole fan-out; ids with no user are simply absent from the map) — returning `UserContact(id, fullName, email)`. Each call is its own `@Transactional(readOnly = true) @ReadFromPrimary` read (`backend-coding-standards.md` §20), not `MANDATORY`: the consumer deliberately holds no transaction while it sends, so there is no caller transaction to join.
+
 ---
 
 ## API Surface

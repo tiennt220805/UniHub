@@ -10,6 +10,7 @@ import com.unihub.shared.domain.id.RegistrationId;
 import com.unihub.shared.domain.id.UserId;
 import com.unihub.shared.domain.id.WorkshopId;
 import java.time.Clock;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
@@ -38,6 +39,13 @@ class JpaRegistrationRepository implements RegistrationRepository {
     @Override
     public Optional<Registration> findById(RegistrationId id) {
         return springData.findById(id.value()).map(mapper::toDomain);
+    }
+
+    @Override
+    public List<Registration> findHoldingSeats(WorkshopId workshopId) {
+        return springData.findHoldingSeats(workshopId.value()).stream()
+                .map(mapper::toDomain)
+                .toList();
     }
 
     @Override

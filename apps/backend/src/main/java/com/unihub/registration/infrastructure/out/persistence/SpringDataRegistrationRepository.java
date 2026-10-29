@@ -1,6 +1,7 @@
 package com.unihub.registration.infrastructure.out.persistence;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -15,6 +16,12 @@ interface SpringDataRegistrationRepository extends JpaRepository<RegistrationJpa
 
     Page<RegistrationJpaEntity> findByUserIdAndStatus(
             UUID userId, String status, Pageable pageable);
+
+    @Query(
+            "select r from RegistrationJpaEntity r "
+                    + "where r.workshopId = :workshopId and r.status in ('RESERVED', 'CONFIRMED') "
+                    + "order by r.createdAt, r.id")
+    List<RegistrationJpaEntity> findHoldingSeats(@Param("workshopId") UUID workshopId);
 
     @Query(
             "select count(r) > 0 from RegistrationJpaEntity r "

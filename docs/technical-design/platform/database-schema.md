@@ -39,7 +39,7 @@ All SQL in this document targets PostgreSQL (the Master; DDL runs once, ahead of
 - [9. Consolidated Entity-Relationship Diagram](#9-consolidated-entity-relationship-diagram)
 - [10. DDL Appendix](#10-ddl-appendix)
   - [10.1 Pending migration `V3` — specification](#101-pending-migration-v3--specification-phase-2-not-yet-a-file)
-  - [10.2 Migration `V5` — specification](#102-migration-v5--specification-phase-4-not-yet-a-file)
+  - [10.2 Migration `V5` — specification](#102-migration-v5--specification-phase-4-applied-as-v5__notification_dedup_claim_and_inboxsql)
 - [11. Traceability Matrix](#11-traceability-matrix)
 
 ---
@@ -960,9 +960,9 @@ ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 Compatibility: an old pod never checks `REGISTRATION_CREATE` (the endpoints do not exist before Phase 2), and a token issued before `V4` simply lacks the code until its holder logs in again (≤ 30 minutes, `auth-and-identity.md` §4). Dev/test student accounts are **not** seeded here — they never enter a production migration (`../modules/user.md` §10).
 
-### 10.2 Migration `V5` — specification (Phase 4; not yet a file)
+### 10.2 Migration `V5` — specification (Phase 4; applied as `V5__notification_dedup_claim_and_inbox.sql`)
 
-Specified here first, per the rule above. Decisions: Phase 4 checklist D31 (dedup key), D33 (send lease), D38 (in-app content, inbox index).
+Specified here first, per the rule above; the runnable file is `src/main/resources/db/migration/V5__notification_dedup_claim_and_inbox.sql` (written 2026-10-29 with Phase 4 checklist 1.1; identical to the block below). `NotificationSchemaIT` asserts the dedup key by its constraint name, the `NOT NULL`, the `title` bound and the inbox index. Decisions: Phase 4 checklist D31 (dedup key), D33 (send lease), D38 (in-app content, inbox index).
 
 ```sql
 ALTER TABLE notifications ADD COLUMN source_event_id UUID NOT NULL;
@@ -998,6 +998,7 @@ Every guarantee-bearing constraint above, mapped back to what it enforces. For r
 | `UNIQUE (scope, actor_user_id, idempotency_key)` (`V3`) | `idempotency_keys` | Exactly-once guarantee (`architecture.md` §4.5, `proposal.md` §11.2), scoped per operation type so a key can't spuriously collide across unrelated operations, and per authenticated user so one user's key can never block or replay another's |
 | `request_fingerprint` + `status`/`result_*`/`completed_at` CHECKs (`V3`) | `idempotency_keys` | A key replays only the request it was issued for (`422` otherwise); a completed key always carries a Result, an in-progress one never does |
 | `UNIQUE (registration_id) WHERE status IN ('PENDING','SUCCEEDED')` (`V3`) | `payments` | Never two charges in flight or two successful charges for one registration, even across different idempotency keys; a failed attempt never blocks a retry, and a refund never blocks a late-success compensation (Phase 2 decisions D5, C33) |
+| `UNIQUE (source_event_id, user_id, channel)` (`V5`) | `notifications` | Consumer idempotency under redelivery (INV-11, `architecture.md` §4.3): a redelivered or double-published event inserts no second row, while one event still fans out to many recipients and channels. Phase 4 checklist D31; the send lease `claimed_at` (D33) is what stops a duplicate *send* |
 | Written in same transaction as business row (documented, not a DB feature) | `idempotency_keys` | Same — the atomicity is what §4.5 actually requires |
 | `status` PENDING/PUBLISHED + relay poll | `event_publications` | Transactional outbox (`architecture.md` §4.3, §6.1) |
 | `correlation_id` | `event_publications` | End-to-end correlation through the outbox (`docs/requirement.md` §3.1, `observability.md` §1) |

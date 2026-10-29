@@ -360,6 +360,8 @@ Every algorithm, threshold, TTL, and naming decision in this document, in one pl
 
 **Internal read for Notification (Phase 4 checklist D35):** `workshop.api` exposes a read interface returning a workshop's title, start/end time, location and status by `workshopId`. Notification calls it through its own `WorkshopDetails` port (`notification.md` §3), at the Master; the status and times are what let Notification skip a stale reschedule.
 
+**As built (Phase 4 checklist 1.3, 2026-10-29):** `workshop.api.WorkshopSummaries.find(WorkshopId)` → `WorkshopSummary(id, title, startTime, endTime, location, cancelled)`; any status is returned (the lookup decides no visibility), `cancelled` is the only status fact Notification needs. A `@Transactional(readOnly = true) @ReadFromPrimary` read, not `MANDATORY` (the consumer holds no transaction while it sends).
+
 ---
 
 ## API Surface

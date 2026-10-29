@@ -19,35 +19,38 @@ RelatedEntityType:
 Notification:
   type: object
   description: >-
-    One row from the in-app inbox. **Two things this response deliberately
-    cannot provide, flagged rather than papered over:**
+    One row of the in-app inbox (`channel = IN_APP`). `title` and `body` are
+    the text rendered once when the row was created
+    (`../../../docs/technical-design/modules/notification.md` §1, §4) and
+    never re-rendered, so an old notification keeps its wording when a
+    template changes (Phase 4 checklist D38).
 
-    1. **No rendered content (subject/body text).** `../../../docs/technical-design/platform/
-    database-schema.md` §7.1's `notifications` table has no content/body
-    column — `../../../docs/technical-design/modules/notification.md` §4 renders a template into
-    text once, at dispatch time, and hands it directly to the channel's
-    `send()`; nothing about that rendered text is persisted. This endpoint
-    can only return the structured fields the row actually stores
-    (`type`, `relatedEntityType`/`relatedEntityId`, `status`, timestamps) —
-    a client must derive its own display copy from `type` (e.g. a
-    client-side string table keyed by `NotificationType`), optionally
-    enriched by fetching the related entity via `relatedEntityId`. Adding a
-    persisted content column would be extending
-    `database-schema.md` §7.1 beyond what that file specifies, which is
-    not this contract's authority to do — flagged for a human decision.
-
-    2. **No read/unread state.** There is no `read`/`read_at` column in
-    `../../../docs/technical-design/platform/database-schema.md` §7.1 — `status` tracks delivery
-    (`PENDING`/`SENT`/`FAILED`), never whether the recipient has seen it.
-    A "mark as read" operation is not represented anywhere in this schema
-    for the same reason: nothing to write it into.
-  required: [id, type, relatedEntityType, relatedEntityId, status, createdAt]
+    **No read/unread state, by decision.** `status` tracks delivery
+    (`PENDING`/`SENT`/`FAILED`), never whether the recipient has seen the
+    notification; there is no `read`/`read_at` column
+    (`../../../docs/technical-design/platform/database-schema.md` §7.1) and no
+    "mark as read" operation. Adding one later is an additive migration plus
+    a new operation, not a change to this schema's existing fields.
+  required: [id, type, title, body, relatedEntityType, relatedEntityId, status, createdAt]
   properties:
     id:
       type: string
       format: uuid
     type:
       $ref: '#/NotificationType'
+    title:
+      type: string
+      maxLength: 200
+      description: >-
+        Rendered title (`notifications.title VARCHAR(200)`,
+        `../../../docs/technical-design/platform/database-schema.md` §7.1).
+        Nullable in the table only because `EMAIL` rows do not carry it; it is
+        always filled on an `IN_APP` row, which is all this endpoint returns.
+    body:
+      type: string
+      description: >-
+        Rendered body text (`notifications.body TEXT`); always filled on an
+        `IN_APP` row, for the same reason as `title`.
     relatedEntityType:
       $ref: '#/RelatedEntityType'
     relatedEntityId:

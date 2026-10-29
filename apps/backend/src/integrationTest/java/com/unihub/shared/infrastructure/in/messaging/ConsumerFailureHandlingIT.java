@@ -2,12 +2,15 @@ package com.unihub.shared.infrastructure.in.messaging;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.unihub.shared.application.port.out.MessageBroker;
+import com.unihub.shared.application.port.out.PendingEvent;
 import com.unihub.shared.infrastructure.IntegrationTestSupport;
 import com.unihub.shared.infrastructure.out.messaging.Topology;
 import com.unihub.shared.messaging.NonRetryableMessageException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import org.awaitility.Awaitility;
@@ -110,12 +113,20 @@ class ConsumerFailureHandlingIT extends IntegrationTestSupport {
 
         final List<String> deliveries = new CopyOnWriteArrayList<>();
         final List<String> receivedKeys = new CopyOnWriteArrayList<>();
+        final List<String> receivedTypes = new CopyOnWriteArrayList<>();
+        final List<String> receivedMessageIds = new CopyOnWriteArrayList<>();
         final AtomicReference<String> correlationSeen = new AtomicReference<>("unset");
 
         @RabbitListener(queues = QUEUE)
-        void on(Command command, @Header(AmqpHeaders.RECEIVED_ROUTING_KEY) String receivedKey) {
+        void on(
+                Command command,
+                @Header(AmqpHeaders.RECEIVED_ROUTING_KEY) String receivedKey,
+                @Header(name = AmqpHeaders.TYPE, required = false) String type,
+                @Header(name = AmqpHeaders.MESSAGE_ID, required = false) String messageId) {
             deliveries.add(command.id());
             receivedKeys.add(receivedKey);
+            receivedTypes.add(String.valueOf(type));
+            receivedMessageIds.add(String.valueOf(messageId));
             correlationSeen.set(String.valueOf(MDC.get("correlationId")));
             switch (command.mode()) {
                 case "fail" -> throw new IllegalStateException("boom " + command.id());
@@ -139,6 +150,7 @@ class ConsumerFailureHandlingIT extends IntegrationTestSupport {
     @Autowired private RabbitTemplate template;
     @Autowired private RabbitAdmin admin;
     @Autowired private ProbeListener listener;
+    @Autowired private MessageBroker broker;
 
     @BeforeEach
     void declareAndClean() {
@@ -146,6 +158,8 @@ class ConsumerFailureHandlingIT extends IntegrationTestSupport {
         purgeAll();
         listener.deliveries.clear();
         listener.receivedKeys.clear();
+        listener.receivedTypes.clear();
+        listener.receivedMessageIds.clear();
     }
 
     @AfterEach
@@ -286,5 +300,27 @@ class ConsumerFailureHandlingIT extends IntegrationTestSupport {
         assertThat(listener.correlationSeen.get())
                 .as("a message without the header must not inherit the previous one's id")
                 .isEqualTo("null");
+    }
+
+    @Test
+    @DisplayName(
+            "a relay-published message keeps its type and message-id through every retry hop and"
+                    + " into the parking lot (D34)")
+    void typeAndMessageId_surviveEveryHopAndTheParkingLot() {
+        var id = UUID.randomUUID();
+        broker.publish(new PendingEvent(id, ARRIVAL_KEY, command("m8", "fail"), null));
+
+        var parked = awaitParked();
+
+        assertThat(listener.receivedKeys)
+                .as("the retry hops change the received routing key, which is why type exists")
+                .containsExactly(ARRIVAL_KEY, REDELIVERY_KEY, REDELIVERY_KEY, REDELIVERY_KEY);
+        assertThat(listener.receivedTypes)
+                .as("set by the real MessageBroker, not by this test")
+                .containsExactly(ARRIVAL_KEY, ARRIVAL_KEY, ARRIVAL_KEY, ARRIVAL_KEY);
+        assertThat(listener.receivedMessageIds)
+                .containsExactly(id.toString(), id.toString(), id.toString(), id.toString());
+        assertThat(parked.getMessageProperties().getType()).isEqualTo(ARRIVAL_KEY);
+        assertThat(parked.getMessageProperties().getMessageId()).isEqualTo(id.toString());
     }
 }
