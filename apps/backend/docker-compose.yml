@@ -10,7 +10,9 @@
 # Images match what integration-testing.md §2's IntegrationTestSupport (Testcontainers) and the Kustomize
 # base (deployment-and-cicd.md §2) both pull, so a schema/behavior difference is never just "which
 # environment you're running against" (deployment-and-cicd.md §6's cross-environment guarantee):
-# postgres:16-alpine, redis:7, rabbitmq:3-management. No `latest` tag anywhere.
+# postgres:16-alpine, redis:7, rabbitmq:3.13.7-management (pinned to the exact version: the broker's
+# consumer_timeout, 30 minutes on this one, bounds a notification fan-out — Phase 4 checklist D36, D39),
+# plus Mailpit (an SMTP catcher, a test double, never a production component). No `latest` tag anywhere.
 #
 # Usage: `docker compose up -d` works with zero setup (every var below has a dev-only default). To
 # override, copy env.example to .env (git-ignored, never committed — see apps/backend/.gitignore) and set
@@ -54,7 +56,7 @@ services:
       retries: 10
 
   rabbitmq:
-    image: rabbitmq:3-management
+    image: rabbitmq:3.13.7-management
     container_name: unihub-rabbitmq
     restart: unless-stopped
     environment:
@@ -68,6 +70,17 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # SMTP catcher for the EMAIL channel (notification.md §2): accepts every message, keeps it, shows it in a
+  # web UI and an HTTP API. Nothing is ever delivered. Point the backend at it with
+  # UNIHUB_NOTIFICATION_SMTP_HOST=127.0.0.1 (port 1025).
+  mailpit:
+    image: axllent/mailpit:v1.20.7
+    container_name: unihub-mailpit
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
 
 volumes:
   unihub-postgres-data:

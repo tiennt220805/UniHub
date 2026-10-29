@@ -16,6 +16,8 @@
 #                          spec and never verifies a token, so a throwaway placeholder is enough (not a credential).
 #   UNIHUB_REDIS_ADDRESS   Redis is required configuration (the app will not start without it), but the client is
 #                          lazy and generateOpenApiDocs never issues a command, so a dead address is enough.
+#   UNIHUB_NOTIFICATION_SMTP_HOST  the EMAIL channel's SMTP host is required configuration (the app will not start
+#                          without it), but nothing connects while the spec is read, so a dead address is enough.
 #   CONTRACT_DIFF_DIR      where intermediate specs are written (default: a fresh mktemp dir, kept on exit).
 set -euo pipefail
 
@@ -55,6 +57,7 @@ rm -f build/openapi.json   # never diff a stale spec from an earlier run
 SPRING_DATASOURCE_URL="${SPRING_DATASOURCE_URL:-jdbc:postgresql://127.0.0.1:5432/unihub}" \
 UNIHUB_SECURITY_JWT_SECRET="${UNIHUB_SECURITY_JWT_SECRET:-contract-diff-placeholder-not-a-credential-0123456789abcdef}" \
 UNIHUB_REDIS_ADDRESS="${UNIHUB_REDIS_ADDRESS:-redis://127.0.0.1:1}" \
+UNIHUB_NOTIFICATION_SMTP_HOST="${UNIHUB_NOTIFICATION_SMTP_HOST:-127.0.0.1}" \
   ./gradlew generateOpenApiDocs --no-daemon
 cp build/openapi.json "$TMP/generated.json"
 

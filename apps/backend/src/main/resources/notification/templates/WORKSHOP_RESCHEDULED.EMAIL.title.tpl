@@ -1,0 +1,1 @@
+Workshop đổi lịch: {{workshopTitle}}

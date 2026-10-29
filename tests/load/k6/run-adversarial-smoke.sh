@@ -14,6 +14,7 @@
 #      SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5432/unihub_k6_smoke \
 #      SPRING_DATASOURCE_USERNAME=unihub SPRING_DATASOURCE_PASSWORD=unihub_dev_only \
 #      UNIHUB_REDIS_ADDRESS=redis://127.0.0.1:6379 \
+#      UNIHUB_NOTIFICATION_SMTP_HOST=127.0.0.1 UNIHUB_NOTIFICATION_SMTP_PORT=1025 \
 #      SPRING_RABBITMQ_HOST=127.0.0.1 SPRING_RABBITMQ_USERNAME=unihub SPRING_RABBITMQ_PASSWORD=unihub_dev_only \
 #      ./gradlew bootRun)                                                  # leave it running
 #

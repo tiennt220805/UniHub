@@ -20,7 +20,15 @@ public abstract class IntegrationTestSupport {
             new GenericContainer<>("redis:7").withExposedPorts(6379);
 
     protected static final RabbitMQContainer RABBITMQ =
-            new RabbitMQContainer("rabbitmq:3-management");
+            new RabbitMQContainer("rabbitmq:3.13.7-management");
+
+    /**
+     * SMTP catcher for the EMAIL channel (Phase 4 checklist D36): accepts every message and keeps
+     * it, readable through its HTTP API ({@link Mailpit}). A test double, never a delivery path.
+     * Pinned to the same version as docker-compose.yml.
+     */
+    protected static final GenericContainer<?> MAILPIT =
+            new GenericContainer<>("axllent/mailpit:v1.20.7").withExposedPorts(1025, 8025);
 
     // minio/minio stopped being pullable (Docker Hub repository removed, 10/2025 — verified against
     // live Docker Hub/quay.io, not a sandbox/network issue). cgr.dev/chainguard/minio is a real
@@ -72,6 +80,7 @@ public abstract class IntegrationTestSupport {
         REDIS.start();
         RABBITMQ.start();
         MINIO.start();
+        MAILPIT.start();
 
         // Flyway Java API, not spring.flyway.enabled (application.yml keeps that false) — INV-15:
         // migration
@@ -91,6 +100,15 @@ public abstract class IntegrationTestSupport {
         // the seat lock and the job lock are the Redis ones everywhere. A test's own
         // @DynamicPropertySource (an unreachable address, a private container) still overrides it.
         System.setProperty("unihub.redis.address", redisAddress());
+
+        // The SMTP host is required configuration (Phase 4 checklist D36): every context gets the
+        // singleton Mailpit, which also keeps the mail of a delivery a test did not mean to make
+        // out
+        // of the real network. A test's own @DynamicPropertySource (a dead address) still overrides
+        // it.
+        System.setProperty("unihub.notification.smtp.host", MAILPIT.getHost());
+        System.setProperty(
+                "unihub.notification.smtp.port", String.valueOf(MAILPIT.getMappedPort(1025)));
 
         System.setProperty("spring.rabbitmq.host", RABBITMQ.getHost());
         System.setProperty("spring.rabbitmq.port", String.valueOf(RABBITMQ.getAmqpPort()));

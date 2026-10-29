@@ -1,0 +1,1 @@
+Workshop đã bị hủy: {{workshopTitle}}

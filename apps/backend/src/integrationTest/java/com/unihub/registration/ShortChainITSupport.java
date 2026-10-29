@@ -46,7 +46,7 @@ public abstract class ShortChainITSupport extends HandOffITSupport {
     protected static final String HOLD_EXPIRED = Topology.HOLD_EXPIRED;
 
     private static final RabbitMQContainer SHORT_BROKER =
-            new RabbitMQContainer("rabbitmq:3-management");
+            new RabbitMQContainer("rabbitmq:3.13.7-management");
 
     static {
         SHORT_BROKER.start();

@@ -55,7 +55,7 @@ public abstract class IntegrationTestSupport {
 
     static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7").withExposedPorts(6379);
 
-    static final RabbitMQContainer RABBITMQ = new RabbitMQContainer("rabbitmq:3-management");
+    static final RabbitMQContainer RABBITMQ = new RabbitMQContainer("rabbitmq:3.13.7-management");
 
     // minio/minio stopped being pullable (Docker Hub repository removed, 10/2025 — verified against
     // live Docker Hub/quay.io, not a sandbox/network issue). cgr.dev/chainguard/minio is a real MinIO

@@ -124,6 +124,10 @@ dependencies {
     // connects to the broker until the first publish or a declared listener, so the app still boots
     // with no broker (contract-diff boots it without any dependency).
     implementation("org.springframework.boot:spring-boot-starter-amqp")
+    // Notification's EMAIL channel: SMTP through JavaMailSender, vendor-neutral (Phase 4 checklist D36).
+    // Only the mail API is used; Boot's own mail auto-configuration is not (the sender is built from
+    // unihub.notification.smtp.*, which fails the start when the host is blank).
+    implementation("org.springframework.boot:spring-boot-starter-mail")
     // Micrometer's API only (version from the Boot BOM): LoggingAuditTrail counts the audit entries it
     // could not record (observability.md §4, unihub_audit_publish_failures_total). No registry and no
     // actuator yet; the counter attaches to the global registry when the observability stack lands.
@@ -227,6 +231,12 @@ tasks.register<Test>("integrationTest") {
     testClassesDirs = sourceSets["integrationTest"].output.classesDirs
     classpath = sourceSets["integrationTest"].runtimeClasspath
     include("**/*IT.class")
+    // Spring caches one application context per distinct test configuration for the whole run, and every
+    // context keeps a Hikari pool, a Redisson client, a Tomcat and a listener container alive. Phase 4 took the
+    // suite past what Gradle's default 512 MB test worker holds (OutOfMemoryError in the netty/Tomcat poller
+    // threads, 2026-10-29), so the heap is set explicitly rather than left to a default that silently decides
+    // how many test classes the project may have.
+    maxHeapSize = "1536m"
     // Independent from `test`/`check` on purpose (guidelines/coding-standards.md §1,
     // test-levels/integration-testing.md §3): `unit-test` and `integration-test` are separate,
     // sequentially-gated CI jobs (`./gradlew test` then `./gradlew integrationTest`), not one Gradle

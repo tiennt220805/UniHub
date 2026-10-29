@@ -145,3 +145,26 @@ unihub:
   redis:
     connect-timeout: PT0.5S
     command-timeout: PT0.5S
+  # Notification (notification.md §2-§4, Phase 4 checklist D32-D39). The SMTP host is required and comes from
+  # the environment (UNIHUB_NOTIFICATION_SMTP_HOST, and _PORT, _USERNAME, _PASSWORD for the rest) — never set
+  # here (M-13): without it the application does not start. claim-lease is the send lease of one row, longer
+  # than the worst case of one send (about 85s: 5s connect + 8 round trips at the 10s timeouts) and well under
+  # the retry chain's total delay (about 5.6 minutes). channels lists, per type, the channels it is sent
+  # through; a type left out uses EMAIL and IN_APP. listener is the notification queue's own container (D39).
+  notification:
+    claim-lease: PT120S
+    display-zone: Asia/Ho_Chi_Minh
+    smtp:
+      connect-timeout: PT5S
+      read-timeout: PT10S
+      write-timeout: PT10S
+    listener:
+      concurrency: 2
+      prefetch: 1
+    channels:
+      registration-confirmed: EMAIL,IN_APP
+      workshop-cancelled: EMAIL,IN_APP
+      workshop-rescheduled: EMAIL,IN_APP
+  # Where the Web Application lives, for links in emails ("My registrations"). Not a secret.
+  web:
+    base-url: http://localhost:5173

@@ -1,0 +1,1 @@
+Xác nhận đăng ký: {{workshopTitle}}
