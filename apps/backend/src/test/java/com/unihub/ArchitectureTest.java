@@ -10,11 +10,14 @@ import static com.tngtech.archunit.library.GeneralCodingRules.NO_CLASSES_SHOULD_
 import static com.tngtech.archunit.library.GeneralCodingRules.NO_CLASSES_SHOULD_USE_FIELD_INJECTION;
 import static com.tngtech.archunit.library.GeneralCodingRules.NO_CLASSES_SHOULD_USE_JAVA_UTIL_LOGGING;
 
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
+import com.unihub.notification.application.port.out.NotificationChannel;
+import com.unihub.notification.application.usecase.NotificationDispatcher;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -294,4 +297,46 @@ class ArchitectureTest {
 
     @ArchTest static final ArchRule slf4j_only = NO_CLASSES_SHOULD_USE_JAVA_UTIL_LOGGING;
     @ArchTest static final ArchRule no_system_out = NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS;
+
+    // ---------- M-39: a new notification channel touches nothing else (Phase 4 D40, AC40.1)
+    // ----------
+
+    /**
+     * No class outside the Notification module knows how a notification is delivered: not the
+     * channel port, not the dispatcher. Registration, Workshop, Payment and User publish facts and
+     * never name a channel (notification.md §2). Package-private so that {@code
+     * NotificationChannelRulesTest} applies this very rule to a class that breaks it.
+     */
+    @ArchTest
+    static final ArchRule only_notification_depends_on_channels =
+            noClasses()
+                    .that()
+                    .resideOutsideOfPackage("com.unihub.notification..")
+                    .should()
+                    .dependOnClassesThat(
+                            JavaClass.Predicates.equivalentTo(NotificationChannel.class)
+                                    .or(
+                                            JavaClass.Predicates.equivalentTo(
+                                                    NotificationDispatcher.class)))
+                    .as(
+                            "no class outside the notification module depends on NotificationChannel"
+                                    + " or NotificationDispatcher (M-39)");
+
+    /**
+     * The dispatcher, the use cases and the listener choose a channel by its code, never by its
+     * class: adding a channel is one new class and nothing here changes.
+     */
+    @ArchTest
+    static final ArchRule dispatching_depends_on_no_concrete_channel =
+            noClasses()
+                    .that()
+                    .resideInAnyPackage(
+                            "com.unihub.notification.application..",
+                            "com.unihub.notification.infrastructure.in..")
+                    .should()
+                    .dependOnClassesThat()
+                    .resideInAPackage("com.unihub.notification.infrastructure.out.channel..")
+                    .as(
+                            "the dispatcher, use cases and listener depend on no concrete channel"
+                                    + " class (M-39)");
 }
