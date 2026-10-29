@@ -4,9 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,9 +35,24 @@ public final class Mailpit {
                 + IntegrationTestSupport.MAILPIT.getMappedPort(8025);
     }
 
-    /** Everything caught, newest first. */
+    /** Everything caught, newest first (the newest 1000 at most: prefer {@link #to}). */
     public static List<Mail> all() {
-        var list = get("/api/v1/messages?limit=1000");
+        return fetch("/api/v1/messages?limit=1000");
+    }
+
+    /**
+     * The messages addressed to {@code address}, asked of Mailpit's own search so that a test is
+     * not slowed, or silently truncated, by the mail every other test left behind.
+     */
+    public static List<Mail> to(String address) {
+        var query = URLEncoder.encode("to:" + address, StandardCharsets.UTF_8);
+        return fetch("/api/v1/search?limit=500&query=" + query).stream()
+                .filter(mail -> mail.to().equalsIgnoreCase(address))
+                .toList();
+    }
+
+    private static List<Mail> fetch(String listPath) {
+        var list = get(listPath);
         var mails = new ArrayList<Mail>();
         for (var summary : list.path("messages")) {
             var full = get("/api/v1/message/" + summary.path("ID").asText());
@@ -49,11 +66,6 @@ public final class Mailpit {
                             full.path("HTML").asText()));
         }
         return mails;
-    }
-
-    /** The messages addressed to {@code address}. */
-    public static List<Mail> to(String address) {
-        return all().stream().filter(mail -> mail.to().equalsIgnoreCase(address)).toList();
     }
 
     public static void clear() {
