@@ -22,8 +22,10 @@ import java.util.Objects;
  * table's CHECK, so the domain and the database reject the same states.
  *
  * <p>The seat counter is not here: the {@code workshops} update commits in the same transaction but
- * belongs to Workshop (database-schema.md §4.1). {@code ticket_code}/{@code qr_payload} are carried
- * but never produced in Phase 2 (they stay {@code null} until ticket issuance exists).
+ * belongs to Workshop (database-schema.md §4.1). A registration becomes {@code CONFIRMED} together
+ * with its {@link Ticket} (Phase 5 checklist D48): both confirming paths take one, so a new
+ * confirmation never lacks it. {@link #restore} still accepts a {@code CONFIRMED} row with no
+ * ticket, because rows confirmed before Phase 5 have none and are not backfilled.
  */
 public final class Registration {
 
@@ -33,8 +35,8 @@ public final class Registration {
     private final TicketType ticketType;
     private RegistrationStatus status;
     private Instant holdExpiresAt;
-    private final String ticketCode;
-    private final String qrPayload;
+    private String ticketCode;
+    private String qrPayload;
     private final Version version;
     // Persistence metadata (registrations.created_at/updated_at): read-only, null until first
     // saved.
@@ -104,12 +106,14 @@ public final class Registration {
     }
 
     /**
-     * A free registration: confirmed at once, there is nothing to wait for. Records {@link
-     * RegistrationConfirmed}, so the confirmation is announced the same way as a paid one.
+     * A free registration: confirmed at once, with its ticket, there is nothing to wait for.
+     * Records {@link RegistrationConfirmed}, so the confirmation is announced the same way as a
+     * paid one.
      */
     public static Registration confirmFree(
-            RegistrationId id, WorkshopId workshopId, UserId userId, Instant now) {
+            RegistrationId id, WorkshopId workshopId, UserId userId, Instant now, Ticket ticket) {
         Objects.requireNonNull(now);
+        Objects.requireNonNull(ticket, "a confirmed registration carries its ticket");
         var registration =
                 new Registration(
                         id,
@@ -118,8 +122,8 @@ public final class Registration {
                         TicketType.FREE,
                         RegistrationStatus.CONFIRMED,
                         null,
-                        null,
-                        null,
+                        ticket.code(),
+                        ticket.qrPayload(),
                         Version.initial(),
                         null,
                         null);
@@ -179,12 +183,18 @@ public final class Registration {
                 updatedAt);
     }
 
-    /** Payment completed while the hold was still ours. Records {@link RegistrationConfirmed}. */
-    public void confirm(Instant now) {
+    /**
+     * Payment completed while the hold was still ours: the registration is confirmed and takes its
+     * ticket. Records {@link RegistrationConfirmed}.
+     */
+    public void confirm(Instant now, Ticket ticket) {
         Objects.requireNonNull(now);
+        Objects.requireNonNull(ticket, "a confirmed registration carries its ticket");
         requireStatus(RegistrationStatus.RESERVED, "be confirmed");
         this.status = RegistrationStatus.CONFIRMED;
         this.holdExpiresAt = null;
+        this.ticketCode = ticket.code();
+        this.qrPayload = ticket.qrPayload();
         events.add(new RegistrationConfirmed(id, workshopId, userId, now));
     }
 

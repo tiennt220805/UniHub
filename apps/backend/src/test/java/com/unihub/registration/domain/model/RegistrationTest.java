@@ -4,6 +4,7 @@ import static com.unihub.registration.domain.model.RegistrationBuilder.aCancelle
 import static com.unihub.registration.domain.model.RegistrationBuilder.aConfirmedRegistration;
 import static com.unihub.registration.domain.model.RegistrationBuilder.aReservedRegistration;
 import static com.unihub.registration.domain.model.RegistrationBuilder.anExpiredRegistration;
+import static com.unihub.registration.domain.model.TestTickets.aTicket;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -68,16 +69,32 @@ class RegistrationTest {
     }
 
     @Test
-    @DisplayName("a free registration is CONFIRMED at once, with no hold and no ticket yet")
+    @DisplayName("a free registration is CONFIRMED at once, with no hold and its ticket")
     void confirmFree_isConfirmedWithoutHold() {
         var registration =
                 Registration.confirmFree(
-                        RegistrationId.newId(), WorkshopId.newId(), UserId.newId(), NOW);
+                        RegistrationId.newId(), WorkshopId.newId(), UserId.newId(), NOW, aTicket());
 
         assertThat(registration.status()).isEqualTo(RegistrationStatus.CONFIRMED);
         assertThat(registration.isConfirmed()).isTrue();
         assertThat(registration.ticketType()).isEqualTo(TicketType.FREE);
         assertThat(registration.holdExpiresAt()).isNull();
+        assertThat(registration.ticketCode()).isEqualTo(aTicket().code());
+        assertThat(registration.qrPayload()).isEqualTo(aTicket().qrPayload());
+    }
+
+    @Test
+    @DisplayName("a free registration cannot be confirmed without a ticket")
+    void confirmFree_needsATicket() {
+        assertThatThrownBy(
+                        () ->
+                                Registration.confirmFree(
+                                        RegistrationId.newId(),
+                                        WorkshopId.newId(),
+                                        UserId.newId(),
+                                        NOW,
+                                        null))
+                .isInstanceOf(NullPointerException.class);
     }
 
     @Test
@@ -86,7 +103,7 @@ class RegistrationTest {
         var id = RegistrationId.newId();
         var workshop = WorkshopId.newId();
         var user = UserId.newId();
-        var registration = Registration.confirmFree(id, workshop, user, NOW);
+        var registration = Registration.confirmFree(id, workshop, user, NOW, aTicket());
 
         assertThat(registration.pullEvents())
                 .containsExactly(new RegistrationConfirmed(id, workshop, user, NOW));
@@ -114,14 +131,49 @@ class RegistrationTest {
     }
 
     @Test
-    @DisplayName("RESERVED → CONFIRMED clears the hold")
+    @DisplayName("RESERVED → CONFIRMED clears the hold and takes the ticket")
     void confirm_fromReserved() {
         var registration = aReservedRegistration().build();
+        assertThat(registration.ticketCode()).isNull();
 
-        registration.confirm(NOW);
+        registration.confirm(NOW, aTicket());
 
         assertThat(registration.status()).isEqualTo(RegistrationStatus.CONFIRMED);
         assertThat(registration.holdExpiresAt()).isNull();
+        assertThat(registration.ticketCode()).isEqualTo(aTicket().code());
+        assertThat(registration.qrPayload()).isEqualTo(aTicket().qrPayload());
+    }
+
+    @Test
+    @DisplayName("a reservation cannot be confirmed without a ticket, and stays RESERVED")
+    void confirm_needsATicket() {
+        var registration = aReservedRegistration().build();
+
+        assertThatThrownBy(() -> registration.confirm(NOW, null))
+                .isInstanceOf(NullPointerException.class);
+        assertThat(registration.status()).isEqualTo(RegistrationStatus.RESERVED);
+    }
+
+    @Test
+    @DisplayName("a CONFIRMED row from before Phase 5 is restored without a ticket")
+    void restore_confirmedWithoutATicket_isAccepted() {
+        var registration = aConfirmedRegistration().build();
+
+        assertThat(registration.status()).isEqualTo(RegistrationStatus.CONFIRMED);
+        assertThat(registration.ticketCode()).isNull();
+        assertThat(registration.qrPayload()).isNull();
+    }
+
+    @Test
+    @DisplayName("a ticket needs both a code and a payload, and never prints the payload")
+    void ticket_needsBothParts() {
+        assertThatThrownBy(() -> new Ticket(null, "p"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new Ticket(" ", "p")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new Ticket("c", null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new Ticket("c", "")).isInstanceOf(IllegalArgumentException.class);
+        assertThat(new Ticket("c", "secret.payload.sig").toString()).doesNotContain("secret");
     }
 
     @Test
@@ -129,7 +181,7 @@ class RegistrationTest {
     void confirm_recordsTheConfirmation() {
         var registration = aReservedRegistration().build();
 
-        registration.confirm(NOW);
+        registration.confirm(NOW, aTicket());
 
         assertThat(registration.pullEvents())
                 .containsExactly(
@@ -145,9 +197,12 @@ class RegistrationTest {
     void confirm_refused_recordsNothing() {
         var registration = anExpiredRegistration().build();
 
-        assertThatThrownBy(() -> registration.confirm(NOW))
+        assertThatThrownBy(() -> registration.confirm(NOW, aTicket()))
                 .isInstanceOf(InvalidRegistrationStateException.class);
         assertThat(registration.pullEvents()).isEmpty();
+        assertThat(registration.ticketCode())
+                .as("a refused confirmation issues no ticket")
+                .isNull();
     }
 
     @Test
@@ -176,7 +231,7 @@ class RegistrationTest {
     }
 
     static Stream<Arguments> mustReject() {
-        Consumer<Registration> confirm = r -> r.confirm(NOW);
+        Consumer<Registration> confirm = r -> r.confirm(NOW, aTicket());
         Consumer<Registration> expire = Registration::expire;
         Consumer<Registration> cancel = Registration::cancel;
         return Stream.of(

@@ -4,6 +4,7 @@ import com.unihub.registration.api.event.RegistrationConfirmationRejectedIntegra
 import com.unihub.registration.application.command.ConfirmRegistrationCommand;
 import com.unihub.registration.application.event.RegistrationOutboxTranslator;
 import com.unihub.registration.application.port.out.RegistrationRepository;
+import com.unihub.registration.application.port.out.TicketSigner;
 import com.unihub.registration.domain.model.RegistrationStatus;
 import com.unihub.shared.application.port.out.AuditActions;
 import com.unihub.shared.application.port.out.AuditEntry;
@@ -19,11 +20,11 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * One attempt at confirming a registration whose payment succeeded, in one transaction at the
  * Master (payment.md §9, checklist D2 constraint 1). The status is read first and decides: {@code
- * RESERVED} is confirmed by a conditional update (and {@code ticket.confirmed} is written in the
- * same transaction), {@code CONFIRMED} is a redelivery and a no-op, and {@code EXPIRED} or {@code
- * CANCELLED} is not re-granted: a rejection is published for Payment instead. A lost race on the
- * conditional update is an {@code OptimisticConflictException} for the caller to retry, which
- * re-reads and so lands on one of the other branches.
+ * RESERVED} is confirmed by a conditional update that also writes its signed e-ticket (and {@code
+ * ticket.confirmed} is written in the same transaction), {@code CONFIRMED} is a redelivery and a
+ * no-op, and {@code EXPIRED} or {@code CANCELLED} is not re-granted: a rejection is published for
+ * Payment instead. A lost race on the conditional update is an {@code OptimisticConflictException}
+ * for the caller to retry, which re-reads and so lands on one of the other branches.
  */
 @Service
 class ConfirmRegistrationTransaction {
@@ -39,16 +40,19 @@ class ConfirmRegistrationTransaction {
     private final RegistrationRepository registrations;
     private final EventPublisher events;
     private final AuditTrail auditTrail;
+    private final TicketSigner ticketSigner;
     private final Clock clock;
 
     ConfirmRegistrationTransaction(
             RegistrationRepository registrations,
             EventPublisher events,
             AuditTrail auditTrail,
+            TicketSigner ticketSigner,
             Clock clock) {
         this.registrations = registrations;
         this.events = events;
         this.auditTrail = auditTrail;
+        this.ticketSigner = ticketSigner;
         this.clock = clock;
     }
 
@@ -67,7 +71,9 @@ class ConfirmRegistrationTransaction {
         var now = clock.instant();
         switch (registration.status()) {
             case RESERVED -> {
-                registration.confirm(now);
+                // Signed only in this branch: a redelivery finds CONFIRMED below and never signs
+                // again, so the ticket a student holds is the one first issued (checkin.md §4).
+                registration.confirm(now, ticketSigner.issue(registration.workshopId(), now));
                 var recorded = registration.pullEvents();
                 registrations.transition(registration, RegistrationStatus.RESERVED);
                 recorded.stream()

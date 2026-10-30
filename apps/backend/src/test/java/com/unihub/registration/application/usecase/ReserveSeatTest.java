@@ -70,7 +70,7 @@ class ReserveSeatTest {
 
     private static ReserveSeatResult.Confirmed confirmed() {
         var now = Instant.parse("2026-12-01T09:00:00Z");
-        return new ReserveSeatResult.Confirmed(RegistrationId.newId(), now, now);
+        return new ReserveSeatResult.Confirmed(RegistrationId.newId(), now, now, "CODE", "h.p.s");
     }
 
     @Test

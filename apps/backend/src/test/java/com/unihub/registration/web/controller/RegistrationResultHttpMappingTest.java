@@ -57,7 +57,9 @@ class RegistrationResultHttpMappingTest {
                             null),
                     new Mapping(
                             ReserveSeatResult.Confirmed.class,
-                            () -> new ReserveSeatResult.Confirmed(RegistrationId.newId(), AT, AT),
+                            () ->
+                                    new ReserveSeatResult.Confirmed(
+                                            RegistrationId.newId(), AT, AT, "CODE", "a.b.c"),
                             201,
                             null),
                     new Mapping(

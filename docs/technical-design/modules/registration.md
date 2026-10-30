@@ -202,7 +202,7 @@ The same lookup also runs once before the seat lock (fast replay path, `../../gu
      CONFIRMED            → COMMIT, no-op  (a redelivery of a message already applied)
      EXPIRED | CANCELLED  → compensation, below
    ```
-   `seats_taken` does not change: the seat was claimed when the registration entered `RESERVED` (§1). Ticket signing at `CONFIRMED` is `../modules/checkin.md` §4's design: the signature is computed inside this transaction (no network I/O), so `:code` and `:payload` are the new ticket (Phase 5 checklist D48).
+   `seats_taken` does not change: the seat was claimed when the registration entered `RESERVED` (§1). Ticket signing at `CONFIRMED` is `../modules/checkin.md` §4's design: the signature is computed inside this transaction (no network I/O), so `:code` and `:payload` are the new ticket (Phase 5 checklist D48). A redelivery reaches the `CONFIRMED` branch and never signs, so the ticket a student holds is the first one issued; a lost race between two concurrent deliveries signs twice but only one conditional `UPDATE` matches, so the row holds exactly one ticket. The `201` of `createRegistration` for a free workshop carries `ticketCode` and `qrPayload` (the same body `getRegistration` returns), and an `Idempotency-Key` replay returns the stored copy, never a re-signed one; a key recorded before Phase 5 replays with both `null`.
 
 **Model — compensation (payment succeeded, registration no longer `RESERVED`):** the money was taken but the seat cannot be held — it was released by expiry (§3) or cancellation and may already belong to someone else. The seat is **never** re-granted (`EXPIRED → CONFIRMED` is a forbidden transition, `../../testing/guidelines/test-design-techniques.md` §2). Instead:
 

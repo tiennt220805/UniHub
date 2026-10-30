@@ -88,7 +88,9 @@ class ReserveSeatWebTest {
     void confirmed_is201() throws Exception {
         var id = RegistrationId.newId();
         when(reserveSeat.reserve(any()))
-                .thenReturn(new ReserveSeatResult.Confirmed(id, CREATED, CREATED));
+                .thenReturn(
+                        new ReserveSeatResult.Confirmed(
+                                id, CREATED, CREATED, "0123456789ABCDEFGHJKMNPQRS", "h.p.s"));
 
         mockMvc.perform(valid())
                 .andExpect(status().isCreated())
@@ -98,7 +100,8 @@ class ReserveSeatWebTest {
                 .andExpect(jsonPath("$.ticketType").value("FREE"))
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
                 .andExpect(jsonPath("$.holdExpiresAt").doesNotExist())
-                .andExpect(jsonPath("$.ticketCode").doesNotExist())
+                .andExpect(jsonPath("$.ticketCode").value("0123456789ABCDEFGHJKMNPQRS"))
+                .andExpect(jsonPath("$.qrPayload").value("h.p.s"))
                 .andExpect(jsonPath("$.createdAt").value("2026-12-01T09:00:00Z"));
 
         var command = ArgumentCaptor.forClass(ReserveSeatCommand.class);
@@ -119,7 +122,9 @@ class ReserveSeatWebTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.ticketType").value("PAID"))
                 .andExpect(jsonPath("$.status").value("RESERVED"))
-                .andExpect(jsonPath("$.holdExpiresAt").value("2026-12-01T09:15:00Z"));
+                .andExpect(jsonPath("$.holdExpiresAt").value("2026-12-01T09:15:00Z"))
+                .andExpect(jsonPath("$.ticketCode").doesNotExist())
+                .andExpect(jsonPath("$.qrPayload").doesNotExist());
     }
 
     @Test

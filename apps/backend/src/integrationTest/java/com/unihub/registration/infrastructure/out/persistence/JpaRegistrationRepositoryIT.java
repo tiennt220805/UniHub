@@ -11,6 +11,7 @@ import com.unihub.registration.domain.exception.AlreadyRegisteredException;
 import com.unihub.registration.domain.model.Registration;
 import com.unihub.registration.domain.model.RegistrationBuilder;
 import com.unihub.registration.domain.model.RegistrationStatus;
+import com.unihub.registration.domain.model.TestTickets;
 import com.unihub.shared.domain.OptimisticConflictException;
 import com.unihub.shared.domain.Version;
 import com.unihub.shared.domain.id.RegistrationId;
@@ -166,13 +167,17 @@ class JpaRegistrationRepositoryIT extends IntegrationTestSupport {
                 tx.execute(
                         s -> {
                             var loaded = registrations.findById(saved.id()).orElseThrow();
-                            loaded.confirm(java.time.Instant.now());
+                            loaded.confirm(java.time.Instant.now(), TestTickets.aUniqueTicket());
                             return registrations.transition(loaded, RegistrationStatus.RESERVED);
                         });
 
         assertThat(confirmed.status()).isEqualTo(RegistrationStatus.CONFIRMED);
         assertThat(confirmed.holdExpiresAt()).isNull();
         assertThat(confirmed.version()).isEqualTo(new Version(1));
+        // the same UPDATE wrote the ticket (checkin.md §4): status, ticket_code, qr_payload
+        // together
+        assertThat(confirmed.ticketCode()).isNotBlank();
+        assertThat(confirmed.qrPayload()).startsWith("h.");
     }
 
     @Test
@@ -184,7 +189,7 @@ class JpaRegistrationRepositoryIT extends IntegrationTestSupport {
         jdbc.update(
                 "UPDATE registrations SET status = 'EXPIRED', hold_expires_at = NULL WHERE id = ?",
                 saved.id().value());
-        loaded.confirm(java.time.Instant.now());
+        loaded.confirm(java.time.Instant.now(), TestTickets.aUniqueTicket());
 
         assertThatThrownBy(
                         () ->
@@ -223,7 +228,8 @@ class JpaRegistrationRepositoryIT extends IntegrationTestSupport {
                                 var loaded = registrations.findById(saved.id()).orElseThrow();
                                 await(barrier);
                                 if (confirm) {
-                                    loaded.confirm(java.time.Instant.now());
+                                    loaded.confirm(
+                                            java.time.Instant.now(), TestTickets.aUniqueTicket());
                                 } else {
                                     loaded.expire();
                                 }

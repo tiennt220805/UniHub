@@ -3,6 +3,7 @@ package com.unihub.registration.application.usecase;
 import com.unihub.registration.application.command.ReserveSeatCommand;
 import com.unihub.registration.application.event.RegistrationOutboxTranslator;
 import com.unihub.registration.application.port.out.RegistrationRepository;
+import com.unihub.registration.application.port.out.TicketSigner;
 import com.unihub.registration.application.result.ReserveSeatResult;
 import com.unihub.registration.domain.model.Registration;
 import com.unihub.shared.application.port.out.AuditActions;
@@ -26,9 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
  * MANDATORY}) and the {@code registrations} insert commit together or not at all
  * (database-schema.md §4.1), the audit entry is recorded here (it takes effect after commit) and so
  * is the idempotency key, begun first and completed last. What the registration records also
- * becomes outbox rows here (INV-10): {@code ticket.confirmed} for a free ticket, the hold-expiry
- * job for a paid hold. A row commits with the registration or not at all, and the relay publishes
- * it later.
+ * becomes outbox rows here (INV-10): {@code ticket.confirmed} for a free ticket (signed in the same
+ * transaction, so the e-ticket is there when the event is consumed), the hold-expiry job for a paid
+ * hold. A row commits with the registration or not at all, and the relay publishes it later.
  */
 @Service
 class ReserveSeatTransaction {
@@ -38,6 +39,7 @@ class ReserveSeatTransaction {
     private final AuditTrail auditTrail;
     private final EventPublisher events;
     private final RegistrationPolicy policy;
+    private final TicketSigner ticketSigner;
     private final Clock clock;
 
     ReserveSeatTransaction(
@@ -47,6 +49,7 @@ class ReserveSeatTransaction {
             AuditTrail auditTrail,
             EventPublisher events,
             RegistrationPolicy policy,
+            TicketSigner ticketSigner,
             Clock clock) {
         this.idempotency = idempotency;
         this.seatInventory = seatInventory;
@@ -54,6 +57,7 @@ class ReserveSeatTransaction {
         this.auditTrail = auditTrail;
         this.events = events;
         this.policy = policy;
+        this.ticketSigner = ticketSigner;
         this.clock = clock;
     }
 
@@ -109,7 +113,15 @@ class ReserveSeatTransaction {
                         claimed.paid()
                                 ? Registration.reserve(
                                         id, workshopId, userId, now, policy.seatHoldDuration())
-                                : Registration.confirmFree(id, workshopId, userId, now);
+                                // Signed here, inside the transaction: a stateless computation
+                                // (§19), so the INSERT carries status, ticket_code and qr_payload
+                                // together (checkin.md §4).
+                                : Registration.confirmFree(
+                                        id,
+                                        workshopId,
+                                        userId,
+                                        now,
+                                        ticketSigner.issue(workshopId, now));
                 // The saved aggregate carries the row's timestamps, which the response needs.
                 var saved = registrations.save(registration);
                 // In this transaction (EventPublisher is MANDATORY): the intent to publish commits
@@ -126,7 +138,12 @@ class ReserveSeatTransaction {
                                 id.value(),
                                 now));
                 yield saved.isConfirmed()
-                        ? new ReserveSeatResult.Confirmed(id, saved.createdAt(), saved.updatedAt())
+                        ? new ReserveSeatResult.Confirmed(
+                                id,
+                                saved.createdAt(),
+                                saved.updatedAt(),
+                                saved.ticketCode(),
+                                saved.qrPayload())
                         : new ReserveSeatResult.Reserved(
                                 id, saved.holdExpiresAt(), saved.createdAt(), saved.updatedAt());
             }

@@ -60,8 +60,8 @@ public final class RegistrationWebMapper {
                 TicketType.FREE,
                 RegistrationStatus.CONFIRMED,
                 null,
-                null,
-                null,
+                confirmed.ticketCode(),
+                confirmed.qrPayload(),
                 confirmed.createdAt(),
                 confirmed.updatedAt());
     }

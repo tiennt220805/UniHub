@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.unihub.registration.HandOffITSupport;
+import com.unihub.registration.TicketITSupport;
+import com.unihub.registration.api.TicketVerificationKey;
 import com.unihub.registration.application.command.ConfirmRegistrationCommand;
 import com.unihub.registration.application.command.ExpireSeatHoldCommand;
 import com.unihub.registration.application.command.ReserveSeatCommand;
@@ -51,6 +53,7 @@ class RegistrationConsumersConcurrentRedeliveryIT extends HandOffITSupport {
 
     @Autowired private ConfirmRegistrationUseCase confirmRegistration;
     @Autowired private ExpireSeatHoldUseCase expireSeatHold;
+    @Autowired private TicketVerificationKey verificationKey;
 
     private long registrationVersion(UUID registration) {
         return jdbc.queryForObject(
@@ -61,7 +64,7 @@ class RegistrationConsumersConcurrentRedeliveryIT extends HandOffITSupport {
     @DisplayName(
             "payment-confirmation: the same success handled by two threads at once confirms once"
                     + " and announces once")
-    void sameSuccess_fromTwoThreads_confirmsOnce() {
+    void sameSuccess_fromTwoThreads_confirmsOnce() throws Exception {
         for (int round = 0; round < ROUNDS; round++) {
             var paid = aPaidRegistration();
             var command =
@@ -73,6 +76,7 @@ class RegistrationConsumersConcurrentRedeliveryIT extends HandOffITSupport {
             var outcome =
                     Redeliveries.concurrently(2, () -> confirmRegistration.confirm(command))
                             .assertOnlyFailuresOf(OptimisticConflictException.class);
+            var issued = TicketITSupport.storedTicket(jdbc, paid.registration());
             if (outcome.anyFailed()) {
                 confirmRegistration.confirm(command); // the retry hop: must be a no-op
             }
@@ -80,6 +84,12 @@ class RegistrationConsumersConcurrentRedeliveryIT extends HandOffITSupport {
             assertThat(registrationStatus(paid.registration()))
                     .as("round " + round)
                     .isEqualTo("CONFIRMED");
+            // Both threads signed a ticket (each with its own code), only one conditional UPDATE
+            // won: the row holds exactly one ticket, it verifies, and the retry did not replace it.
+            TicketITSupport.assertVerifies(issued, verificationKey.current(), paid.workshop());
+            assertThat(TicketITSupport.storedTicket(jdbc, paid.registration()))
+                    .as("one distinct ticket, round " + round)
+                    .isEqualTo(issued);
             assertThat(outboxRows(paid.registration(), TICKET_CONFIRMED))
                     .as("one ticket.confirmed, round " + round)
                     .isEqualTo(1);

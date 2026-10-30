@@ -18,9 +18,12 @@ import com.unihub.registration.api.event.RegistrationConfirmationRejectedIntegra
 import com.unihub.registration.api.event.RegistrationConfirmedIntegrationEvent;
 import com.unihub.registration.application.command.ConfirmRegistrationCommand;
 import com.unihub.registration.application.port.out.RegistrationRepository;
+import com.unihub.registration.application.port.out.TicketSigner;
 import com.unihub.registration.application.usecase.ConfirmRegistrationTransaction.Effect;
 import com.unihub.registration.domain.model.Registration;
 import com.unihub.registration.domain.model.RegistrationStatus;
+import com.unihub.registration.domain.model.TestTickets;
+import com.unihub.registration.domain.model.Ticket;
 import com.unihub.shared.application.port.out.AuditActions;
 import com.unihub.shared.application.port.out.AuditEntry;
 import com.unihub.shared.application.port.out.AuditTargets;
@@ -43,13 +46,20 @@ import org.mockito.ArgumentCaptor;
 class ConfirmRegistrationTransactionTest {
     private static final Instant NOW = Instant.parse("2026-12-01T09:00:00Z");
     private static final PaymentId PAYMENT = PaymentId.newId();
+    private static final Ticket TICKET = TestTickets.aTicket();
 
     private final RegistrationRepository registrations = mock(RegistrationRepository.class);
     private final EventPublisher events = mock(EventPublisher.class);
     private final AuditTrail audit = mock(AuditTrail.class);
+    private final TicketSigner signer = mock(TicketSigner.class);
     private final ConfirmRegistrationTransaction transaction =
             new ConfirmRegistrationTransaction(
-                    registrations, events, audit, Clock.fixed(NOW, ZoneOffset.UTC));
+                    registrations, events, audit, signer, Clock.fixed(NOW, ZoneOffset.UTC));
+
+    @org.junit.jupiter.api.BeforeEach
+    void signerIssuesATicket() {
+        when(signer.issue(any(), any())).thenReturn(TICKET);
+    }
 
     private ConfirmRegistrationCommand found(Registration registration) {
         when(registrations.findById(registration.id())).thenReturn(Optional.of(registration));
@@ -61,11 +71,15 @@ class ConfirmRegistrationTransactionTest {
             "RESERVED is confirmed by the conditional transition, with ticket.confirmed after it")
     void reserved_isConfirmed() {
         var registration = aReservedRegistration().build();
+        when(signer.issue(registration.workshopId(), NOW)).thenReturn(TICKET);
 
         var effect = transaction.attempt(found(registration));
 
         assertThat(effect).isEqualTo(Effect.CONFIRMED);
         assertThat(registration.status()).isEqualTo(RegistrationStatus.CONFIRMED);
+        // the ticket is on the aggregate the conditional UPDATE writes (checkin.md §4)
+        assertThat(registration.ticketCode()).isEqualTo(TICKET.code());
+        assertThat(registration.qrPayload()).isEqualTo(TICKET.qrPayload());
         var order = inOrder(registrations, events);
         order.verify(registrations).transition(registration, RegistrationStatus.RESERVED);
         var message = ArgumentCaptor.forClass(OutboxMessage.class);
@@ -80,6 +94,21 @@ class ConfirmRegistrationTransactionTest {
     }
 
     @Test
+    @DisplayName("a signing failure fails the attempt: nothing is written, nothing is published")
+    void signingFailure_writesNothing() {
+        var registration = aReservedRegistration().build();
+        when(signer.issue(registration.workshopId(), NOW))
+                .thenThrow(new IllegalStateException("signing failed"));
+        var command = found(registration);
+
+        assertThatThrownBy(() -> transaction.attempt(command))
+                .isInstanceOf(IllegalStateException.class);
+
+        verify(registrations, never()).transition(any(), any());
+        verifyNoInteractions(events);
+    }
+
+    @Test
     @DisplayName(
             "an already CONFIRMED registration is a redelivery: nothing changes, nothing is published")
     void confirmed_isNoOp() {
@@ -89,6 +118,8 @@ class ConfirmRegistrationTransactionTest {
 
         verify(registrations, never()).transition(any(), any());
         verifyNoInteractions(events);
+        // AC48.4: a redelivery never signs again, so the ticket stays the one first issued
+        verifyNoInteractions(signer);
     }
 
     @Test
@@ -101,6 +132,7 @@ class ConfirmRegistrationTransactionTest {
 
         assertThat(registration.status()).isEqualTo(RegistrationStatus.EXPIRED);
         verify(registrations, never()).transition(any(), any());
+        verifyNoInteractions(signer);
         verify(events)
                 .publish(
                         new RegistrationConfirmationRejectedIntegrationEvent(
@@ -117,6 +149,7 @@ class ConfirmRegistrationTransactionTest {
 
         assertThat(transaction.attempt(found(registration))).isEqualTo(Effect.REJECTED);
 
+        verifyNoInteractions(signer);
         verify(events)
                 .publish(
                         new RegistrationConfirmationRejectedIntegrationEvent(

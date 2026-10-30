@@ -19,8 +19,17 @@ public sealed interface ReserveSeatResult {
     record Reserved(RegistrationId id, Instant holdExpiresAt, Instant createdAt, Instant updatedAt)
             implements ReserveSeatResult {}
 
-    /** A free workshop: confirmed at once. */
-    record Confirmed(RegistrationId id, Instant createdAt, Instant updatedAt)
+    /**
+     * A free workshop: confirmed at once, with its e-ticket (Phase 5 checklist D48). The ticket
+     * fields were added after the record shipped, so a key recorded before then replays with both
+     * {@code null}; nothing in the ticket is recomputed on a replay.
+     */
+    record Confirmed(
+            RegistrationId id,
+            Instant createdAt,
+            Instant updatedAt,
+            String ticketCode,
+            String qrPayload)
             implements ReserveSeatResult {}
 
     record SoldOut() implements ReserveSeatResult {}

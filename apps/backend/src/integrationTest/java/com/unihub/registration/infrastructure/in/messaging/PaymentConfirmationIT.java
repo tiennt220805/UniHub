@@ -8,6 +8,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.unihub.registration.HandOffITSupport;
+import com.unihub.registration.TicketITSupport;
+import com.unihub.registration.api.TicketVerificationKey;
 import com.unihub.registration.application.command.ConfirmRegistrationCommand;
 import com.unihub.registration.application.port.in.ConfirmRegistrationUseCase;
 import com.unihub.registration.application.port.out.RegistrationRepository;
@@ -49,6 +51,7 @@ class PaymentConfirmationIT extends HandOffITSupport {
     @Autowired private ConfirmRegistrationUseCase confirmRegistration;
     @Autowired private RegistrationRepository registrations;
     @Autowired private SeatInventory seatInventory;
+    @Autowired private TicketVerificationKey verificationKey;
 
     @org.springframework.boot.test.mock.mockito.SpyBean
     private com.unihub.shared.application.port.out.EventPublisher events;
@@ -75,8 +78,11 @@ class PaymentConfirmationIT extends HandOffITSupport {
     @Test
     @DisplayName(
             "a payment that succeeded confirms the RESERVED registration, with ticket.confirmed, seats unchanged")
-    void succeededWhileReserved_confirmsWithTicketOutbox() {
+    void succeededWhileReserved_confirmsWithTicketOutbox() throws Exception {
         var paid = aPaidRegistration();
+        assertThat(TicketITSupport.storedTicket(jdbc, paid.registration()).code())
+                .as("a RESERVED registration has no ticket")
+                .isNull();
         var workshop = new WorkshopId(paid.workshop());
         var seatsBefore = fixtures.seatsTaken(workshop);
 
@@ -89,6 +95,12 @@ class PaymentConfirmationIT extends HandOffITSupport {
                                         .isEqualTo("CONFIRMED"));
         assertThat(outboxRows(paid.registration(), TICKET_CONFIRMED)).isEqualTo(1);
         assertThat(outboxRows(paid.registration(), REJECTED)).isZero();
+        // AC48.1, paid path: status, ticket_code and qr_payload came from one UPDATE, and the
+        // published key verifies the ticket
+        TicketITSupport.assertVerifies(
+                TicketITSupport.storedTicket(jdbc, paid.registration()),
+                verificationKey.current(),
+                paid.workshop());
         assertThat(fixtures.seatsTaken(workshop))
                 .as("the seat was claimed at RESERVED; confirming takes no second one")
                 .isEqualTo(seatsBefore);
@@ -135,11 +147,19 @@ class PaymentConfirmationIT extends HandOffITSupport {
     }
 
     @Test
-    @DisplayName("the same success delivered three times confirms once and announces once")
+    @DisplayName(
+            "AC48.4: the same success delivered three times confirms once, announces once and never"
+                    + " signs again")
     void redelivery_isNoOp() throws Exception {
         var paid = aPaidRegistration();
 
         publishChargeSucceeded(paid);
+        await().atMost(Duration.ofSeconds(15))
+                .untilAsserted(
+                        () ->
+                                assertThat(registrationStatus(paid.registration()))
+                                        .isEqualTo("CONFIRMED"));
+        var issued = TicketITSupport.storedTicket(jdbc, paid.registration());
         publishChargeSucceeded(paid);
         publishChargeSucceeded(paid);
         waitUntilTheQueueIsIdle();
@@ -147,6 +167,9 @@ class PaymentConfirmationIT extends HandOffITSupport {
         assertThat(registrationStatus(paid.registration())).isEqualTo("CONFIRMED");
         assertThat(outboxRows(paid.registration(), TICKET_CONFIRMED)).isEqualTo(1);
         assertThat(outboxRows(paid.registration(), REJECTED)).isZero();
+        assertThat(TicketITSupport.storedTicket(jdbc, paid.registration()))
+                .as("the ticket is the one first issued: a redelivery signs nothing")
+                .isEqualTo(issued);
     }
 
     @Test
@@ -163,6 +186,9 @@ class PaymentConfirmationIT extends HandOffITSupport {
                         () -> assertThat(outboxRows(paid.registration(), REJECTED)).isEqualTo(1));
         assertThat(registrationStatus(paid.registration())).isEqualTo("EXPIRED");
         assertThat(outboxRows(paid.registration(), TICKET_CONFIRMED)).isZero();
+        assertThat(TicketITSupport.storedTicket(jdbc, paid.registration()).code())
+                .as("a hold that lapsed is never granted a ticket")
+                .isNull();
         assertThat(outboxPayloads(paid.registration(), REJECTED).get(0))
                 .contains("HOLD_EXPIRED")
                 .contains(paid.payment().toString());
@@ -181,6 +207,7 @@ class PaymentConfirmationIT extends HandOffITSupport {
                 .untilAsserted(
                         () -> assertThat(outboxRows(paid.registration(), REJECTED)).isEqualTo(1));
         assertThat(registrationStatus(paid.registration())).isEqualTo("CANCELLED");
+        assertThat(TicketITSupport.storedTicket(jdbc, paid.registration()).code()).isNull();
         assertThat(outboxPayloads(paid.registration(), REJECTED).get(0))
                 .contains("REGISTRATION_CANCELLED");
     }

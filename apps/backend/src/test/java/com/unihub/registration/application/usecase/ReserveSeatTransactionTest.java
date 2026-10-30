@@ -7,15 +7,19 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.unihub.registration.api.event.RegistrationConfirmedIntegrationEvent;
 import com.unihub.registration.application.command.ReserveSeatCommand;
 import com.unihub.registration.application.event.SeatHoldExpiryRequested;
 import com.unihub.registration.application.port.out.RegistrationRepository;
+import com.unihub.registration.application.port.out.TicketSigner;
 import com.unihub.registration.application.result.ReserveSeatResult;
 import com.unihub.registration.domain.model.Registration;
 import com.unihub.registration.domain.model.RegistrationStatus;
+import com.unihub.registration.domain.model.TestTickets;
+import com.unihub.registration.domain.model.Ticket;
 import com.unihub.registration.domain.model.TicketType;
 import com.unihub.shared.application.port.out.AuditActions;
 import com.unihub.shared.application.port.out.AuditEntry;
@@ -53,6 +57,7 @@ class ReserveSeatTransactionTest {
     private static final RegistrationPolicy POLICY =
             new RegistrationPolicy(
                     Duration.ofMinutes(15), Duration.ofSeconds(2), Duration.ofSeconds(5), 3);
+    private static final Ticket TICKET = TestTickets.aTicket();
     private static final String KEY = UUID.randomUUID().toString();
     private static final String FINGERPRINT = "a".repeat(64);
     private static final WorkshopId WORKSHOP = WorkshopId.newId();
@@ -66,6 +71,7 @@ class ReserveSeatTransactionTest {
     private final RegistrationRepository registrations = mock(RegistrationRepository.class);
     private final AuditTrail auditTrail = mock(AuditTrail.class);
     private final EventPublisher events = mock(EventPublisher.class);
+    private final TicketSigner signer = mock(TicketSigner.class);
     private final ReserveSeatTransaction transaction =
             new ReserveSeatTransaction(
                     idempotency,
@@ -74,11 +80,13 @@ class ReserveSeatTransactionTest {
                     auditTrail,
                     events,
                     POLICY,
+                    signer,
                     Clock.fixed(NOW, ZoneOffset.UTC));
 
     /** The repository returns the aggregate as stored: same state, plus the row's timestamps. */
     @BeforeEach
     void saveStampsTimestamps() {
+        when(signer.issue(any(), any())).thenReturn(TICKET);
         when(registrations.save(any()))
                 .thenAnswer(
                         invocation -> {
@@ -124,9 +132,10 @@ class ReserveSeatTransactionTest {
     }
 
     @Test
-    @DisplayName("a free claim saves a CONFIRMED registration with no hold")
+    @DisplayName("a free claim saves a CONFIRMED registration with no hold and its signed ticket")
     void freeClaim_confirmsAtOnce() {
         when(seats.claim(WORKSHOP)).thenReturn(new SeatClaimOutcome.Claimed(false));
+        when(signer.issue(WORKSHOP, NOW)).thenReturn(TICKET);
 
         var result = transaction.execute(COMMAND);
 
@@ -134,8 +143,51 @@ class ReserveSeatTransactionTest {
         assertThat(saved.status()).isEqualTo(RegistrationStatus.CONFIRMED);
         assertThat(saved.ticketType()).isEqualTo(TicketType.FREE);
         assertThat(saved.holdExpiresAt()).isNull();
+        assertThat(saved.ticketCode()).isEqualTo(TICKET.code());
+        assertThat(saved.qrPayload()).isEqualTo(TICKET.qrPayload());
         assertThat(result)
-                .isEqualTo(new ReserveSeatResult.Confirmed(saved.id(), STORED_AT, STORED_AT));
+                .isEqualTo(
+                        new ReserveSeatResult.Confirmed(
+                                saved.id(),
+                                STORED_AT,
+                                STORED_AT,
+                                TICKET.code(),
+                                TICKET.qrPayload()));
+    }
+
+    @Test
+    @DisplayName("a paid claim issues no ticket: nothing is signed until payment succeeds")
+    void paidClaim_signsNothing() {
+        when(seats.claim(WORKSHOP)).thenReturn(new SeatClaimOutcome.Claimed(true));
+
+        transaction.execute(COMMAND);
+
+        verifyNoInteractions(signer);
+        assertThat(savedRegistration().ticketCode()).isNull();
+        assertThat(savedRegistration().qrPayload()).isNull();
+    }
+
+    @Test
+    @DisplayName("a sold-out or closed workshop signs nothing")
+    void rejectedClaim_signsNothing() {
+        when(seats.claim(WORKSHOP)).thenReturn(new SeatClaimOutcome.SoldOut());
+
+        transaction.execute(COMMAND);
+
+        verifyNoInteractions(signer);
+    }
+
+    @Test
+    @DisplayName("a signing failure fails the whole attempt: no registration is saved")
+    void signingFailure_savesNothing() {
+        when(seats.claim(WORKSHOP)).thenReturn(new SeatClaimOutcome.Claimed(false));
+        when(signer.issue(WORKSHOP, NOW)).thenThrow(new IllegalStateException("signing failed"));
+
+        assertThatThrownBy(() -> transaction.execute(COMMAND))
+                .isInstanceOf(IllegalStateException.class);
+
+        verify(registrations, never()).save(any());
+        verifyNoInteractions(events);
     }
 
     @Test
