@@ -36,9 +36,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * M-18 end to end: HTTP → security → controller → use case → seat claim → Postgres. A free workshop
  * confirms at once, takes exactly one seat in the same transaction, never creates a payment, and
- * leaves {@code ticket_code}/{@code qr_payload} {@code NULL} (no ticket issuance before Phase 5).
- * The refusals are 409 problems with their own {@code type}, a missing workshop is 404, and a
- * refusal writes nothing. Rows are committed, so each test cleans up after itself.
+ * carries its signed e-ticket from Phase 5 on, a paid hold has none (TicketIssuanceIT). The
+ * refusals are 409 problems with their own {@code type}, a missing workshop is 404, and a refusal
+ * writes nothing. Rows are committed, so each test cleans up after itself.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class RegistrationControllerIT extends IntegrationTestSupport {
@@ -108,7 +108,7 @@ class RegistrationControllerIT extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("a free workshop: 201 CONFIRMED, one seat taken, no payment, no ticket yet")
+    @DisplayName("a free workshop: 201 CONFIRMED, one seat taken, no payment, with its ticket")
     void free_isConfirmedAtOnce() throws Exception {
         var workshop = saved(aPublishedWorkshop().withCapacity(5).build());
         var student = fixtures.aStudent();
@@ -123,7 +123,8 @@ class RegistrationControllerIT extends IntegrationTestSupport {
         assertThat(body.get("workshopId").asText()).isEqualTo(workshop.value().toString());
         assertThat(body.get("userId").asText()).isEqualTo(student.value().toString());
         assertThat(body.hasNonNull("holdExpiresAt")).isFalse();
-        assertThat(body.hasNonNull("ticketCode")).isFalse();
+        assertThat(body.hasNonNull("ticketCode")).isTrue();
+        assertThat(body.hasNonNull("qrPayload")).isTrue();
         assertThat(body.hasNonNull("createdAt")).isTrue();
 
         assertThat(fixtures.seatsTaken(workshop)).isEqualTo(1);
@@ -135,8 +136,8 @@ class RegistrationControllerIT extends IntegrationTestSupport {
         assertThat(row.get("status")).isEqualTo("CONFIRMED");
         assertThat(row.get("ticket_type")).isEqualTo("FREE");
         assertThat(row.get("hold_expires_at")).isNull();
-        assertThat(row.get("ticket_code")).isNull();
-        assertThat(row.get("qr_payload")).isNull();
+        assertThat(row.get("ticket_code")).isEqualTo(body.get("ticketCode").asText());
+        assertThat(row.get("qr_payload")).isEqualTo(body.get("qrPayload").asText());
         // the gateway is never involved: no payment row appears
         assertThat(payments()).isEqualTo(paymentsBefore);
     }

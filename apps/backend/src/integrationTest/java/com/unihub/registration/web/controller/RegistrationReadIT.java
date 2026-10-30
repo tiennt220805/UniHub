@@ -113,7 +113,9 @@ class RegistrationReadIT extends IntegrationTestSupport {
         assertThat(body.get("ticketType").asText()).isEqualTo("PAID");
         assertThat(body.get("userId").asText()).isEqualTo(student.value().toString());
         assertThat(body.hasNonNull("holdExpiresAt")).isTrue();
-        assertThat(body.get("qrPayload").isNull()).as("no ticket before Phase 5").isTrue();
+        assertThat(body.get("qrPayload").isNull())
+                .as("a RESERVED hold has no ticket until it is paid")
+                .isTrue();
     }
 
     @Test
