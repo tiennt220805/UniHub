@@ -2,7 +2,7 @@
 
 This file is the physical-level completion of `../strategy/test-strategy.md` §6 (Traceability & Reporting), for the question that section states as a Guarantee but cannot answer by itself: *for a given requirement, is there a test, where does it live, at which level, and which technique produced its cases?* It is the requirements traceability matrix (RTM) that `../guidelines/test-design-techniques.md` §1 (Guarantees) and `../guidelines/test-data-management.md` §4 both point at. Nothing here overrides `test-strategy.md`, `test-plan.md`, or `test-design-techniques.md` — where this file and they appear to disagree, those are the authority and this file has a bug.
 
-**Living template — blank and pending cells are by design.** This file and `release-sign-offs/phase-template.md` are the only two files in `docs/testing/` allowed to carry unfilled or pending content, because they record *progress*, not decisions; every other file in this tree records a decision that is already made. An empty **Test case(s)** cell (`chưa viết`) next to `Not started` is the correct state of a row whose test does not exist yet — it is not an omission to be "completed" by inventing a method name. **No source code exists yet** (`CLAUDE.md`, Project Status), so no test in this matrix has been written or run: every row in §2.2 is `Not started`, and the only rows that show any other status are the clearly-labelled illustrations in §2.3, which are not reports.
+**Living template — blank and pending cells are by design.** This file and `release-sign-offs/phase-template.md` are the only two files in `docs/testing/` allowed to carry unfilled or pending content, because they record *progress*, not decisions; every other file in this tree records a decision that is already made. An empty **Test case(s)** cell (`chưa viết`) next to `Not started` is the correct state of a row whose test does not exist yet — it is not an omission to be "completed" by inventing a method name. **The live status of every row is the Status column of §2.2**; §4.1 and §5 are snapshots of it, refreshed at each phase sign-off (§3). The rows in §2.3 are clearly-labelled illustrations, not reports.
 
 **Out of scope, and where it actually lives:** what each technique is and where its concrete domain facts come from (`../guidelines/test-design-techniques.md`); which level and tooling a test belongs to (`../test-levels/*.md`, `../non-functional/*.md`); how a test is named, structured and isolated (`../guidelines/coding-standards.md`, `../guidelines/test-data-management.md`); what must be true before a phase is called complete (`../strategy/test-plan.md` §1 — and the checklist that records it, `release-sign-offs/phase-template.md`); coverage percentages and load-test result artifacts (CI/build artifacts, never committed — `../strategy/test-strategy.md` §6).
 
@@ -221,20 +221,20 @@ grep -c '^| M-[0-9][0-9] .*| Not started |$' docs/testing/reports/test-matrix.md
 
 ## 4. Coverage Gaps
 
-**Rationale:** with most rows `Not started`, the table itself is the backlog — but an 80-row table is a poor overview. This section groups the gaps three ways: what is simply unwritten, what has no planned test at all, and what has no technique. **All three lists are snapshots** (§3) and go stale as tests land; remove a row from §4.1 when its Status leaves `Not started`.
+**Rationale:** with most rows `Not started`, the table itself is the backlog — but an 81-row table is a poor overview. This section groups the gaps three ways: what is simply unwritten, what has no planned test at all, and what has no technique. **All three lists are snapshots** (§3) and go stale as tests land; remove a row from §4.1 when its Status leaves `Not started`.
 
 **Model:**
 
 ### 4.1 Not started, by phase
 
-At this snapshot (2026-10-28, Phase 3 checklist 8.2, CI green on `3c8111e`) **40 of 80 rows** are `Not started`, 39 are `Passing` (M-01 … M-10, M-12 … M-35, M-75, M-76, M-77, M-78, M-79) and one is `Drafted` (M-36, the K6 smoke, which by design never runs in CI). By phase:
+At this snapshot (2026-10-30, Phase 4 checklist 10.2, CI green on `36eb1ce`, run 40998526041, all eight jobs) **35 of 81 rows** are `Not started`, 43 are `Passing` (M-01 … M-10, M-12 … M-23, M-25, M-26, M-28 … M-35, M-37 … M-41, M-75 … M-79, M-81), two are `Drafted` (M-36, the K6 smoke, which by design never runs in CI; M-27, a rollup that follows M-24) and one is `Flaky — investigate` (M-24, a wall-clock bound that failed once on `main` in CI, `262a966`; decided on the owner's delegation, 2026-10-30). By phase:
 
 | Phase | Rows |
 |---|---|
 | 1 | M-11 (1 row, deferred — §4.5) |
-| 2 | none — every Phase 2 row is `Passing` (0 rows) |
+| 2 | none `Not started`; M-24 is `Flaky — investigate` and M-27 is `Drafted` behind it; every other Phase 2 row is `Passing` (0 rows) |
 | 3 | none `Not started`; M-36 is `Drafted` (smoke, not the gate — Phase 3 sign-off §5); every other Phase 3 row is `Passing` (0 rows) |
-| 4 | M-37 … M-41 (5 rows) |
+| 4 | none — every Phase 4 row (M-37 … M-41, M-81) is `Passing` (0 rows) |
 | 5 | M-42 … M-52, M-80 (12 rows) |
 | 6 | M-53 … M-57 (5 rows) |
 | 7 | M-58 … M-70 (13 rows) |
@@ -252,7 +252,7 @@ None of these carries an invariant except M-42, M-45 and M-48 (INV-12 — ticket
 
 ### 4.3 Rows with no catalogued technique, or with no INV or SRS source
 
-- **`none catalogued`** — the requirement is functional but `test-design-techniques.md` has no technique row for it: M-05 (search/filter semantics), M-06 (seat-availability freshness), M-07, M-08, M-10 (record-validity classes), M-11, M-12, M-20, M-21 (idempotency-window value), M-22, M-25, M-31, M-37, M-39, M-40, M-41, M-49, M-50, M-53, M-54, M-56, M-57, M-60, M-67, M-68, M-77 (live-payment uniqueness), M-78 (frontend component logic) (27 rows; for M-05, M-06, M-10 and M-21 a technique covers part of the row and only the named part is uncovered). This file does not add techniques; the list is a report to the owner of `test-design-techniques.md`.
+- **`none catalogued`** — the requirement is functional but `test-design-techniques.md` has no technique row for it: M-05 (search/filter semantics), M-06 (seat-availability freshness), M-07, M-08, M-10 (record-validity classes), M-11, M-12, M-20, M-21 (idempotency-window value), M-22, M-25, M-31, M-37, M-39, M-40, M-41, M-49, M-50, M-53, M-54, M-56, M-57, M-60, M-67, M-68, M-77 (live-payment uniqueness), M-78 (frontend component logic), M-81 (frontend component logic) (28 rows; for M-05, M-06, M-10 and M-21 a technique covers part of the row and only the named part is uncovered). This file does not add techniques; the list is a report to the owner of `test-design-techniques.md`.
 - **`DR`** — derived requirements with no SRS bullet and no invariant behind them (§2.1): DR-PAY-1, DR-PAY-2, DR-PAY-3 (M-75, M-76, M-77).
 - **`ARC-INV`** — invariants with no bullet of `requirement.md` behind them (§2.1): INV-03 (the Master-routing refinement), INV-08, INV-10, INV-11, INV-14 (the fail-open half), INV-15, INV-19, INV-20 (M-22, M-25, M-34, M-41, M-40, M-55, M-58, M-51, M-63, M-65).
 - **Success criteria with no INV:** `SC-02`, `SC-03`, `SC-08`, `SC-09` (M-72, M-73, M-17, M-15) — evidence for these is a load result or a CI gate, not an invariant.
@@ -281,9 +281,10 @@ A test the catalog names but the team has chosen not to write yet, with the reas
 | Alert rules on `unihub.parking-lot` depth (Critical, > 0) and on `unihub_payment_reconciliation_stuck_total` | `observability.md` §4, §6; `messaging.md` §4; Phase 2 checklist C12, C37 follow-up | Phase 2 (decided 2026-10-14) | Prometheus/Grafana and the broker's `rabbitmq_prometheus` plugin do not exist before the observability stack; Phase 2 proves the behaviour the alerts watch (a failing message reaches the parking lot; a stuck payment is counted) | Phase 6, with the alert rules |
 | `AuditTrail` publishing to RabbitMQ (`RabbitAuditTrail`) and the consumer that persists `audit_events` | `backend-coding-standards.md` §12; `messaging.md` §3; Phase 2 checklist D6/C32 | Phase 2 (decided 2026-10-14) | The Phase 2 adapter logs structured lines instead. Publishing without a consumer would grow `unihub.audit.queue` without bound, and a RabbitMQ memory alarm blocks every publisher — the outbox relay and registration confirmation included; queue arguments cannot be changed once declared. The port is in place, so the swap touches no use case | Phase 6, together with M-54 (both built in the same change) |
 | Content-Security-Policy as an HTTP header at the serving layer (including `frame-ancestors`, which a `<meta>` tag cannot carry) | `web-coding-standards.md` §11; `auth-and-identity.md` §7; Phase 2 checklist D14/C34 | Phase 2 (decided 2026-10-14) | Phase 2 ships the policy as a `<meta>` tag in the production build; there is no serving layer of its own before the Kubernetes deployment | Phase 7, with the Ingress/web serving configuration |
-| M-80 — a gateway outage leaves Check-in sync and reporting unaffected (the other half of M-24 and M-27) | `proposal.md` §11.3, §12 "Fault Isolation"; `test-plan.md` §1 (Phase 2 and Phase 5 rows); Phase 2 checklist 3.7, 3.9 | Phase 2 Mục 3.7 (criterion amended 2026-10-26) | The Check-in module does not exist until Phase 5 and no reporting endpoint is built, so Phase 2 has nothing to probe. The Phase 2 exit criterion was amended rather than the INV-05 rows left `Drafted`: M-24 and M-27 now claim only browsing and free registration and are `Passing`, and the rest of the claim is the Phase 5 row M-80 | Phase 5: the same probe, extended over check-in sync and reporting |
+| M-80 — a gateway outage leaves Check-in sync and reporting unaffected (the other half of M-24 and M-27) | `proposal.md` §11.3, §12 "Fault Isolation"; `test-plan.md` §1 (Phase 2 and Phase 5 rows); Phase 2 checklist 3.7, 3.9 | Phase 2 Mục 3.7 (criterion amended 2026-10-26) | The Check-in module does not exist until Phase 5 and no reporting endpoint is built, so Phase 2 has nothing to probe. The Phase 2 exit criterion was amended rather than the INV-05 rows left `Drafted`: M-24 and M-27 now claim only browsing and free registration and are `Passing`, and the rest of the claim is the Phase 5 row M-80 *(2026-10-30: M-24 is now `Flaky — investigate` and M-27 `Drafted`, see §4.1)* | Phase 5: the same probe, extended over check-in sync and reporting |
 | M-22 — with the Replica unreachable (not lagging), reads fall back to the Master | `resilience-testing.md` §2.5 | Phase 2 Mục 3.8 | The direction is approved but no mechanism exists to test: the only replica-facing signal is `unihub_postgres_replica_lag_seconds`, a debounced metric and not a routing input, and `db` readiness covers the Master only. The fallback would also move all read traffic onto the Master | The routing health check is designed (the TODO in `resilience-testing.md` §2.5) |
 | An automated, repeatable browser check that no page violates the Content-Security-Policy | `web-coding-standards.md` §11; Phase 2 checklist D18 | Phase 2 Mục 4 | Phase 2 ran the check once, with headless Chrome on 2026-10-26 (0 violations; M-78), and asserts the built `index.html` in `csp-build.test.ts`. jsdom cannot enforce a CSP and Playwright is not installed in `apps/web` (`web-coding-standards.md` §13 #9), so nothing re-runs the browser check on every change | Phase 7: Playwright with a `securitypolicyviolation` listener (M-69) |
+| M-37, second half — the confirmation carries the student's e-ticket (the signed QR) | `requirement.md` REQ-1.3.2.1; Phase 4 checklist D37 (Q7) | Phase 4 Mục 3 (decided 2026-10-28) | The QR is a signed ticket (INV-12), and no ticket issuance exists before Phase 5. Phase 4 proves the confirmation by email and in-app without it (M-37), and `RegistrationConfirmationNotificationIT` checks the registration code and the Web link instead | Phase 5, when ticket issuance is built: the email template then adds the QR and M-37 gets the second assertion |
 
 **Guarantees:** every gap above is a fact about the corpus at this snapshot, reported here rather than repaired here — this file never adds an INV, a technique or a test plan entry to close one.
 
@@ -291,7 +292,7 @@ A test the catalog names but the team has chosen not to write yet, with the reas
 
 ## 5. Reference Table
 
-**Snapshot refreshed on 2026-10-28 (Phase 3 checklist 8.2, ahead of the Phase 3 sign-off) — not updated automatically; refreshed again at that sign-off if any row changes before it (§3).**
+**Snapshot refreshed on 2026-10-30 (Phase 4 checklist 10.2, ahead of the Phase 4 sign-off) — not updated automatically; refreshed again at that sign-off if any row changes before it (§3).**
 
 | Item | Value | Source |
 |---|---|---|
@@ -299,11 +300,11 @@ A test the catalog names but the team has chosen not to write yet, with the reas
 | Success-criteria rows | 9 (`SC-01` … `SC-09`) | `proposal.md` §12 |
 | `proposal.md` §11 subsections | 5 (`P11.1` … `P11.5`) | `proposal.md` §11 |
 | `requirement.md` IDs derived | 81 (`REQ-…`) | §2.1 |
-| Matrix rows | 80 (`M-01` … `M-80`; M-75 … M-79 are Phase 2 additions, M-80 is the Phase 5 half of INV-05) | §2.2 |
-| Status | Not started 40 (50%) · Drafted 1 (1.25%) · Passing 39 (48.75%) · Flaky — investigate 0 (0%) | §2.2 |
-| Rows by phase | 1: 16 · 2: 15 · 3: 10 · 4: 5 · 5: 12 · 6: 5 · 7: 13 · 8: 4 | §2.2 |
-| Rows by primary level | Integration 47 · Unit 10 · Load 5 · Resilience 3 · Security 4 · E2E 3 · Contract 1 · `N/A — CI` 2 · no level defined (`—`) 5 (total 80; the primary level is the text before the first ` — `, ` (` or ` / ` of the Level cell) | §2.2 |
-| Rows with no planned test (`⚠`) | 15 | §4.2 |
+| Matrix rows | 81 (`M-01` … `M-81`; M-75 … M-79 are Phase 2 additions, M-80 is the Phase 5 half of INV-05, M-81 is the Phase 4 Web inbox) | §2.2 |
+| Status | Not started 35 (43.21%) · Drafted 2 (2.47%) · Passing 43 (53.09%) · Flaky — investigate 1 (1.23%) | §2.2 |
+| Rows by phase | 1: 16 · 2: 15 · 3: 10 · 4: 6 · 5: 12 · 6: 5 · 7: 13 · 8: 4 | §2.2 |
+| Rows by primary level | Integration 47 · Unit 11 · Load 5 · Resilience 3 · Security 4 · E2E 3 · Contract 1 · Architecture 1 · `N/A — CI` 2 · no level defined (`—`) 4 (total 81; the primary level is the text before the first ` — `, ` (` or ` / ` of the Level cell) | §2.2 |
+| Rows with no planned test (`⚠`) | 12 | §4.2 |
 | Rows with an assumed phase (`†`) | 14 | §2.2 |
 
 [st]: ../guidelines/test-design-techniques.md#2-state-transition-catalog
