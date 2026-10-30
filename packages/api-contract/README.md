@@ -16,8 +16,9 @@ spec has a bug.
 contract is a code-adjacent, tooling-consumed artifact — linted/bundled by
 Redocly CLI today, the source `apps/web` generates its TypeScript types from
 (`openapi-typescript`, types only — no generated client,
-`docs/guidelines/web-coding-standards.md` §5), the source `apps/mobile` is
-planned to generate a typed client from (via `orval`), and the source
+`docs/guidelines/web-coding-standards.md` §5) — and the same for `apps/mobile`
+(types only via `openapi-typescript` plus a thin `fetch` client; `orval` was
+once planned and was dropped by Phase 5 checklist D57) — and the source
 `apps/backend`'s own `springdoc`-generated spec is diff-checked against in CI.
 Standard practice in a polyglot monorepo: the Java backend can't `import` an
 npm package the way `apps/web`/`apps/mobile` will, so this only ever becomes a

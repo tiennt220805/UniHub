@@ -1,0 +1,403 @@
+# Phase 5 — Offline Check-in: Checklist Triển Khai
+
+> **Mục đích file này:** checklist *thực thi* cho Phase 5, cùng vai trò với `phase-1-foundation.md` … `phase-4-notifications.md`. Nó không thay thế `docs/testing/strategy/test-plan.md` §1 (nguồn thẩm quyền cho exit criteria), `docs/testing/reports/test-matrix.md` (trạng thái từng test) hay `docs/testing/reports/release-sign-offs/phase-template.md` (sign-off). File này chỉ **tổng hợp và sắp thứ tự công việc**, trỏ vào 3 file đó làm bằng chứng. Nơi có mâu thuẫn, 3 file kia luôn đúng.
+>
+> **Cách dùng:** tick `[x]` khi xong thật, không tick trước. Mỗi mục nên có commit tương ứng. Cập nhật **Trạng thái tổng thể** sau mỗi buổi làm việc.
+
+| Trường | Giá trị |
+|---|---|
+| Phase | 5 — Offline Check-in |
+| Ngày bắt đầu | — (checklist soạn 2026-10-30, sau khi ký `phase-4.md`) |
+| Trạng thái tổng thể | `☑ Chưa bắt đầu` / `☐ Đang làm` / `☐ Chờ sign-off` / `☐ Hoàn tất` — **Mục 0 đã chốt 2026-10-30 (Q1–Q18 → D45–D62, theo đề xuất; Q16 thêm: AI chỉ dùng stub, sau này gắn API cloud bằng `API_KEY`)**; tài liệu sở hữu đã sửa cùng ngày; Mục 0B đã sửa ở tài liệu (C23–C33), phần contract của C23/C28 làm ở task 1.2; chưa có dòng code nào — việc tiếp theo là Mục 1 |
+| Nhánh làm việc | `main` (push thẳng, không PR — `test-matrix.md` §4.4) |
+| INV trong scope | INV-12 (toàn bộ), INV-19 (giả định phase, `test-strategy.md` §2), nửa Check-in/reporting của INV-05 (M-80) |
+| Matrix rows | M-42 … M-52, M-80 (`test-matrix.md` §4.1: "5 — M-42 … M-52, M-80 (12 rows)"); cộng nửa sau của M-37 (`test-matrix.md` §4.5, "M-37, second half") và S-8 (`test-matrix.md` §4.5). Dòng `⚠` (§4.2): M-42, M-45, M-48 (INV-12), M-49, M-50 |
+| Tham chiếu | `requirement.md` §1.2, §1.3.1, §1.3.2, §1.3.3, §1.3.4, §1.3.5, §1.5, §2.7, §2.9, §2.11 · `proposal.md` §11.4, §12, §15 (Phase 5), §16 · `test-plan.md` §1 (dòng Phase 5), §2 · `test-strategy.md` §2 (INV-12, INV-19) · `architecture.md` §4.4, §5.3, §5.4, §5.6 · `checkin.md` (toàn bộ, 279 dòng) · `registration.md` §1, §5 · `workshop.md` ADR, §3–§10 · `database-schema.md` §4.1, §6, §10 · `auth-and-identity.md` §1, §4 · `messaging.md` §2, §4 · `resilience-testing.md` §2.1, §2.2, §2.3, §2.6 · `security-testing.md` §2.2 (S-8, S-10, S-11, S-12, S-18), §3 · `e2e-testing.md` §1 · `backend-coding-standards.md` §7, §8.5, §19, §27 (#8) · `web-coding-standards.md` §13 (#11) · `IMPLEMENTATION-READINESS.md` B4, D4, D5, G · `packages/api-contract/paths/checkin.yaml`, `schemas/checkin.yaml`, `paths/registration.yaml`, `paths/workshop.yaml` · `phase-4.md` §5 (hàng 1, 3, 9) · `phase-3.md` §5 (hàng 3) |
+
+### Ký hiệu nhãn
+
+Giữ nguyên quy ước của `phase-2-registration-payment.md`: **`[M-46]`** đậm = task là bằng chứng của dòng; `[→ M-46]` = tiền đề; `[M-54 · P6]` = dòng của phase khác, chỉ chuẩn bị; `[§4.5]` = đóng một mục hoãn ở `test-matrix.md` §4.5; `[— không dòng]` = không có dòng matrix (ghi lý do).
+
+**Bảng tra ngược (dòng → task):** *(theo Mục 0 đã chốt 2026-10-30)*
+
+| Dòng | INV | Task chứng minh | Task tiền đề |
+|---|---|---|---|
+| M-42 | INV-12 | 2.4, 7.2 | Q3, Q4, Q5 · 2.1–2.3 |
+| M-43 | INV-12 | 8.4 | Q13, Q14 · 8.1–8.3 |
+| M-44 | INV-12 | 8.5 | Q13, Q14, Q15 · 8.1 |
+| M-45 | INV-12 | 3.6, 8.6 | Q9, Q10, Q15 · 3.1–3.5 |
+| M-46 | INV-12 | 3.7, 3.8 | Q7, Q8 · 3.1–3.5 |
+| M-47 | INV-12 | 3.9 | Q6, Q7 · 3.1–3.5 |
+| M-48 | INV-12 | 4.2 | Q3, Q5 · 4.1 |
+| M-49 | — | 5.2, 5.4 | Q2 · 5.1 |
+| M-50 | — | 9.5 | Q1, Q16 · 9.1–9.4 |
+| M-51 | INV-19 | 9.6 | Q1, Q16 · 9.1–9.4 |
+| M-52 | INV-12 | 3.10 (rollup) | M-43 … M-47 |
+| M-80 | INV-05 | 5.3 | 3.x, 5.1 |
+| M-37 (nửa sau) | — | 6.2 | Q11 · 2.4 |
+| S-8 / S-12 | INV-01 / INV-12 | 4.2 | 4.1 |
+
+---
+
+## Ranh giới Phase 5 ↔ các phase khác (đọc trước khi làm)
+
+Hiện trạng đã kiểm 2026-10-30:
+
+- Module `checkin` **chỉ có `package-info.java`**. Bảng `check_in_scans` và `attendances` **đã có** trong `V1` (cùng CHECK `outcome`, `UNIQUE (registration_id)`, `UNIQUE (winning_scan_id)`).
+- `registrations.ticket_code VARCHAR(64) UNIQUE` và `qr_payload TEXT` có trong `V1`, được mang qua domain/JPA/mapper (`Registration.java`, `SpringDataRegistrationRepository.java:40`, `RegistrationWebMapper.java:78`), nhưng **luôn `NULL`**: chưa có gì ký ticket. Hai đường thành `CONFIRMED`: `Registration.confirmFree` trong `ReserveSeatTransaction.java:112` (free) và `ConfirmRegistrationTransaction` (paid, `registration.md` §5).
+- Permission `CHECKIN_SCAN` (Check-in Staff) và `REPORT_VIEW` (**chỉ Admin**) đã seed ở `V2`.
+- `nimbus-jose-jwt` chỉ vào **bắc cầu** qua `spring-boot-starter-oauth2-resource-server` (`build.gradle` dòng 111–113).
+- Không có endpoint báo cáo nào trong code (`listWorkshopRegistrations`, `listWorkshopAttendances` chỉ có trong contract, cả hai gắn cờ "Inferred").
+- `Registration.cancel()` có trong domain nhưng **không use case nào gọi**: hiện không có đường HTTP nào làm một registration thành `CANCELLED`. `cancelRegistration` là endpoint suy luận chưa xây.
+- Workshop module **không có code brochure/S3/AI** nào; `Topology` đã khai báo `unihub.summarization.queue` + chuỗi retry nhưng không có listener và không có producer.
+- `apps/mobile` **chưa tồn tại**. Web có `/me/registrations` (danh sách, không có QR), không có trang chi tiết đăng ký, không có trang nào cho Organizer/Admin. CSP của web build cho phép `img-src 'self' data:` (`vite-plugins/csp.ts:19`).
+- Auth JWT: `HS256`, TTL 30 phút, **không có refresh token** (`auth-and-identity.md` §4).
+
+| Thuộc Phase 5 | Không làm ở đây |
+|---|---|
+| Ký QR e-ticket `ES256` lúc `CONFIRMED` (free và paid), lưu `ticket_code`/`qr_payload` (M-42; `checkin.md` §3–§4) | Xoay khóa tự động, nhiều khóa song song, `kid`: `checkin.md` §6 cố ý chỉ có **một** khóa. Phase 5 chỉ ghi quy trình xoay khóa thủ công (break-glass) |
+| `GET /api/v1/checkin/verification-key` (M-48, S-8, S-12) | Thu hồi từng ticket: không tồn tại theo thiết kế (`architecture.md` §5.3) |
+| `POST /api/v1/checkin/sync` + reconciliation earliest-timestamp-wins (M-45 … M-47, M-52) | Copy/chụp QR: là bài toán sao chép, được xử lý bằng reconciliation, không phải bằng chữ ký (`security-testing.md` §2.2 "Deliberately not a vector") |
+| Báo cáo số đăng ký + tỷ lệ check-in theo workshop (M-49), và probe M-80 trên check-in sync + báo cáo | Dashboard đầy đủ, biểu đồ thời gian thực, E2E Organizer (M-70, Phase 7). Grafana: Phase 6 |
+| Trang e-ticket trên Web (QR render) và QR trong email xác nhận (nửa sau M-37) | Quản lý workshop trên Web cho Organizer (tạo/sửa/hủy): không có trong scope nào đã ghi; nêu ra ở Q18 |
+| `apps/mobile` (Expo, chỉ Check-in Staff): đăng nhập, lấy khóa, quét, xác minh offline, hàng đợi bền, sync tự động (M-43, M-44, M-45) | Phát hành lên App Store / Google Play (`CLAUDE.md` Boundaries); chỉ build preview/internal |
+| *(theo Q1)* Brochure: presigned PUT, confirm (`HeadObject`), kiểm tra sau upload, consumer summarization với AI stub, MinIO (M-50, M-51) | Dịch vụ AI thật: không tài liệu nào chọn provider; Phase 5 chỉ dùng stub WireMock (Q16) |
+| Probe Redis-outage mở rộng sang check-in sync (`phase-3.md` §5 hàng 3, phần Check-in) — theo Q17 | Phần rate-limiter của hàng đó (Phase 7, INV-17) |
+| | "Workshop bị hủy → hủy registrations" (`backend-coding-standards.md` §27 #8, `phase-4.md` §5 hàng 3): vẫn chưa lên lịch; Q7 xử lý bằng cách đọc trạng thái workshop, không kéo §27 #8 vào |
+| | Audit publish lên RabbitMQ (M-54, Phase 6). Check-in vẫn gọi `AuditTrail` (adapter log hiện có) |
+| | Correlation ID xuyên HTTP → log như bằng chứng (M-53, Phase 6) |
+
+> ⚠ INV-12 là **bất biến không được nới** (`CLAUDE.md`): ticket tự xác minh offline bằng chữ ký; scan xếp hàng bền trên thiết bị; tính hợp lệ chỉ được quyết ở reconciliation phía server, earliest-timestamp-wins. Mọi phương án ở Mục 0 đều phải giữ nguyên ba vế này. Nếu một phương án có vẻ cần nới một vế, dừng lại và nêu ra.
+
+---
+
+## 0. Quyết định phải chốt trước khi code (blockers)
+
+Theo `CLAUDE.md`: task phụ thuộc mục còn mở thì **dừng lại hỏi**, không tự đoán. Mỗi mục dưới đây có phương án + **đề xuất** của Claude Code. **Chốt 2026-10-30: Nguyễn Thành Tiến chọn Q1–Q18 theo đề xuất** (D45–D62). Đánh số tiếp từ D45 để không trùng D1–D44; Q1–Q18 → D45–D62. Chỉ tick khi quyết định đã được **ghi vào tài liệu sở hữu** (cột →), giống Phase 3–4 Mục 0.
+
+### 0.1 Phạm vi
+
+- [x] `[→ M-49, M-50, M-51]` **Q1 — Brochure/S3/AI (M-50, M-51) có làm trong Phase 5 không.** `test-plan.md` §1 dòng Phase 5 đặt bài test S3 outage (INV-19) vào exit criteria. `test-strategy.md` §2 ghi phase của INV-19 là **giả định** (Phase 5 được chọn vì đây là phase đầu tiên mà Registration, Payment, Check-in cùng tồn tại). M-50 và M-51 mang dấu `5†`. Bài test INV-19 chỉ có nghĩa khi luồng brochure tồn tại: `resilience-testing.md` §2.6 khẳng định trên `brochure-upload-confirm` (`HeadObject`) và consumer summarization. Hiện workshop module không có dòng code nào cho luồng này. `test-plan.md` §2 xếp AI summarization vào ưu tiên thấp nhất (mục 3), nhưng INV-19 thuộc mục 1.
+  - **✅ Chốt 2026-10-30 (D45): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `test-matrix.md` M-50 (Phase 5 do owner chốt). `test-strategy.md` §2 **không** đổi: INV-19 ở lại Phase 5.
+  - (a) Làm đủ trong Phase 5, ở **Mục cuối** (sau INV-12): presigned PUT (10 phút), confirm (`HeadObject`, ghi `brochure_s3_key`), kiểm tra sau upload (`%PDF-`, kích thước, `workshop.md` §6, §8), consumer `unihub.summarization.queue` gọi AI qua HTTP (stub WireMock), xóa cache detail; MinIO ở `docker-compose.yml` và Testcontainers.
+  - (b) Chỉ làm phần S3 cần cho INV-19 (presigned + confirm + consumer fetch), AI trả lời cố định. Gần như cùng công sức với (a), vì phần AI chỉ là một client HTTP + stub.
+  - (c) Sửa giả định ở `test-strategy.md` §2 để dời INV-19 (và M-50) sang phase sau. Hợp lệ vì đó là giả định, không phải "hoãn" (`test-plan.md` §2 cấm làm yếu bằng chứng của INV, không cấm dời một giả định về phase). Phase 5 khi đó bỏ M-50/M-51 khỏi scope.
+  - Lưu ý: `proposal.md` §15 dòng Phase 5 **không** nhắc brochure hay AI; luồng này vào Phase 5 chỉ vì phase của INV-19 là giả định.
+  - **Đề xuất: (a)**, đặt ở Mục 9, và **chốt ngay bây giờ**, không để kiểu "thử (a), không kịp thì (c)" (một Mục cuối có thể bị bỏ làm sign-off mơ hồ, đúng bẫy B1 của Phase 2). Lý do chọn (a): Phase 6–8 (observability, K8s, load) không có chỗ tự nhiên cho một tính năng brochure, dời đi chỉ đẩy nó vào phase chật hơn. Kéo theo Q16. → `test-strategy.md` §2 (chỉ nếu (c)); `test-matrix.md` M-50, M-51
+- [x] `[→ M-49, M-80]` **Q2 — Báo cáo (M-49): hình dạng endpoint, quyền, trang Web.** REQ-1.3.3: "clear, visual reports and statistics on registration counts and real-time check-in rates for each workshop"; REQ-1.2 trao quyền này cho nhóm "Organizers/Admin". Contract có hai endpoint suy luận: `listWorkshopRegistrations` (Registration, `REPORT_VIEW`) và `listWorkshopAttendances` (Check-in, `REPORT_VIEW`), cả hai trả **danh sách**, không trả số. `resilience-testing.md` §2.1 dùng `GET /api/v1/workshops/{workshopId}/attendances` trong probe. `V2` chỉ trao `REPORT_VIEW` cho **Admin** (C27).
+  - **✅ Chốt 2026-10-30 (D46): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `checkin.md` §9, §10 (mục báo cáo mới); `registration.md` ("Internal reads for Check-in and Notification"); `database-schema.md` §10.3 (`V6`); `test-matrix.md` M-49. Contract sửa cùng controller ở task 1.2.
+  - Hình dạng: (a) chỉ hai endpoint danh sách, Web tự đếm (tải hết mọi trang để đếm: sai với workshop vài trăm chỗ); (b) **thêm một endpoint tóm tắt** `GET /api/v1/workshops/{workshopId}/report` (hoặc tên khác) trả `capacity`, `seatsTaken`, số `CONFIRMED`, số `RESERVED`, số check-in (`attendances`), tỷ lệ; giữ `listWorkshopAttendances` cho danh sách; (c) một endpoint tóm tắt cho **mọi** workshop (bảng).
+  - Ai sở hữu endpoint tóm tắt: số đăng ký thuộc Registration, số check-in thuộc Check-in. Đề xuất: Check-in sở hữu endpoint báo cáo (nó là module mới, bảng `attendances` của nó), đọc số đăng ký qua một interface mới trong `registration.api` (kiểu tương tác số 1, `backend-coding-standards.md` §7), đọc ở Replica (báo cáo không cần đọc ngay sau ghi; "real-time" ở đây là vài giây trễ replica, ghi rõ).
+  - Quyền: (i) migration `V6` seed `REPORT_VIEW` cho `Organizer` (idempotent như `V2`/`V4`); (ii) giữ chỉ Admin, ghi lý do. Đề xuất **(i)**: REQ-1.2 gộp "Organizers/Admin" thành một nhóm.
+  - Web: đề xuất một trang **chỉ đọc** `/admin/workshops/:id/report` (bảng số + một thanh tỷ lệ, refetch định kỳ khi tab hiển thị), gated bởi `REPORT_VIEW` trong session; chưa có trang danh sách workshop cho Organizer nên vào bằng đường dẫn từ trang chi tiết workshop khi người dùng có quyền.
+  - **Đề xuất: (b) + (i) + trang Web chỉ đọc.** → `checkin.md` (mục báo cáo mới); `registration.md` (interface đọc mới); `packages/api-contract/paths/checkin.yaml`, `schemas/checkin.yaml`; `database-schema.md` §10 (`V6`); `web-coding-standards.md` (nếu cần)
+
+### 0.2 Phát hành ticket (M-42, M-48)
+
+- [x] `[→ M-42, M-48]` **Q3 — Ai giữ khóa ký, ai phát khóa công khai, và ranh giới module.** `checkin.md` §4: Registration là module **duy nhất** ký, khóa riêng "readable only by the Backend API's Registration-module code path". `checkin.md` §6: endpoint khóa công khai thuộc Check-in (`/api/v1/checkin/...`). Check-in không được import nội bộ của Registration (ArchUnit: chỉ `api..` qua module).
+  - **✅ Chốt 2026-10-30 (D47): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `checkin.md` §4, §6; `registration.md` §1 + "Internal reads…" (`TicketVerificationKey`).
+  - (a) Port `TicketSigner` ở `registration.application.port.out`, adapter `registration.infrastructure.out.crypto.NimbusEs256TicketSigner` (thư mục placeholder đã có); khóa công khai lộ qua interface mới `registration.api.TicketVerificationKey` (trả JWK công khai, **không** bao giờ trả khóa riêng); Check-in gọi nó qua adapter ở `checkin.infrastructure.out`. Không tạo vòng: Registration không phụ thuộc Check-in.
+  - (b) Đặt cặp khóa ở `shared` (một bean `TicketKeys`): mọi module đều đọc được khóa riêng, trái `checkin.md` §4.
+  - (c) Check-in tự đọc cùng secret và dẫn xuất khóa công khai: hai module cùng đọc một secret chứa khóa riêng, trái §4.
+  - Kèm: khai báo `com.nimbusds:nimbus-jose-jwt` là dependency **trực tiếp** (đang bắc cầu), cùng version Spring Boot quản lý; thêm rule ArchUnit "chỉ `registration..` phụ thuộc `TicketSigner`/kiểu khóa riêng".
+  - **Đề xuất: (a).** → `checkin.md` §4, §6; `registration.md` §1 (interface đọc); `backend-coding-standards.md` §7 (không đổi, đúng kiểu 1)
+- [x] `[→ M-42]` **Q4 — `ticket_code` và thời điểm ký.** `ticket_code VARCHAR(64) UNIQUE`, chưa tài liệu nào định dạng.
+  - **✅ Chốt 2026-10-30 (D48): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `checkin.md` §4; `registration.md` §1, §5 (C33); `database-schema.md` §4.1 (định dạng `ticket_code`, không backfill, không CHECK).
+  - Định dạng: (a) 128 bit ngẫu nhiên (`SecureRandom`), base32 Crockford không padding (26 ký tự, đọc to được nếu phải nhập tay); (b) UUID v4 dạng chuỗi (36 ký tự); (c) dẫn xuất từ `registration.id`: lộ id, không thêm gì.
+  - Trùng: với 128 bit, xác suất trùng không đáng kể; vẫn để `UNIQUE` là backstop. Vi phạm unique → transaction xác nhận rollback và message/requests đi đường lỗi hiện có (free: `500` và client thử lại với cùng `Idempotency-Key`; paid: chuỗi retry của `payment-confirmation`). Không thêm vòng thử lại riêng.
+  - Ký **trong** transaction xác nhận (kiểu tương tác số 3 "stateless computation", không I/O mạng, `backend-coding-standards.md` §19): một câu lệnh ghi `status`, `ticket_code`, `qr_payload` cùng lúc ở **cả hai** đường: `INSERT` của registration free (tạo thẳng `CONFIRMED` qua `confirmFree`) và `UPDATE` có điều kiện của `ConfirmRegistrationTransaction`. Payload: `{ticket_code, workshop_id, iat}`, không `exp`, không PII (`checkin.md` §3).
+  - Row `CONFIRMED` có từ trước Phase 5 (ticket `NULL`): chỉ có trên máy local, không có production. Đề xuất: **không backfill, không thêm CHECK** (một CHECK `status = 'CONFIRMED' ⇒ ticket_code IS NOT NULL` sẽ làm pod cũ hỏng giữa lúc rollout, INV-15); Web hiển thị "vé chưa được phát" cho các row đó.
+  - **Đề xuất: (a) + ký trong transaction + không backfill.** → `checkin.md` §3, §4; `registration.md` §1, §5 (bỏ câu "until it is built (Phase 5)…"); `database-schema.md` §4.1 (ghi định dạng)
+- [x] `[→ M-42, M-48]` **Q5 — Cấu hình khóa ký.** Khóa riêng là secret (INV-18): không bao giờ trong source.
+  - **✅ Chốt 2026-10-30 (D49): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `checkin.md` §4, §9; `deployment-and-cicd.md` §2 (Secret `UNIHUB_TICKET_SIGNING_KEY`). `contract-diff.sh`, `IntegrationTestSupport`, script local là code, làm ở task 1.3.
+  - Thuộc tính: `unihub.ticket.signing-key` (JWK riêng EC P-256 dạng JSON, hoặc PEM PKCS#8). Đề xuất JWK: cùng định dạng với khóa công khai phát ra, nimbus đọc trực tiếp.
+  - Lúc khởi động: **bắt buộc** (blank hoặc không phải EC P-256 → không khởi động, thông điệp rõ), cùng cách D21 (Redis) và D36 (SMTP). Kiểm luôn: khóa có phần riêng (`d`).
+  - Hệ quả **cùng commit**: `contract-diff.sh` sinh một khóa tạm lúc chạy (`openssl ecparam -genkey` → chuyển JWK bằng một bước nhỏ, hoặc một task Gradle test-only in ra JWK), **không** commit khóa nào (Gitleaks sẽ chặn, và đúng là phải chặn); `IntegrationTestSupport` sinh khóa bằng `ECKeyGenerator` lúc chạy; local dev: một script `apps/backend/scripts/generate-ticket-key.sh` ghi vào file `.env` đã nằm trong `.gitignore`.
+  - Xoay khóa: chỉ ghi quy trình (thay secret → restart → thiết bị lấy khóa mới ở lần đăng nhập/sync tiếp; mọi ticket cũ mất hiệu lực, `checkin.md` §6). Không code.
+  - **Đề xuất: như trên.** → `checkin.md` §4, §9; `deployment-and-cicd.md` (Secret mẫu); `apps/backend/scripts/contract-diff.sh`
+
+### 0.3 Sync và reconciliation (M-44 … M-47, M-52)
+
+- [x] `[→ M-45, M-47]` **Q6 — Scan không tra được ticket (giả mạo, rác, ticket không tồn tại).** Contract `syncScanBatch`: "an unresolvable [ticketCode] is itself recorded as `REJECTED_INVALID`". `checkin.md` §6: một scan bị thiết bị từ chối (chữ ký sai) "is recorded locally as a rejected scan (`REJECTED_INVALID` at the point it later reconciles)", tức là cũng được sync. Nhưng `check_in_scans.registration_id` là `NOT NULL` FK (`V1`, `database-schema.md` §6.1): **không thể** ghi row cho một scan không có registration (C23). Ngoài ra, scan có chữ ký sai **không có `ticketCode` đáng tin**: payload đã bị sửa.
+  - **✅ Chốt 2026-10-30 (D50): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `database-schema.md` §6.1, §10.3 (`V6`, a-slim, không `raw_ticket_code`); `checkin.md` §7, §8 (quy tắc chống batch độc). Contract (`ScanEvent.ticketCode` nullable, `deviceVerdict`) sửa ở task 1.2.
+  - (a) Migration `V6`: `registration_id` thành `NULL` được, thêm `raw_ticket_code VARCHAR(64) NULL` (hoặc `rejected_reason`), CHECK `outcome = 'REJECTED_INVALID'` khi `registration_id IS NULL`; mọi scan đều có row (đúng §2.9 "every offline scan must be recorded"). Thiết bị gửi scan bị từ chối kèm `ticketCode` đọc được (không xác minh) hoặc `null`.
+  - (b) Không ghi row cho scan không tra được; server trả `REJECTED_INVALID` trong response, không lưu. Scan có chữ ký sai **không gửi lên** (chỉ lưu trên thiết bị). Lệch contract và lệch §6; nhật ký phía server thiếu đúng các lần quét đáng ngờ nhất.
+  - (c) Như (a) nhưng scan chữ ký sai đi vào một bảng riêng `check_in_rejected_scans`: tách được, nhưng thêm bảng cho cùng một thực thể.
+  - **Bẫy "batch độc" (phải chặn cùng lúc với (a)):** nếu thiết bị gửi `ticketCode` **chưa xác minh** của một scan bị từ chối, và Q10 làm cả batch `400` khi một scan sai định dạng, thì một QR được chế ra (chuỗi > 64 ký tự, không phải chuỗi) làm **mọi** lần sync sau đó của thiết bị thất bại: mất dữ liệu (trái REQ-1.3.5), và kẻ đứng ở cửa tạo ra được. Đề xuất: thiết bị chỉ gửi `ticketCode` khi chữ ký **đã xác minh**; scan bị từ chối gửi `ticketCode = null` + `deviceVerdict = REJECTED_SIGNATURE`, giá trị thô chỉ giữ trên máy (cắt ở độ dài cố định để hiển thị). Phòng hờ phía server: một scan có `deviceVerdict = REJECTED_SIGNATURE` không bao giờ làm cả batch `400`, chỉ ra `REJECTED_INVALID` cho riêng scan đó.
+  - **Bỏ `raw_ticket_code`:** khi thiết bị chỉ gửi mã đã xác minh, một mã đã xác minh mà không tra được gần như không thể xảy ra (FK `RESTRICT`; thiết bị có khóa mới từ chối vé khóa cũ ngay ở bước chữ ký). Lựa chọn thật chỉ còn: **(a-slim)** `registration_id` NULL được + `CHECK (registration_id IS NOT NULL OR outcome = 'REJECTED_INVALID')`, scan bị thiết bị từ chối được sync làm nhật ký phía server; hoặc **(b)** scan bị từ chối chỉ ở trên máy, không migration, sửa câu chữ contract.
+  - **Đề xuất: (a-slim) + quy tắc chống batch độc ở trên.** `checkin.md` §6 và contract đã nói scan bị từ chối tới server; REQ-2.11 muốn audit trail cho check-in. Migration chỉ nới (`architecture.md` §6.2): an toàn với pod cũ (pod cũ không có code check-in). `attendances` không đổi. → `database-schema.md` §6.1, §10 (`V6`); `checkin.md` §6, §7; `schemas/checkin.yaml` (`ScanEvent.ticketCode` nullable + `deviceVerdict`)
+- [x] `[→ M-46, M-47]` **Q7 — "Hợp lệ" ở reconciliation nghĩa là gì.** `checkin.md` §7: "registration since cancelled" → `REJECTED_INVALID`. `test-plan.md` §1 và S-11: "valid-signature-but-**cancelled-workshop**". Nhưng §27 #8 (workshop hủy → hủy registrations) **chưa xây**, nên registration của một workshop đã hủy vẫn `CONFIRMED`; và hiện không có đường nào làm registration thành `CANCELLED` (C24).
+  - **✅ Chốt 2026-10-30 (D51): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `checkin.md` §3, §7 (quy tắc hợp lệ, workshop của phòng, đánh giá theo từng scan), §8; `test-matrix.md` M-47; `backend-coding-standards.md` §27 #8.
+  - (a) Hợp lệ ⇔ registration `CONFIRMED` **và** workshop không `CANCELLED`. Check-in đọc trạng thái registration và workshop qua `registration.api` / `workshop.api` (một lần tra hàng loạt cho cả batch, ở **Master**: quyết định ghi `attendances` là quyết định nhạy nhất quán, cùng lý do INV-03).
+  - (b) Kéo §27 #8 vào Phase 5 để registration luôn phản ánh workshop: thay đổi lớn đụng INV-07, đã được owner để lại ở D43.
+  - Thêm: (i) **quét nhầm phòng.** `workshop_id` nằm trong payload đã ký, nên so `workshopId` của *vé* với registration không bắt được gì. Lỗ hổng thật: một vé hợp lệ quét ở phòng của workshop khác hiện vẫn được tính có mặt cho workshop của chính vé, làm sai tỷ lệ check-in (M-49). Đề xuất (⚠, thêm một bước cho nhân viên, xem Q15): nhân viên chọn workshop đang check-in trên máy; `ScanEvent.workshopId` = workshop **của phòng**, không phải của vé; máy cảnh báo khi lệch; server ghi `REJECTED_INVALID` khi lệch. (ii) quét ngoài khung giờ workshop: **không** kiểm (không tài liệu nào yêu cầu).
+  - **Thời điểm đánh giá hợp lệ:** hợp lệ được đánh giá **cho từng scan, lúc chính scan đó được đối soát**; một row `attendances` đã có **không bao giờ bị xóa hay lật** vì registration/workshop đổi trạng thái sau đó. Ví dụ: S1 `ACCEPTED` (có `attendances`), workshop bị hủy, rồi scan S0 sớm hơn đến → S0 `REJECTED_INVALID`, S1 và `attendances` giữ nguyên. Lý do: một lần check-in đã xảy ra thật thì việc hủy sau đó không xóa được nó; và bước "đặt lại `outcome`" của Q8 chỉ chạy trên các scan đã được đánh giá hợp lệ.
+  - Bằng chứng của M-47: vì không có endpoint hủy registration, test đặt `CANCELLED` bằng fixture SQL (`test-data-management.md`) **và** chạy thêm nhánh workshop bị hủy qua HTTP thật.
+  - **Đề xuất: (a) + (i).** → `checkin.md` §7, §8; `test-matrix.md` M-47 (ghi cả hai nhánh); `schemas/checkin.yaml` (`workshopId`)
+- [x] `[→ M-46, M-52]` **Q8 — Hòa thời gian và đua đồng thời trong reconciliation.** Hai lỗi thật trong SQL của `checkin.md` §7 / `database-schema.md` §6.2:
+  - **✅ Chốt 2026-10-30 (D52): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `checkin.md` §7 (thay SQL), §9; `database-schema.md` §6.2; `integration-testing.md` §4 (dòng INV-12, sửa câu "not a cross-connection race"); `test-matrix.md` M-46.
+  - **Hòa (C25):** điều kiện `excluded.checked_in_at < attendances.checked_in_at` giữ scan **đến trước** khi hai scan cùng `scanned_at`, trái "regardless of arrival order". Sửa: thứ tự toàn phần `(scanned_at, id)`; scan thắng là scan nhỏ nhất theo cặp này.
+  - **Đua (C26):** REQ-2.9 "accept multiple batches … from multiple devices concurrently". Hai batch đồng thời cho cùng registration cùng đọc "chưa có người thắng" (hoặc cùng thấy winner X), và có thể cùng đánh dấu `ACCEPTED`, hoặc làm `check_in_scans.outcome` và `attendances.winning_scan_id` lệch nhau.
+  - Phương án tuần tự hóa theo registration:
+    - (a) `pg_advisory_xact_lock(hashtextextended(registration_id::text, 0))` đầu transaction của mỗi registration; trong lock: insert scan (`ON CONFLICT (id) DO NOTHING`), tính winner = min `(scanned_at, id)` trên các scan **hợp lệ** của registration, upsert `attendances`, rồi đặt lại `outcome` cho mọi scan hợp lệ của registration (winner `ACCEPTED`, còn lại `REJECTED_DUPLICATE`). Tất định, không phụ thuộc thứ tự đến.
+    - (b) Dựa vào khóa row của `INSERT … ON CONFLICT DO UPDATE` trên `attendances`: không khóa được khi row chưa tồn tại theo cách đủ cho bước đặt lại `outcome`; phức tạp hơn để lý luận.
+    - (c) Khóa Redisson: loại. `resilience-testing.md` §2.1/§2.3 yêu cầu check-in sync **không bị ảnh hưởng** khi Redis sập; khóa Redis cũng chỉ là advisory.
+    - (d) Khóa `registrations … FOR UPDATE`: loại, Check-in không được khóa bảng của module khác.
+  - Đơn vị transaction: đề xuất **một transaction cho mỗi registration** trong batch (nhóm scan theo registration, xử lý theo thứ tự `registration_id` tăng dần để không deadlock giữa hai batch), không một transaction cho cả batch (một scan lỗi không được làm mất 499 scan kia), không một transaction cho mỗi scan (hai scan cùng registration trong một batch phải ra cùng kết quả).
+  - Mức isolation: `READ COMMITTED` đủ khi có lock (a); ghi rõ để không ai "nâng" lên `SERIALIZABLE` mà không cần.
+  - **Đề xuất: (a), thứ tự `(scanned_at, id)`, một transaction mỗi registration.** → `checkin.md` §7 (thay SQL); `database-schema.md` §6.2; `test-matrix.md` M-46 (ghi tie-break)
+- [x] `[→ M-44, M-45]` **Q9 — Ai là người quét khi sync (C28).** `schemas/checkin.yaml` `ScanEvent`: `scannedBy` "derived server-side from the caller's own authenticated session … every scan in that session's synced batch is attributed to that same user". Auth JWT sống 30 phút, không refresh. Kịch bản thường gặp: nhân viên A quét offline 2 giờ, token hết hạn, nhân viên B đăng nhập trên **cùng thiết bị** và sync → mọi scan của A bị gán cho B, trái REQ-2.9 "which staff member performed the scan".
+  - **✅ Chốt 2026-10-30 (D53): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `checkin.md` §7 (quy tắc thiết bị), §8 (rủi ro còn lại). Mô tả `ScanEvent` trong contract sửa ở task 1.2.
+  - (a) *(xem thêm Q6: thiết bị chỉ gửi `ticketCode` đã xác minh)* Hàng đợi trên thiết bị ghi `staffUserId` (từ `sub` của token lúc quét); sync chỉ gửi các scan có `staffUserId` = người đang đăng nhập; scan của người khác ở lại chờ người đó đăng nhập. Server vẫn suy `scanned_by` từ session (không tin client). Hệ quả: scan của A kẹt trên máy nếu A không đăng nhập lại. Kèm: đăng xuất bị chặn (hoặc cảnh báo rõ) khi còn scan chưa sync của chính mình.
+  - (b) Client gửi `scannedBy` cho từng scan, server **chấp nhận** nếu người đó có `CHECKIN_SCAN`: client tự khai, người sync có thể gán scan cho người khác.
+  - (c) Mỗi scan được ký trên thiết bị bằng một khóa gắn với session: phức tạp, thêm quản lý khóa thiết bị.
+  - **Đề xuất: (a).** Rủi ro còn lại, ghi ở `phase-5.md` §5 để không nói quá "no data loss": nếu A không bao giờ đăng nhập lại, scan của A nằm lại trên máy; giảm nhẹ bằng chặn đăng xuất và màn lịch sử hiển thị scan còn kẹt. → `checkin.md` §7; `schemas/checkin.yaml` (`ScanEvent` mô tả); tài liệu mobile (Q13)
+- [x] `[→ M-45, M-46]` **Q10 — Ngữ nghĩa sync còn lại.**
+  - **✅ Chốt 2026-10-30 (D54): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `checkin.md` §7 (ngữ nghĩa sync), §8 (Known Limit đồng hồ thiết bị), §9; `IMPLEMENTATION-READINESS.md` G. Contract sửa ở task 1.2.
+  - Gửi lại cùng `id` (sync lặp sau khi mất response): trả **outcome hiện tại** đã lưu (có thể đã đổi từ `ACCEPTED` sang `REJECTED_DUPLICATE` do scan sớm hơn đến sau), không tạo row. Đúng ý contract ("natural no-op").
+  - Scan có `deviceVerdict = REJECTED_SIGNATURE` không bao giờ làm cả batch `400` (Q6, chống batch độc).
+  - Cùng `id` nhưng nội dung khác (`scannedAt`, `ticketCode`, `deviceId` khác row đã lưu): đề xuất **giữ row cũ**, trả outcome của row cũ, log WARN + counter. Không `409` cho cả batch (một scan lỗi không chặn 499 scan kia).
+  - Đồng hồ thiết bị sai: `scannedAt` ở tương lai xa hoặc trước khi ticket được phát (`iat`) có thể thắng mãi. Đề xuất: **không** từ chối (từ chối là mất dữ liệu, trái REQ-1.3.5 "no data loss"); ghi `received_at` (đã có), counter cho `scannedAt > received_at + 5 phút`, và ghi Known Limit ở `checkin.md` §8. Nêu với owner: đây là giới hạn của earliest-timestamp-wins, không phải lỗi.
+  - Giới hạn batch: giữ `1 … 500` (contract), `400` cho batch rỗng/quá 500/thiếu trường; mỗi scan sai định dạng làm cả batch `400` (lỗi client, không phải dữ liệu nghiệp vụ).
+  - Gỡ cờ "Inferred endpoint" khỏi `syncScanBatch` và `listWorkshopAttendances` khi chốt route; `contract-diff` phải xanh.
+  - **Đề xuất: như trên.** → `checkin.md` §7, §8; `paths/checkin.yaml`, `schemas/checkin.yaml`; `IMPLEMENTATION-READINESS.md` G (gỡ `syncScanBatch`, `listWorkshopAttendances`, `maxItems` 500)
+
+### 0.4 Giao e-ticket (M-42 phía Web, nửa sau M-37)
+
+- [x] `[→ M-37]` **Q11 — QR trong email xác nhận.** REQ-1.3.2: "confirmation notification **with their e-ticket** via email and an in-app notification". `checkin.md` §4: template `REGISTRATION_CONFIRMED` có thêm e-ticket ở Phase 5.
+  - **✅ Chốt 2026-10-30 (D55): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `notification.md` §4 (e-ticket), bảng tóm tắt; `checkin.md` §4; `registration.md` ("Internal reads…").
+  - (a) Ảnh QR PNG **đính kèm inline** (`Content-ID`) trong bản HTML, sinh phía server bằng ZXing (`com.google.zxing:core`, **dependency mới**); bản text có link tới trang e-ticket. Notification đọc `qr_payload` qua một interface đọc của `registration.api` (mở rộng `WorkshopAttendees` hoặc interface mới), ở Master.
+  - (b) Chỉ có **link** tới trang e-ticket trên Web, không ảnh: email không tự mang vé, sinh viên phải đăng nhập để xem; đọc REQ-1.3.2 theo nghĩa hẹp.
+  - (c) Ảnh QR dạng `data:` URI: Gmail và nhiều client chặn, loại.
+  - In-app: chỉ thêm link tới trang e-ticket (hộp thư in-app nằm ngay trong Web App). Nội dung `title`/`body` đã lưu từ Phase 4 không đổi cho row cũ.
+  - Thứ tự đến: `ticket.confirmed` được phát **cùng transaction** với việc ký, nên lúc consumer đọc, `qr_payload` đã có. Thiếu `qr_payload` (row trước Phase 5) → gửi bản không QR, không lỗi.
+  - **Đề xuất: (a)**, mức sửa lỗi QR như Q12. → `notification.md` §4, §6; `checkin.md` §4; `test-matrix.md` M-37 (gỡ khỏi §4.5)
+- [x] `[→ M-42]` **Q12 — Trang e-ticket trên Web và thư viện QR** (`web-coding-standards.md` §13 #11, còn mở).
+  - **✅ Chốt 2026-10-30 (D56): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `web-coding-standards.md` §13 #11; `checkin.md` §4, §5 (độ dài JWS đo ở task 7.1).
+  - Trang: `/me/registrations/:id` (gọi `getRegistration`, đã trả `qrPayload`, đã kiểm quyền sở hữu, S-18). Hiển thị QR, tên workshop, giờ, `ticket_code`; trạng thái "chưa có vé" (`RESERVED`, hoặc row trước Phase 5), `CANCELLED`/`EXPIRED`; liên kết từ `MyRegistrationList`.
+  - Thư viện: (a) `qrcode` (node-qrcode) render ra SVG/`data:` URL; (b) `qrcode.react` (component React, SVG); (c) tự viết: loại. Cả (a) và (b) hợp với CSP hiện tại (`img-src 'self' data:`; SVG inline không cần `img-src`). Pin version; xem báo cáo OWASP.
+  - Mức sửa lỗi: đề xuất **Q** (25%) vì `checkin.md` §5 chọn ES256 chính là để giữ mức sửa lỗi cao; **đo** độ dài JWS thật (dự kiến ≈ 200–260 ký tự) và version QR ở task 7.1, ghi vào `checkin.md` §5 (hiện chỉ ghi "materially shorter").
+  - **Đề xuất: (b) `qrcode.react`, mức Q.** → `web-coding-standards.md` §3, §13 #11; `checkin.md` §5
+
+### 0.5 Mobile App — Check-in Client (M-43, M-44, M-45)
+
+- [x] `[→ M-43, M-44]` **Q13 — Công cụ và cấu trúc `apps/mobile`** (`IMPLEMENTATION-READINESS.md` D4; `e2e-testing.md` §1; `security-testing.md` §3: "Runner: open item", "no CI job exists for mobile tests").
+  - **✅ Chốt 2026-10-30 (D57): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `CLAUDE.md`, `packages/api-contract/README.md` (bỏ `orval`, C31); `e2e-testing.md` §1, §4; `security-testing.md` §2.2, §3; `IMPLEMENTATION-READINESS.md` D4 (đã giải quyết); `deployment-and-cicd.md` §5 (job `mobile`). `mobile-coding-standards.md` viết ở task 8.1.
+  - Expo SDK: pin một bản SDK ổn định (chọn lúc làm 8.1, bản đã phát hành ≥ 2 tuần), TypeScript strict, Expo Router.
+  - Test runner: (a) **Jest + `jest-expo` + React Native Testing Library** (mặc định của Expo); (b) Vitest: không có preset React Native chính thức. Đề xuất (a).
+  - Kiểu API: (a) `openapi-typescript` (types only) + một client `fetch` mỏng, **giống Web** (`web-coding-standards.md` §5); (b) `orval` sinh client (`CLAUDE.md` ghi "planned for the mobile app"). Đề xuất (a): một chuỗi công cụ cho cả hai client, mobile chỉ gọi 3 endpoint (login, verification-key, sync). Nếu chọn (a) thì sửa câu "orval … planned" trong `CLAUDE.md` và `packages/api-contract/README.md` (C31).
+  - Chuẩn code: đề xuất một file ngắn `docs/guidelines/mobile-coding-standards.md` (layout theo feature giống Web: `app → features → shared`, quy tắc SecureStore, không log token/payload ticket, xử lý offline), thay vì để mobile không có chuẩn bắt buộc.
+  - CI: job `mobile` độc lập (typecheck, lint, Jest), song song với `web`. Không build EAS trong CI.
+  - Phân phối: Expo dev build / preview nội bộ (không store, `CLAUDE.md` Boundaries).
+  - **Đề xuất: như trên.** → `e2e-testing.md` §1 (thêm dòng mobile); `security-testing.md` §3; `IMPLEMENTATION-READINESS.md` D4; `deployment-and-cicd.md` §5 (job `mobile`); `CLAUDE.md`
+- [x] `[→ M-43, M-44]` **Q14 — Hai spike chặn thiết kế (làm trước mọi code mobile, task 8.0).**
+  - **✅ Chốt 2026-10-30 (D58): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `test-plan.md` §1 (sửa câu deliverable hàng đợi bền, runner); `test-matrix.md` M-43, M-44 (test level); `checkin.md` §6 (spike S1).
+  - **S1 — `jose` ES256 trên Hermes.** `jose` dùng WebCrypto (`crypto.subtle`). Hermes/React Native **không có** WebCrypto đầy đủ theo mặc định (cần kiểm trên SDK đã pin). Nếu `compactVerify` không chạy trên thiết bị thật, thiết kế `checkin.md` §6 không chạy được. Phương án lùi: (i) polyfill WebCrypto (ví dụ `react-native-quick-crypto`, cần dev build, không chạy trong Expo Go); (ii) giữ `jose` cho phân tích/ghim `alg`, xác minh chữ ký bằng `@noble/curves` (P-256 thuần JS); (iii) thư viện khác. Kết quả spike + lựa chọn ghi vào `checkin.md` §6 và `CLAUDE.md` (nếu lệch "JOSE performs on-device …"). **Test M-43 phải chạy trên đúng đường mã mà thiết bị chạy** (cùng hàm `verifyTicket`), không chỉ trên Node.
+  - **S2 — "Hàng đợi sống sót qua restart" kiểm bằng gì.** `expo-sqlite` là module native, không chạy trong Jest. Đề xuất: schema và repository Drizzle viết một lần; trong Jest chạy trên `better-sqlite3` với **file** SQLite thật (Drizzle hỗ trợ cả hai driver), test đóng kết nối, mở lại cùng file, khẳng định mọi scan còn nguyên và trạng thái sync đúng (M-44); cộng **một lần kiểm thủ công trên thiết bị** (quét offline → kill app → mở lại → còn scan → bật mạng → sync), ghi vào evidence. Rủi ro còn lại (khác biệt driver) ghi ở `phase-5.md` §5. **Lưu ý:** deliverable của `test-plan.md` §1 ghi đúng chữ "Expo SQLite/Drizzle survives simulated restart"; bản thay bằng `better-sqlite3` + một lần kiểm thủ công là bằng chứng **yếu hơn** cho một dòng INV-12. Nếu owner không chấp nhận: phương án thay là test tự động trên emulator bằng một công cụ mới (Maestro hoặc Detox), chạy on-demand (không có emulator trong CI), thêm một dependency và một bước vận hành. **Nếu chấp nhận:** sửa câu deliverable ở `test-plan.md` §1 dòng Phase 5 thành "Drizzle schema/repository trên file SQLite thật + một lần kiểm restart trên thiết bị có ghi lại", để sign-off không khẳng định nguyên văn "Expo SQLite survives restart". Đề xuất: chấp nhận, kèm sửa câu chữ.
+  - **Đề xuất: làm S1, S2 trước; nếu S1 thất bại, chọn (ii).** → `checkin.md` §6, §9; `test-matrix.md` M-43, M-44 (test level)
+- [x] `[→ M-44, M-45]` **Q15 — Hành vi thiết bị.**
+  - **✅ Chốt 2026-10-30 (D59): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `checkin.md` §7 (quy tắc thiết bị, gồm chọn workshop của phòng).
+  - `device_id`: UUID v4 sinh lần đầu mở app, lưu SecureStore, không đổi khi đăng xuất (≤ 100 ký tự, `check_in_scans.device_id`).
+  - Không có khóa trong cache (chưa từng đăng nhập online): **không cho quét** (`checkin.md` §8).
+  - *(theo Q7 (i), ⚠)* Trước khi quét, nhân viên chọn workshop đang check-in (danh sách lấy lúc online, lưu cục bộ); vé của workshop khác → cảnh báo trên máy, vẫn ghi scan với `workshopId` của phòng.
+  - Lấy khóa: lúc đăng nhập và sau mỗi lần sync thành công; **ghi đè** khóa cũ, không bao giờ giữ hai khóa (`checkin.md` §6). Lấy khóa thất bại khi đang online → giữ khóa cũ.
+  - Kết quả tại chỗ: chữ ký đúng → "Hợp lệ (chờ đối soát)"; sai → "Vé không hợp lệ". Quét lại cùng ticket trên **cùng** thiết bị → cảnh báo "đã quét lúc hh:mm", **vẫn ghi** scan (dữ liệu cho reconciliation).
+  - Sync tự động: khi có mạng trở lại (`@react-native-community/netinfo`), khi app về foreground, và định kỳ (ví dụ 60s) khi có scan chờ; chia batch ≤ 500; scan chỉ bị xóa khỏi hàng chờ khi server trả kết quả cho đúng `id` đó. Token hết hạn → giữ scan, yêu cầu đăng nhập lại (Q9).
+  - Lưu trữ: token + khóa công khai + `device_id` ở SecureStore; scan ở SQLite. Không lưu `qr_payload` gốc sau khi đã tách `ticket_code` (giảm dữ liệu trên máy), trừ scan bị từ chối (Q6).
+  - **Đề xuất: như trên.** → `checkin.md` §6, §7, §8; tài liệu mobile (Q13)
+
+### 0.6 Brochure / S3 (chỉ khi Q1 = (a) hoặc (b))
+
+- [x] `[→ M-50, M-51]` **Q16 — Các điểm còn mở của luồng brochure.**
+  - **✅ Chốt 2026-10-30 (D60): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `workshop.md` §8 (`503`), §9 (provider: chỉ stub; redelivery không miễn phí, C32); `resilience-testing.md` §2.6, §5; `IMPLEMENTATION-READINESS.md` B4 (đã giải quyết); `deployment-and-cicd.md` §2 (ConfigMap, Secret). Contract (`503`) sửa ở task 9.2.
+  - Mã trả về khi S3 không với tới được ở `confirmBrochureUpload` (`IMPLEMENTATION-READINESS.md` B4; contract chỉ có `404`/`409`): đề xuất **`503`** problem `storage-unavailable`, thêm vào contract.
+  - Dịch vụ AI: **chỉ stub** (WireMock trong IT; local dev: một stub WireMock trong `docker-compose.yml` trả bản tóm tắt cố định, hoặc để trống và summary không bao giờ được sinh ở local). Không chọn provider thật trong Phase 5. **Owner chốt điểm này 2026-10-30:** dùng stub trước; sau này gắn một API cloud bằng `API_KEY` (secret inject lúc chạy). Hệ quả cho code Phase 5: client AI chỉ phụ thuộc cấu hình (`base-url`, `api-key`, timeout), không hardcode gì của stub, để lúc gắn provider thật chỉ đổi cấu hình hoặc thay một adapter. Ghi chú cho lúc đó: hợp đồng `workshop.md` §9 gửi file PDF, còn phần lớn API cloud nhận văn bản kiểu chat OpenAI; nếu provider chọn sau không nhận PDF thì phải sửa ADR "AI Summarization Service Integration Contract" (tách chữ bằng PDFBox ở backend). Không sửa ADR ở Phase 5. API key là secret runtime; `unihub.ai-summarization.base-url` không bắt buộc lúc khởi động (luồng này không nằm trên đường găng) — khác Redis/SMTP, ghi lý do.
+  - Dependency mới: AWS SDK v2 `s3` (BOM, pin), `org.testcontainers:minio`, image MinIO pin version ở `docker-compose.yml`.
+  - Consumer summarization: là consumer thứ bảy, nên `ConsumerRedeliveryCoverageTest` sẽ đỏ cho tới khi có mục (đúng thiết kế D41): cần test tuần tự + đồng thời đếm **hiệu ứng** (số lần gọi AI stub, giá trị `ai_summary` cuối) — `workshop.md` §3 nói "naturally safe" nhưng mỗi lần giao lại là một lần gọi dịch vụ AI trả phí (C32). Routing key `summarization.requested` vào `OutboxRoutingCoverageTest` và `OutboxRelayEndToEndIT`.
+  - Web cho Organizer upload brochure: không có trang quản lý workshop nào trên Web. Đề xuất: Phase 5 chỉ chứng minh qua API (IT tải lên MinIO bằng URL đã ký); nút upload trên Web đi cùng trang quản lý workshop (Q18).
+  - **Đề xuất: như trên.** → `workshop.md` §7, §9, §10; `paths/workshop.yaml`; `mocking-guidelines.md` §1–§2 (AI → WireMock, S3 → MinIO); `IMPLEMENTATION-READINESS.md` B4
+
+### 0.7 Bằng chứng
+
+- [x] `[→ M-43 … M-52, M-80]` **Q17 — Bằng chứng cho INV-12 và các probe.** Đề xuất, giữ kỷ luật của Phase 3–4:
+  - **✅ Chốt 2026-10-30 (D61): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `integration-testing.md` §4 (INV-12); `security-testing.md` §2.2 (S-8, S-12 per-push); `test-matrix.md` M-48. S-8 rời `test-matrix.md` §4.5 ở task 4.2.
+  1. **Đổi thứ tự đến:** với một registration có ≥ 3 scan từ ≥ 2 thiết bị (gồm một cặp hòa `scanned_at`), chạy **mọi hoán vị** thứ tự sync (hoặc ≥ 24 hoán vị ngẫu nhiên có seed ghi lại) → luôn cùng một winner, đúng một row `attendances`, mọi scan hợp lệ khác `REJECTED_DUPLICATE` (M-46).
+  2. **Đồng thời đo được:** hai batch từ hai "thiết bị" gửi song song sau một latch, cùng registration; ghi khoảng start→end của mỗi lần xử lý và khẳng định **chồng nhau** (không chồng → test tự đỏ), cộng một biến thể trên hai context của `MultiInstanceHarness` (M-46, M-52).
+  3. **Đột biến cho mỗi guard,** ghi vào evidence: bỏ advisory lock → test đồng thời đỏ; đổi tie-break thành `<` thuần → test hoán vị đỏ; bỏ kiểm tra workshop `CANCELLED` → M-47 đỏ; bỏ `ON CONFLICT (id)` → test sync lặp đỏ.
+  4. **Ràng buộc DB là backstop:** một `INSERT` thô thứ hai vào `attendances` cho cùng registration bị `UNIQUE` từ chối (cùng tinh thần M-30).
+  5. **M-48 / S-8 / S-12 chạy per-push** (không on-demand như `security-testing.md` §2.2 ghi): JWK chỉ có `kty`, `crv`, `x`, `y` (không `d`); token Student → `403`; không token → `401`. Đóng mục S-8 ở `test-matrix.md` §4.5.
+  6. **M-80:** mở rộng probe của `PaymentCircuitBreakerIT` (breaker mở, gateway chết) thêm `POST /api/v1/checkin/sync` và endpoint báo cáo (Q2), cùng khẳng định `2xx` + latency.
+  7. **Redis sập (phần Check-in của `phase-3.md` §5 hàng 3):** thêm `POST /api/v1/checkin/sync` vào probe của `RedisOutageIT` → `2xx` trong lúc đăng ký bị `503` (check-in không phụ thuộc Redis). Đề xuất **làm**: rẻ, và bằng chứng Q8 (c) cần nó.
+  8. **M-52:** dòng tổng hợp, `Passing` khi M-43 … M-47 đều `Passing`, cộng một IT "không mất dữ liệu": N scan từ K thiết bị, sync lặp + sync một phần → số row `check_in_scans` = N, đúng một `attendances` mỗi ticket hợp lệ.
+  - **Đề xuất: cả 8 điểm.** → `test-matrix.md` M-43 … M-52, M-80, §4.5 (S-8); `security-testing.md` §2.2 (S-8, S-12 per-push); `integration-testing.md` §4 (dòng INV-12)
+
+### 0.8 Nêu ra với owner, không làm lặng lẽ
+
+- [x] `[— không dòng]` **Q18 — Các việc kề bên Phase 5 nhưng không thuộc scope.** Mỗi việc cần owner nói "để lại" hoặc "kéo vào":
+  - **✅ Chốt 2026-10-30 (D62): theo đề xuất** (owner chốt toàn bộ Q1–Q18 cùng ngày). **Đã ghi vào tài liệu sở hữu (2026-10-30):** `checkin.md` §6 (xoay khóa: không phát lại vé), §8, §10 (mức real-time); `backend-coding-standards.md` §27 #8. Còn lại: `phase-5.md` §5 lúc sign-off.
+  - (1) **§27 #8 (workshop hủy → hủy registrations)** vẫn mở (`phase-4.md` §5 hàng 3). Q7 (a) làm check-in đúng mà không cần nó. Đề xuất: **để lại**, ghi ràng buộc mới cho người xây: một registration bị hủy vì workshop bị hủy phải ra `REJECTED_INVALID` ở reconciliation (đã đúng theo Q7).
+  - (2) **`cancelRegistration`** (endpoint suy luận, chưa xây): không yêu cầu nào của Phase 5 cần nó; M-47 dùng fixture. Đề xuất: **để lại**.
+  - (3) **Trang quản lý workshop cho Organizer trên Web** (tạo/sửa/hủy/upload brochure): `requirement.md` §1.2 có, nhưng không phase nào trong `proposal.md` §15 nêu rõ; M-70 (Phase 7, E2E) cần nó. Đề xuất: **để lại khỏi Phase 5**, nêu ra để owner lên lịch trước Phase 7.
+  - (4) **Mức "real-time" của báo cáo:** Replica + refetch định kỳ (vài giây trễ). Đề xuất: chấp nhận, ghi ở `checkin.md`.
+  - (5) **Đồng hồ thiết bị sai** (Q10): giới hạn của earliest-timestamp-wins, ghi Known Limit.
+  - (6) **Sau khi xoay khóa, không gì phát lại vé.** `checkin.md` §4: vé "never regenerated", nên sau một lần xoay khóa (break-glass) mọi sinh viên giữ một QR đã chết. Owner chọn: chấp nhận như một phần của quy trình break-glass (sinh viên không check-in được tới khi có giải pháp), hoặc yêu cầu một job ký lại vé (đổi Guarantee của `checkin.md` §4). Đề xuất: **chấp nhận và ghi rõ**, vì xoay khóa chỉ dành cho sự cố lộ khóa.
+  - (7) **Ảnh hưởng tới dữ liệu đăng ký cũ:** registration `CONFIRMED` trước Phase 5 không có vé (Q4); chỉ có ở local.
+  → `phase-5.md` §5; `backend-coding-standards.md` §27 #8; `checkin.md` §8
+
+---
+
+## 0A. Decisions (ADR) — D45–D62 (Q1–Q18) — ✅ chốt 2026-10-30
+
+Owner chốt toàn bộ theo đề xuất ngày 2026-10-30. Lý do, ràng buộc và tài liệu đã sửa của từng quyết định nằm ở dòng Q tương ứng ở Mục 0 và ở tài liệu sở hữu; bảng dưới là quyết định + AC + test. Nếu sau này đổi phương án, sửa dòng đó trước khi code.
+
+| D | Q | Quyết định | AC | Test |
+|---|---|---|---|---|
+| D45 | Q1 | Làm brochure/S3/AI-stub ở Mục 9, chốt ngay (không có đường lùi giữa chừng) | AC45.1 M-50, M-51 `Passing` trước khi ký | — |
+| D46 | Q2 | Endpoint tóm tắt do Check-in sở hữu + `V6` seed `REPORT_VIEW` cho Organizer + trang Web chỉ đọc | AC46.1 Organizer và Admin đọc được, Student `403`. AC46.2 Số khớp SQL đếm trực tiếp (3 `CONFIRMED`, 1 `RESERVED`, 2 check-in → tỷ lệ 2/3). AC46.3 Workshop không tồn tại → `404` | `WorkshopReportIT`, `WorkshopReportControllerWebTest`, `WorkshopReportPage.test.tsx` |
+| D47 | Q3 | `TicketSigner` trong Registration; `registration.api.TicketVerificationKey` cho Check-in; nimbus trực tiếp; rule ArchUnit | AC47.1 Không class nào ngoài `registration..` phụ thuộc kiểu khóa riêng (đột biến → đỏ). AC47.2 JWK phát ra không có `d` | `ArchitectureTest`, `NimbusEs256TicketSignerTest` |
+| D48 | Q4 | `ticket_code` 128 bit base32 Crockford; ký trong transaction xác nhận ở cả hai đường; không backfill, không CHECK | AC48.1 Free và paid `CONFIRMED` đều có `ticket_code` + `qr_payload` xác minh được bằng khóa công khai. AC48.2 1.000 vé → 1.000 `ticket_code` khác nhau. AC48.3 Payload chỉ có `ticket_code`, `workshop_id`, `iat`; không `exp`, không PII. AC48.4 Redelivery `charge.succeeded` không ký lại (vé không đổi) | `TicketIssuanceIT`, `RegistrationTest`, `PaymentConfirmationIT` (mở rộng) |
+| D49 | Q5 | `unihub.ticket.signing-key` (JWK EC riêng) bắt buộc lúc khởi động; khóa sinh lúc chạy cho test/contract-diff/local | AC49.1 Thiếu/sai khóa → không khởi động, thông điệp rõ. AC49.2 Gitleaks xanh; không file khóa nào trong repo. AC49.3 `contract-diff` xanh ở commit thêm thuộc tính | `TicketKeyRequiredStartupIT` |
+| D50 | Q6 | `V6` (a-slim): `registration_id` NULL được + CHECK chỉ cho `REJECTED_INVALID`; thiết bị chỉ gửi mã đã xác minh | AC50.1 Scan bị thiết bị từ chối → row `REJECTED_INVALID`, `registration_id` NULL, không `attendances`; row NULL với outcome khác bị CHECK từ chối. AC50.2 Scan bị thiết bị từ chối được sync và lưu. AC50.3 Một batch có scan `REJECTED_SIGNATURE` mang giá trị độc (chuỗi 10.000 ký tự, kiểu không phải chuỗi) → các scan khác của batch vẫn được xử lý, batch không `400`; thiết bị không bao giờ gửi `ticketCode` chưa xác minh | `CheckInSyncIT`, `syncQueue.test.ts` |
+| D51 | Q7 | Hợp lệ ⇔ registration `CONFIRMED` ∧ workshop ≠ `CANCELLED` ∧ workshop của phòng = workshop của vé; đọc ở Master | AC51.1 Registration `CANCELLED` (fixture) → `REJECTED_INVALID`, 0 `attendances`. AC51.2 Workshop bị hủy qua HTTP → như trên. AC51.3 Vé hợp lệ quét ở phòng của workshop khác → `REJECTED_INVALID`, 0 `attendances`. AC51.4 S1 `ACCEPTED` có `attendances`, workshop bị hủy, rồi S0 sớm hơn đến → S0 `REJECTED_INVALID`, S1 và `attendances` không đổi | `CheckInValidityIT` |
+| D52 | Q8 | Advisory lock theo registration; winner = min `(scanned_at, id)`; một transaction mỗi registration, thứ tự `registration_id` | AC52.1 Mọi hoán vị → cùng winner. AC52.2 Hai batch đồng thời, khoảng xử lý chồng nhau đo được → đúng 1 `ACCEPTED`, `attendances` khớp `outcome`. AC52.3 Một scan lỗi không làm mất scan của registration khác trong batch | `ReconciliationOrderIT`, `ReconciliationConcurrencyIT`, `ReconcileScansTest` |
+| D53 | Q9 | Hàng đợi ghi `staffUserId`; chỉ sync scan của người đang đăng nhập | AC53.1 Scan của A không bao giờ được gửi trong session của B (unit test mobile). AC53.2 `scanned_by` = `sub` của người gọi | `syncQueue.test.ts`, `CheckInSyncIT` |
+| D54 | Q10 | Gửi lại `id` → outcome hiện tại; `id` trùng nội dung khác → giữ row cũ + WARN; không từ chối đồng hồ lệch; batch 1…500 | AC54.1 Sync lặp → 0 row mới, outcome hiện tại. AC54.2 Batch 0/501 → `400`; 1/500 → `200`. AC54.3 Scan đã `ACCEPTED`, rồi scan sớm hơn đến → sync lặp lần đầu trả `REJECTED_DUPLICATE` | `CheckInSyncIT`, `CheckInControllerWebTest` |
+| D55 | Q11 | QR PNG inline (ZXing) trong email xác nhận; in-app thêm link | AC55.1 Email xác nhận có ảnh QR giải mã ra đúng `qr_payload` (đọc từ Mailpit). AC55.2 Registration không có vé → email không QR, vẫn `SENT` | `RegistrationConfirmationNotificationIT` (mở rộng), `TicketQrImageTest` |
+| D56 | Q12 | `/me/registrations/:id` + `qrcode.react`, mức Q; đo độ dài JWS | AC56.1 QR render đúng chuỗi `qrPayload`. AC56.2 Các trạng thái không có vé hiển thị đúng. AC56.3 Không vi phạm CSP | `RegistrationTicketPage.test.tsx`, `csp-build.test.ts` |
+| D57 | Q13 | Expo pin, Jest + jest-expo + RNTL, `openapi-typescript`, `mobile-coding-standards.md`, job CI `mobile` | AC57.1 Job `mobile` xanh trên CI | — |
+| D58 | Q14 | Spike S1 (jose/Hermes) và S2 (SQLite file + better-sqlite3 + kiểm thủ công) trước code | AC58.1 Kết quả spike ghi lại, với thiết bị/SDK đã dùng | — |
+| D59 | Q15 | `device_id` UUID ở SecureStore; không khóa → không quét; ghi đè khóa; sync tự động có điều kiện | AC59.1 Không khóa → nút quét bị khóa. AC59.2 Sau sync, khóa mới thay khóa cũ; ticket ký bằng khóa cũ bị từ chối (S-10 V7) | `verificationKey.test.ts`, `scanFlow.test.tsx` |
+| D60 | Q16 | `503` khi S3 sập ở confirm; AI chỉ stub; MinIO pin; consumer summarization vào M-40 coverage | AC60.1 MinIO dừng → confirm `503`, không `brochure_s3_key`; probe `2xx`. AC60.2 `422` từ AI → ack, `ai_summary` NULL | `BrochureUploadIT`, `SummarizationIT`, `ObjectStorageOutageIT` |
+| D61 | Q17 | 8 điểm bằng chứng | Như Q17 | Như Q17 |
+| D62 | Q18 | Để lại (1)–(3), ghi (4)–(7) | — | — |
+
+---
+
+## 0B. Đối soát chéo — mâu thuẫn tìm thấy (2026-10-30)
+
+Mỗi mục sửa ở tài liệu được ghi, trước khi code phụ thuộc vào nó. Tick khi đã sửa (tất cả sửa 2026-10-30; phần contract của C23, C28 theo task 1.2). Đánh số C23 trở đi để không trùng C1–C22.
+
+- [x] **C23** *(sửa 2026-10-30 theo D50 — `database-schema.md` §6.1, §10.3; `checkin.md` §7. Contract ở task 1.2)* *(→ Q6)* — `paths/checkin.yaml` `syncScanBatch` ("an unresolvable [ticketCode] is itself recorded as `REJECTED_INVALID`") và `checkin.md` §6 (scan bị thiết bị từ chối được đối soát sau) ↔ `check_in_scans.registration_id NOT NULL` FK (`V1`, `database-schema.md` §6.1). Không ghi được row nào cho scan không có registration.
+- [x] **C24** *(sửa 2026-10-30 theo D51 — `checkin.md` §7 (đọc trạng thái workshop); `test-matrix.md` M-47)* *(→ Q7)* — `test-plan.md` §1, S-11 ("cancelled **workshop**") ↔ `checkin.md` §7, M-47 ("registration since cancelled") ↔ `backend-coding-standards.md` §27 #8 (workshop hủy không hủy registration) ↔ code: `Registration.cancel()` không use case nào gọi. Hiện không có đường nào tạo ra trạng thái mà M-47 kiểm.
+- [x] **C25** *(sửa 2026-10-30 theo D52 — `checkin.md` §7, `database-schema.md` §6.2 (thứ tự `(scanned_at, id)`))* *(→ Q8)* — SQL overtake `WHERE excluded.checked_in_at < attendances.checked_in_at` (`checkin.md` §7, `database-schema.md` §6.2) ↔ "regardless of device or arrival order" (M-46, `proposal.md` §11.4). Khi hòa, scan đến trước thắng.
+- [x] **C26** *(sửa 2026-10-30 theo D52 — advisory lock theo registration; `integration-testing.md` §4)* *(→ Q8)* — REQ-2.9 ("accept multiple batches … from multiple devices concurrently") ↔ `checkin.md` §7 (đọc winner rồi cập nhật, không có điều khiển đồng thời nào). Hai batch đồng thời có thể cùng `ACCEPTED`.
+- [x] **C27** *(sửa 2026-10-30 theo D46 — `database-schema.md` §10.3 (`V6`))* *(→ Q2)* — REQ-1.2 / REQ-1.3.3 / M-49 ("Organizers see …") ↔ `V2` (`REPORT_VIEW` chỉ cho Admin).
+- [x] **C28** *(sửa 2026-10-30 theo D53 — `checkin.md` §7. Mô tả `ScanEvent` trong contract ở task 1.2)* *(→ Q9)* — `schemas/checkin.yaml` `ScanEvent` (`scannedBy` = người sync) ↔ `auth-and-identity.md` §4 (TTL 30 phút, không refresh) ↔ REQ-2.9 ("which staff member performed the scan").
+- [x] **C29** *(sửa 2026-10-30 theo D47 — `registration.md` (`TicketVerificationKey`), `checkin.md` §6)* *(→ Q3)* — `checkin.md` §4 (khóa riêng chỉ Registration đọc) ↔ `checkin.md` §6 (endpoint khóa công khai thuộc Check-in) ↔ ArchUnit (chỉ `api..` qua module). Cần một interface `registration.api` mà chưa tài liệu nào nêu.
+- [x] **C30** *(sửa 2026-10-30 theo D46 — `checkin.md` §10 (endpoint tóm tắt))* *(→ Q2)* — REQ-1.3.3 ("registration counts and real-time check-in rates") ↔ contract (`listWorkshopRegistrations`, `listWorkshopAttendances`: chỉ danh sách, "Rate/percentage math … is a frontend concern"). Đếm ở frontend buộc tải hết mọi trang.
+- [x] **C31** *(sửa 2026-10-30 theo D57 — `CLAUDE.md`, `packages/api-contract/README.md`, `e2e-testing.md`, `security-testing.md`)* *(→ Q13)* — `CLAUDE.md` + `packages/api-contract/README.md` ("an `orval`-generated client planned for the mobile app") ↔ `web-coding-standards.md` §5 (types only) ↔ `e2e-testing.md` §1 (không có dòng mobile) ↔ `security-testing.md` §2.2 S-10 ("no CI job exists for mobile tests — TODO").
+- [x] **C32** *(sửa 2026-10-30 theo D60 — `workshop.md` §9)* *(→ Q16)* — `workshop.md` §3 ("naturally safe under redelivery … no accumulating side effect") ↔ M-40/D41 (đếm hiệu ứng, có biến thể đồng thời, consumer mới phải có mục trong `ConsumerRedeliveryCoverageTest`). Mỗi lần giao lại là một lần gọi dịch vụ AI.
+- [x] **C33** *(sửa 2026-10-30 theo D48, D61 — `registration.md` §5; `security-testing.md` §2.2)* *(→ Q4)* — `registration.md` §5 ("until it is built (Phase 5) `ticket_code`/`qr_payload` stay `NULL`") và `security-testing.md` §2.2 (S-8, S-12 "on-demand") ↔ Phase 5 (ký ticket, endpoint khóa per-push theo Q17). Sửa khi code xong.
+
+---
+
+**Bản đồ chặn:** Mục 1 ← Q2, Q3, Q5, Q6 · Mục 2 ← Q3, Q4, Q5 · Mục 3 ← Q6, Q7, Q8, Q9, Q10 · Mục 4 ← Q3, Q5 · Mục 5 ← Q2 · Mục 6 ← Q11 · Mục 7 ← Q12 · Mục 8 ← Q13, Q14 (spike), Q15, Q9 · Mục 9 ← Q1, Q16 · Mục 10–11 ← Q17. Q18 không chặn mục nào nhưng phải chốt trước sign-off (`phase-5.md` §5). Mục 0B sửa tài liệu trước khi code phụ thuộc vào nó.
+
+## 1. Nền móng: migration, contract, cấu hình (sau Q2, Q3, Q5, Q6)
+
+- [ ] **1.1** `[→ M-45, M-47, M-49]` Migration `V6` (chỉ thêm/nới): theo Q6 (`check_in_scans.registration_id` NULL được + CHECK chỉ cho `REJECTED_INVALID`, không `raw_ticket_code`) và Q2 (seed `REPORT_VIEW` cho `Organizer`, idempotent). Đặc tả vào `database-schema.md` §10 (mục `V6`) **trước**, gộp vào DDL Appendix cùng commit. Kiểm: pod cũ đọc được schema mới (không cột nào bị đổi kiểu hay bỏ).
+- [ ] **1.2** `[→ M-45, M-48, M-49]` Contract: `paths/checkin.yaml`, `schemas/checkin.yaml` theo Q6, Q10, Q2 (endpoint tóm tắt); gỡ cờ "Inferred" của `syncScanBatch`, `listWorkshopAttendances`; `ScanEvent.workshopId` hết "informational" (Q7 (i)); lint Redocly xanh; `openapi-typescript` sinh lại kiểu cho Web. Commit được **ngay** ở task 1.2: `contract-diff.sh` bước 3 chỉ so các operation mà backend đã sinh ra, nên một path chưa có controller không làm job đỏ (đã kiểm 2026-10-30); mỗi controller ở Mục 3–5 sau đó phải khớp contract.
+- [ ] **1.3** `[→ M-42, M-48]` Cấu hình khóa theo Q5: `TicketSigningProperties` (bắt buộc, kiểm EC P-256 có `d`), `contract-diff.sh` sinh khóa tạm, `IntegrationTestSupport` sinh khóa lúc chạy, `scripts/generate-ticket-key.sh` cho local; `nimbus-jose-jwt` trực tiếp (Q3). `TicketKeyRequiredStartupIT` (AC49.1). Gitleaks xanh (AC49.2), `contract-diff` xanh (AC49.3).
+
+## 2. Phát hành e-ticket — M-42 (sau Mục 1.3)
+
+- [ ] **2.1** `[→ M-42]` Port `TicketSigner` + adapter `NimbusEs256TicketSigner` (`registration.infrastructure.out.crypto`); `TicketCodeGenerator` theo Q4. Unit test: payload đúng 3 claim, `alg` ES256, xác minh được bằng khóa công khai, không `exp`, không PII (AC48.3).
+- [ ] **2.2** `[→ M-42]` Gắn ký vào **cả hai** đường xác nhận: `Registration.confirmFree` / `ReserveSeatTransaction` và `ConfirmRegistrationTransaction` (free: `INSERT` đã mang sẵn vé; paid: một `UPDATE` ghi `status` + `ticket_code` + `qr_payload`). Redelivery `charge.succeeded` cho registration đã `CONFIRMED` → không ký lại (AC48.4, mở rộng `PaymentConfirmationIT`). Sửa `registration.md` §1, §5 (C33).
+- [ ] **2.3** `[→ M-42, M-48]` `registration.api.TicketVerificationKey` (chỉ JWK công khai) + rule ArchUnit theo Q3 + phép đột biến (AC47.1).
+- [ ] **2.4** **`[M-42]`** `TicketIssuanceIT`: free và paid qua HTTP thật → `ticket_code` + `qr_payload` có, xác minh được; 1.000 vé → không trùng (AC48.1, AC48.2); `GET /api/v1/registrations/{id}` trả `qrPayload` cho chủ, `403` cho sinh viên khác (S-18). Gỡ `⚠` của M-42.
+
+## 3. Sync và reconciliation — M-45, M-46, M-47, M-52 (sau Q6–Q10)
+
+- [ ] **3.1** `[→ M-46]` Domain + port Check-in: `ScanEvent`, `ScanOutcome`, `ReconciliationPolicy` (thứ tự `(scanned_at, id)`, quy tắc hợp lệ của Q7) dạng code thuần; unit test bảng quyết định (`test-design-techniques.md` §2: `ACCEPTED` → `REJECTED_DUPLICATE`, đường ngược bị cấm).
+- [ ] **3.2** `[→ M-45, M-47]` Port đọc theo Q7: `registration.api.TicketLookup` (tra hàng loạt `ticket_code` → `registrationId`, `status`, `workshopId`, ở Master) + `workshop.api` (trạng thái workshop); adapter ở `checkin.infrastructure.out`. `ArchitectureTest` xanh.
+- [ ] **3.3** `[→ M-46, M-52]` Persistence (Tier B, transaction script): `JdbcCheckInScans`/`JdbcAttendances` với advisory lock theo Q8, insert `ON CONFLICT (id) DO NOTHING`, tính lại winner, upsert `attendances`, đặt lại `outcome`. IT repository: hai thread cùng registration → tuần tự hóa; `UNIQUE` của `attendances` từ chối insert thô thứ hai (Q17 điểm 4).
+- [ ] **3.4** `[→ M-45, M-46]` Use case `SyncScanBatch` (không `@Transactional` ở ngoài; mỗi registration một transaction ngắn qua bean transaction riêng, theo thứ tự `registration_id`; `scanned_by` = `Actor`); gọi `AuditTrail` một lần mỗi batch (adapter log hiện có). Unit test với fake.
+- [ ] **3.5** `[→ M-45]` Controller `POST /api/v1/checkin/sync` (`@PreAuthorize("hasAuthority('CHECKIN_SCAN')")`), validation batch 1…500, `CheckInControllerWebTest` (AC54.2, `401`/`403`).
+- [ ] **3.6** **`[M-45]`** `CheckInSyncIT`: batch thật qua HTTP; biên 0/1/500/501 (BVA); sync lặp → 0 row mới, outcome hiện tại (AC54.1, AC54.3); `id` trùng nội dung khác → row cũ giữ nguyên (Q10); ticket không tồn tại → `REJECTED_INVALID` có row (AC50.1, AC50.2); batch độc không chặn sync (AC50.3); `scanned_by` = người gọi (AC53.2). Gỡ `⚠` của M-45 (phần server; phần thiết bị ở 8.6).
+- [ ] **3.7** **`[M-46]`** `ReconciliationOrderIT`: mọi hoán vị (hoặc ≥ 24 có seed) của ≥ 3 scan từ ≥ 2 thiết bị, có một cặp hòa → cùng winner, đúng một `attendances`, `outcome` khớp (AC52.1). Đột biến tie-break → đỏ.
+- [ ] **3.8** **`[M-46]`** `ReconciliationConcurrencyIT`: hai batch đồng thời sau latch, khoảng xử lý **đo được** chồng nhau (không chồng → test đỏ); biến thể hai context `MultiInstanceHarness` (AC52.2). Đột biến bỏ advisory lock → đỏ.
+- [ ] **3.9** **`[M-47]`** `CheckInValidityIT`: registration `CANCELLED` (fixture SQL) và workshop bị hủy qua HTTP thật → `REJECTED_INVALID`, 0 `attendances` (AC51.1, AC51.2); quét nhầm phòng (AC51.3); hủy sau khi đã có người thắng (AC51.4). Đột biến bỏ kiểm tra workshop → đỏ.
+- [ ] **3.10** **`[M-52]`** `CheckInNoDataLossIT`: N scan từ K thiết bị, sync lặp + sync một phần → `check_in_scans` = N, đúng một `attendances` mỗi ticket hợp lệ. M-52 `Passing` khi M-43 … M-47 cùng `Passing`.
+
+## 4. Khóa xác minh — M-48 (sau Mục 2.3)
+
+- [ ] **4.1** `[→ M-48]` Use case + controller `GET /api/v1/checkin/verification-key` (`CHECKIN_SCAN`), JWK `{kty, crv, x, y}` từ `registration.api.TicketVerificationKey`.
+- [ ] **4.2** **`[M-48]`** `[§4.5]` `VerificationKeyIT` (per-push): chỉ thành phần công khai, không `d` (S-12, AC47.2); token Student → `403` (S-8); không token → `401`; khóa phát ra xác minh được một vé thật từ 2.4. Gỡ `⚠` của M-48; gỡ S-8 khỏi `test-matrix.md` §4.5; sửa `security-testing.md` §2.2 (S-8, S-12 per-push, C33).
+
+## 5. Báo cáo và probe cổng thanh toán — M-49, M-80 (sau Q2)
+
+- [ ] **5.1** `[→ M-49]` Interface đọc số đăng ký trong `registration.api` (đọc Replica) + use case/endpoint tóm tắt theo Q2 + `listWorkshopAttendances` (phân trang); `REPORT_VIEW`.
+- [ ] **5.2** **`[M-49]`** `WorkshopReportIT`: AC46.1–AC46.3; số khớp SQL đếm trực tiếp. Gỡ `⚠` của M-49.
+- [ ] **5.3** **`[M-80]`** Mở rộng probe của `PaymentCircuitBreakerIT` (hoặc IT mới cùng fixture): trong lúc gateway chết và breaker mở, `POST /api/v1/checkin/sync` và endpoint báo cáo vẫn `2xx`, latency trong giới hạn của probe (`resilience-testing.md` §2.1, §2.2). Gỡ M-80 khỏi `test-matrix.md` §4.5.
+- [ ] **5.4** **`[M-49]`** Web: trang báo cáo chỉ đọc theo Q2 (feature `features/reports`, query key theo `web-coding-standards.md`, gated `REPORT_VIEW`, rỗng/lỗi/đang tải, refetch khi tab hiển thị). Vitest/RTL.
+- [ ] **5.5** `[— không dòng]` *(theo Q17 điểm 7)* Thêm `POST /api/v1/checkin/sync` vào probe của `RedisOutageIT`; ghi vào `phase-3.md` §5 hàng 3 là phần Check-in đã đóng (phần rate-limiter vẫn Phase 7).
+
+## 6. Email xác nhận kèm e-ticket — nửa sau M-37 (sau Q11, Mục 2)
+
+- [ ] **6.1** `[→ M-37]` Interface đọc vé cho Notification trong `registration.api`; sinh ảnh QR (ZXing) trong module Notification (`TicketQrImageTest`: giải mã lại ra đúng chuỗi); template `REGISTRATION_CONFIRMED` có ảnh inline (`Content-ID`) + link trang e-ticket; in-app thêm link. `NotificationTemplatesTest` vẫn duyệt mọi `(type, channel)`.
+- [ ] **6.2** **`[M-37]`** `[§4.5]` Mở rộng `RegistrationConfirmationNotificationIT` / `PaidRegistrationNotificationIT`: email ở Mailpit có ảnh QR giải mã ra đúng `qr_payload` (AC55.1); registration không vé → email không QR, vẫn `SENT` (AC55.2). Gỡ "M-37, second half" khỏi `test-matrix.md` §4.5; sửa `notification.md` §4, `checkin.md` §4.
+
+## 7. Web: trang e-ticket — M-42 phía Web (sau Q12)
+
+- [ ] **7.1** `[→ M-42]` Đo độ dài JWS thật và version QR ở mức Q; ghi vào `checkin.md` §5.
+- [ ] **7.2** **`[M-42]`** Trang `/me/registrations/:id` (`features/registrations`, `qrcode.react` pin version), liên kết từ `MyRegistrationList`; trạng thái không vé/`CANCELLED`/`EXPIRED`; `RegistrationTicketPage.test.tsx` (AC56.1, AC56.2); `csp-build.test.ts` vẫn xanh (AC56.3). Đóng `web-coding-standards.md` §13 #11.
+
+## 8. Mobile App — Check-in Client — M-43, M-44, M-45 (sau Q13, Q14, Q15)
+
+- [ ] **8.0** `[→ M-43, M-44]` **Spike S1, S2 (Q14), trước mọi code khác của Mục 8.** Ghi kết quả (SDK, thiết bị/emulator, lựa chọn) vào `checkin.md` §6 và evidence. S1 thất bại → chốt phương án lùi với owner trước khi đi tiếp.
+- [ ] **8.1** `[→ M-43 … M-45]` Scaffold `apps/mobile` (Expo pin, TS strict, Expo Router, ESLint/Prettier, Jest + jest-expo + RNTL), `docs/guidelines/mobile-coding-standards.md` (Q13), kiểu API sinh từ contract (Q13), job CI `mobile` (typecheck, lint, Jest).
+- [ ] **8.2** `[→ M-45]` Đăng nhập Check-in Staff (`POST /api/v1/auth/login`), token ở SecureStore, `device_id` (Q15), lấy + ghi đè khóa công khai (Q15). Test: ghi đè, không bao giờ giữ hai khóa (AC59.2 phần lưu trữ).
+- [ ] **8.3** `[→ M-43, M-44]` Màn quét (Expo Camera, chỉ mã QR), `verifyTicket` (theo kết quả S1, ghim `algorithms: ['ES256']`), ghi scan vào hàng đợi Drizzle/SQLite trước khi hiển thị kết quả; không khóa → không cho quét (AC59.1); cảnh báo quét lại trên cùng thiết bị (Q15).
+- [ ] **8.4** **`[M-43]`** Test xác minh offline trên đúng đường mã của thiết bị: vector S-10 V1–V7 (`security-testing.md` §2.2) đều bị từ chối, vé thật được chấp nhận; khẳng định **không có lời gọi mạng** (fetch bị thay bằng spy ném lỗi). V7: vé ký bằng khóa cũ sau khi khóa đã được ghi đè → từ chối.
+- [ ] **8.5** **`[M-44]`** Test hàng đợi bền theo S2: scan ghi đủ `ticketCode`, `staffUserId`, `deviceId`, kết quả tại chỗ, `scannedAt`; đóng/mở lại file SQLite → còn nguyên; kiểm thủ công trên thiết bị (kill app) ghi vào evidence. BVA `device_id` ≤ 100.
+- [ ] **8.6** **`[M-45]`** Sync tự động (NetInfo, foreground, định kỳ), chia batch ≤ 500, chỉ xóa scan khi có kết quả cho đúng `id`, chỉ gửi scan của người đang đăng nhập (Q9, AC53.1), token hết hạn → giữ scan. Test với server giả (MSW hoặc fetch giả); cộng một lần chạy thủ công thiết bị → backend local (`bootRun`) → `check_in_scans` có row, ghi vào evidence.
+- [ ] **8.7** `[— không dòng]` Màn lịch sử (scan chờ sync / đã sync + outcome server trả về). Component test.
+
+## 9. Brochure / Object Storage — M-50, M-51 (sau Q1, Q16; chỉ khi Q1 = (a)/(b))
+
+- [ ] **9.1** `[→ M-50, M-51]` MinIO pin ở `docker-compose.yml`; AWS SDK v2 `S3Client` (`endpointOverride`, path-style) theo `workshop.md` §4; `org.testcontainers:minio` singleton trong `IntegrationTestSupport`; cấu hình bucket/khóa theo `workshop.md` §5.
+- [ ] **9.2** `[→ M-50, M-51]` `requestBrochureUploadUrl` (presigned PUT 10 phút) + `confirmBrochureUpload` (`HeadObject`, ghi `brochure_s3_key`, outbox `summarization.requested` cùng transaction), `503` khi S3 sập (Q16); contract sửa cùng commit.
+- [ ] **9.3** `[→ M-50]` Consumer `unihub.summarization.queue`: `GetObject`, kiểm tra sau upload (`workshop.md` §8, xóa object sai), gọi AI (`workshop.md` §9, 15s, không retry trong lời gọi, cắt 500 ký tự), `422` → ack, lỗi tạm → chuỗi retry; ghi `ai_summary` + xóa cache detail. Client AI ở `workshop.infrastructure.out.client`.
+- [ ] **9.4** `[→ M-50]` Mục cho consumer mới trong `ConsumerRedeliveryCoverageTest` (test tuần tự + đồng thời, đếm số lần gọi stub AI và giá trị cuối, C32), `OutboxRoutingCoverageTest`, `OutboxRelayEndToEndIT` (routing key thứ chín).
+- [ ] **9.5** **`[M-50]`** `BrochureSummarizationIT`: upload qua URL đã ký lên MinIO → confirm → relay → consumer → stub AI → `ai_summary` hiện ở `GET /api/v1/workshops/{id}`; PDF sai loại/quá cỡ → không gọi AI, object bị xóa; `422` → ack, `ai_summary` NULL. Gỡ `⚠` của M-50.
+- [ ] **9.6** **`[M-51]`** `ObjectStorageOutageIT` (MinIO riêng của class, `stop` rồi `pause`): confirm → `503`, không `brochure_s3_key`; consumer vào chuỗi retry, `ai_summary` NULL; presigned URL vẫn cấp được (kiểm, không giả định); probe (đăng ký free, charge với gateway stub, check-in sync, duyệt workshop) `2xx` suốt cửa sổ lỗi (`resilience-testing.md` §2.6, AC60.1).
+
+## 10. CI/CD
+
+- [ ] **10.1** `integration-test` xanh với IT mới (MinIO nếu có, khóa ký sinh lúc chạy). Đo thời gian job; tăng mạnh thì ghi lại, **không** `@Disabled`/bỏ test INV nào để tiết kiệm thời gian (`test-plan.md` §2).
+- [ ] **10.2** Không test nào flaky: chạy `ReconciliationConcurrencyIT`, `ReconciliationOrderIT`, `CheckInSyncIT` (và `ObjectStorageOutageIT` nếu có) ≥ 10 lần liên tiếp ở local dưới JDK 21 (`cleanIntegrationTest` mỗi vòng), ghi số lần vào evidence.
+- [ ] **10.3** Job `mobile` xanh; `web` xanh; `contract-diff` xanh; Gitleaks xanh (không khóa ký nào trong repo); báo cáo OWASP cho dependency mới (`zxing`, `qrcode.react`, AWS SDK, Expo/jose/Drizzle) — ghi phát hiện mới vào `phase-5.md` §5 nếu có.
+
+## 11. Đồng bộ tài liệu & Test Matrix
+
+- [ ] **11.1** Sau mỗi task ở Mục 1–9: cập nhật dòng tương ứng trong `test-matrix.md` §2.2 (Status, `Class#method` thật, test level của M-43/M-44 theo Q14).
+- [ ] **11.2** Cập nhật `test-matrix.md` §4.1, §4.2 (gỡ `⚠` của M-42, M-45, M-48, M-49, M-50), §4.5 (S-8, M-80, M-37 nửa sau), §5; đếm lại từ cột Status.
+- [ ] **11.3** Cập nhật `checkin.md`, `registration.md`, `workshop.md`, `notification.md`, `database-schema.md`, `security-testing.md` §2.2–§3, `resilience-testing.md` §2.6 (TODO mã trả về S3), `e2e-testing.md` §1, `integration-testing.md` §4 (dòng INV-12, INV-19), `IMPLEMENTATION-READINESS.md` (B4, D4, G), `web-coding-standards.md` §13 #11, `backend-coding-standards.md` §27 #8 (ràng buộc mới của Q18).
+- [ ] **11.4** Cập nhật "Project Status" trong `CLAUDE.md` (module Check-in có code, `V6`, `apps/mobile`, MinIO nếu có; Phase 5 chờ sign-off rồi signed off).
+
+## 12. Đóng Phase 5 (Exit / Sign-off)
+
+Exit criteria của `test-plan.md` §1 dòng Phase 5, đọc đúng chữ:
+
+- [ ] Reconciliation chứng minh earliest-timestamp-wins không phụ thuộc thiết bị/thứ tự đến (INV-12: M-46, M-52).
+- [ ] QR giả mạo và vé thật-nhưng-workshop-đã-hủy **đều** bị từ chối, không bao giờ được check-in (M-43, M-47).
+- [ ] Gateway sập để check-in sync và báo cáo hoạt động (INV-05, M-80).
+- [ ] S3 sập chỉ ảnh hưởng luồng brochure (INV-19, M-51) — theo lựa chọn đã chốt ở Q1 (nếu Q1 = (c) thì `test-strategy.md` §2 đã được sửa từ trước khi bắt đầu Mục 1).
+- [ ] Mọi dòng INV-12 (M-42 … M-48, M-52) = `Passing`; M-49, M-50 `Passing` hoặc ghi ở §5 với lý do.
+- [ ] Coverage ≥ 80% (JaCoCo xanh), gồm use case mới của Check-in.
+- [ ] CI xanh toàn bộ (gồm job `mobile`) trên **cùng một commit SHA**.
+- [ ] Không `TODO`/`FIXME` trong test code; không `@Disabled`/`.skip` trên test của INV-12/INV-19/INV-05.
+- [ ] Copy `phase-template.md` → `docs/testing/reports/release-sign-offs/phase-5.md`, điền §2–§6 với evidence thật; §5 gồm ít nhất: các mục để lại của Q18, giới hạn đồng hồ thiết bị (Q10), khác biệt driver SQLite (Q14 S2), các mục mang từ `phase-4.md` §5 không bị Phase 5 chạm tới.
+- [ ] Owner ký §6 của `phase-5.md`.
+
+> Phase 5 chỉ được coi là hoàn tất khi `phase-5.md` tồn tại, mọi ô được tick với evidence thật, và §6 đã ký — **không phải khi code chạy được**.
+
+---
+
+## Ghi chú cho Claude Code
+
+- Khi được yêu cầu "tiếp tục Phase 5", đọc file này trước, tìm mục đầu tiên chưa tick theo thứ tự Mục 0 → 0B → 1 → … → 12, và làm mục đó.
+- Mục 0 đã chốt (2026-10-30). Nếu owner đổi một quyết định: sửa dòng Q/D tương ứng và tài liệu sở hữu trước, rồi mới code.
+- Mục 8 bắt đầu bằng spike 8.0; không viết màn hình nào trước khi biết `verifyTicket` chạy được trên Hermes.
+- Không nới INV-12 để qua một bài test: nếu một phương án có vẻ cần thiết bị gọi mạng lúc quét, hoặc cần server tin `scannedBy`/thứ tự đến của client, dừng lại và nêu ra.
+- Không tự ý tick một mục — chỉ tick sau khi test thật sự pass và `test-matrix.md` đã được cập nhật tương ứng.

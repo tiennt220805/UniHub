@@ -25,6 +25,7 @@ Both this ticket signature and the auth JWT use the JOSE (JSON Object Signing an
 - [7. Offline Scan Sync & Reconciliation](#7-offline-scan-sync-reconciliation)
 - [8. Failure Modes & Fail-Safe Behavior](#8-failure-modes-fail-safe-behavior)
 - [9. Reference Table](#9-reference-table)
+- [10. Reporting — Registration Counts and Check-in Rates](#10-reporting-registration-counts-and-check-in-rates)
 - [API Surface](#api-surface)
 
 ---
@@ -84,7 +85,7 @@ A symmetric key works exactly as long as issuer and verifier are the same party 
 | Claim | Type | Meaning | Why it's here (or why something else isn't) |
 |---|---|---|---|
 | `ticket_code` | string | The registration's `registrations.ticket_code` (`../platform/database-schema.md` §4.1) | What a Check-in device resolves at reconciliation time to look up the registration server-side (`../platform/database-schema.md` §6.1's `check_in_scans.registration_id`). |
-| `workshop_id` | UUID string | The workshop this ticket belongs to | Lets a Check-in Client display which workshop a scanned ticket belongs to, and lets it flag an obvious venue mismatch, without a lookup. |
+| `workshop_id` | UUID string | The workshop this ticket belongs to | Lets a Check-in Client display which workshop a scanned ticket belongs to, and flag a venue mismatch against the workshop the staff member selected on the device (§7, Phase 5 checklist D51), without a lookup. Because it is signed, the server never has to cross-check it against the registration: it cannot differ. |
 | `iat` | Unix timestamp | Issued-at | Standard JOSE housekeeping; not used as a validity check (see below). |
 
 **Deliberately absent:**
@@ -102,9 +103,11 @@ A symmetric key works exactly as long as issuer and verifier are the same party 
 | Decision | Value | Why |
 |---|---|---|
 | Algorithm | `ES256` (ECDSA over P-256) | Chosen over RSA specifically for signature size — see §5. |
-| Signer | Registration Module only, at the moment a registration transitions to `CONFIRMED` (`../modules/registration.md` §1) | Per `CLAUDE.md`'s module-ownership table — Registration is the sole writer of `registrations`, and the ticket is that row's own artifact; no other module signs a ticket. |
-| Library | `nimbus-jose-jwt` — the same dependency `../platform/auth-and-identity.md` §3 uses for the auth JWT | One JOSE library serving both signing use sites in this backend; the two never share a *key*, only the *implementation*. |
-| Private key storage | Kubernetes `Secret`, readable only by the Backend API's Registration-module code path | Per `architecture.md` §5.4 — the private key never leaves the backend, and is the one piece of key material in this entire corpus that no client, mobile or web, ever receives in any form. |
+| Signer | Registration Module only, at the moment a registration transitions to `CONFIRMED` (`../modules/registration.md` §1), on **both** paths: a free ticket confirmed at reservation, and a paid ticket confirmed by the payment-confirmation consumer. Signing runs **inside** the confirming transaction — a stateless computation with no network I/O (`../../guidelines/backend-coding-standards.md` §7 type 3, §19) — so `status`, `ticket_code` and `qr_payload` are written by one statement — the `INSERT` of a free registration created `CONFIRMED`, or the conditional `UPDATE` of a paid one (Phase 5 checklist D48) | Per `CLAUDE.md`'s module-ownership table — Registration is the sole writer of `registrations`, and the ticket is that row's own artifact; no other module signs a ticket. A redelivered confirmation finds the row already `CONFIRMED` and does not sign again. |
+| Port and adapter | `TicketSigner` in `registration.application.port.out`; `NimbusEs256TicketSigner` in `registration.infrastructure.out.crypto`. An ArchUnit rule keeps every type that touches the private key inside `registration..` (Phase 5 checklist D47) | The module boundary is what keeps the private key with its one user. |
+| `ticket_code` | 128 random bits (`SecureRandom`), Crockford base32 without padding — 26 characters (`../platform/database-schema.md` §4.1; D48) | Unguessable, readable aloud if it ever has to be typed; the `UNIQUE` constraint is the collision backstop. |
+| Library | `nimbus-jose-jwt` — the same dependency `../platform/auth-and-identity.md` §3 uses for the auth JWT, declared as a **direct** dependency from Phase 5 (until then it arrived only transitively through the resource-server starter; D47) | One JOSE library serving both signing use sites in this backend; the two never share a *key*, only the *implementation*. |
+| Private key storage | Kubernetes `Secret`, readable only by the Backend API's Registration-module code path. Configuration `unihub.ticket.signing-key` (env `UNIHUB_TICKET_SIGNING_KEY`): a private EC P-256 JWK. **Required at startup** — blank, not EC P-256, or missing the private member `d` stops the application with a clear message, as for Redis (Phase 3 D21) and SMTP (Phase 4 D36). Tests, `contract-diff` and local development generate a key at run time; no key file is ever committed (`apps/backend/.env` is git-ignored) (Phase 5 checklist D49) | Per `architecture.md` §5.4 — the private key never leaves the backend, and is the one piece of key material in this entire corpus that no client, mobile or web, ever receives in any form. |
 | Persistence | The signed compact string is stored verbatim in `registrations.qr_payload` (`../platform/database-schema.md` §4.1) | Never recomputed on read — a ticket keeps rendering correctly even after a key rotation (§6) invalidates it for *verification* purposes; the row itself is an unaltered historical record either way. |
 
 **Issuance flow:**
@@ -122,9 +125,11 @@ flowchart LR
     class Store,Render storeStyle
 ```
 
-**Guarantee:** every `CONFIRMED` registration has exactly one signed ticket payload, generated once, by the one module authorized to generate it, and never regenerated from scratch afterward.
+**Guarantee:** every registration confirmed from Phase 5 on has exactly one signed ticket payload, generated once, by the one module authorized to generate it, and never regenerated from scratch afterward. Rows confirmed before Phase 5 have no ticket (`NULL`); they are not backfilled (D48) and the Web Application shows "ticket not issued" for them.
 
-**Hook into the confirmation email (Phase 4 checklist D37):** `docs/requirement.md` §1.3.2 sends the confirmation "with their e-ticket". Phase 4 ships the confirmation without the QR (`notification.md` §4); when this issuance flow is built in Phase 5, the `REGISTRATION_CONFIRMED` email template gains the e-ticket, and M-37's e-ticket half is closed then.
+**Hook into the confirmation email (Phase 4 checklist D37):** `docs/requirement.md` §1.3.2 sends the confirmation "with their e-ticket". Phase 4 ships the confirmation without the QR (`notification.md` §4); when this issuance flow is built in Phase 5, the `REGISTRATION_CONFIRMED` email template gains the e-ticket, and M-37's e-ticket half is closed then. Decided (Phase 5 checklist D55): the email carries the QR as an inline PNG image (`Content-ID`), rendered server-side by the Notification module with ZXing from `qr_payload`, read through a `registration.api` interface at the Master; the in-app notification links to the e-ticket page. A registration with no ticket gets the confirmation without the image. The `ticket.confirmed` event is written in the same transaction as the signature, so the payload is there when the consumer reads it.
+
+**Web rendering (D56):** the e-ticket page `/me/registrations/:id` renders `qrPayload` with `qrcode.react` (SVG) at error-correction level **Q**; it fits the build's Content-Security-Policy (`img-src 'self' data:`, inline SVG needs no `img-src`).
 
 ---
 
@@ -141,6 +146,8 @@ A QR code has a fixed data-capacity ceiling per symbol version and error-correct
 
 Both algorithms satisfy `architecture.md` §5.3's authenticity requirement equally — this isn't a security trade-off, it's a scan-reliability one, and ECDSA wins it without giving up anything the section actually asks for. This is a materially different rationale from the auth JWT's `HS256` choice (a trust-boundary argument, §2 above) — the two algorithm decisions in this corpus are independent and shouldn't be read as following from the same reasoning.
 
+The actual compact JWS length and the resulting QR version at level Q are measured when the ticket is first built (Phase 5 checklist task 7.1) and recorded here; until then the table above says only "materially shorter".
+
 **Guarantee:** the signature scheme adds the minimum payload weight the JOSE standard allows for this security level, so the QR code's data budget is spent on cryptographic integrity rather than being forced into a harder-to-scan format by an oversized signature.
 
 ---
@@ -154,7 +161,8 @@ Both algorithms satisfy `architecture.md` §5.3's authenticity requirement equal
 | Decision | Value | Why |
 |---|---|---|
 | Distribution endpoint | `GET /api/v1/checkin/verification-key`, gated by `hasAuthority('CHECKIN_SCAN')` on the Check-in Staff's existing session | The Check-in Client already authenticates its own staff user to sync scan batches (`docs/requirement.md` §2.9) — reusing that same session, permission-checked, avoids standing up a second, separate auth mechanism just for key fetch. Gating on `CHECKIN_SCAN` specifically — not merely "any authenticated request" — keeps this endpoint consistent with `../platform/auth-and-identity.md` §3's discipline: `architecture.md` §5.1 requires every check to be permission-based, never a bare authenticated/not-authenticated boolean, and this endpoint is no exception just because the key itself isn't confidential. |
-| Response format | A single JWK (JSON Web Key) representing the current active ECDSA public key | Standard JOSE key representation — the same format `nimbus-jose-jwt` (server) and `jose` (client, per `CLAUDE.md`'s mobile stack) both consume natively. |
+| Response format | A single JWK (JSON Web Key) representing the current active ECDSA public key — members `kty`, `crv`, `x`, `y` only, never `d` | Standard JOSE key representation — the same format `nimbus-jose-jwt` (server) and `jose` (client, per `CLAUDE.md`'s mobile stack) both consume natively. |
+| Source inside the backend | Check-in serves the endpoint but does not hold the key: it reads the public JWK through `registration.api.TicketVerificationKey`, which returns public material only (Phase 5 checklist D47) | Registration keeps the private key (§4); the module boundary (`architecture.md` §1.1) allows Check-in to import only `registration.api`. No cycle: Registration does not depend on Check-in. |
 | Fetch trigger | On Check-in Client login, and opportunistically on every successful online sync (`docs/requirement.md` §2.9) | Login is the one moment the device is guaranteed online; piggybacking on every sync (also necessarily online) means the cached key self-refreshes as a side effect of a flow the device already performs, without a dedicated polling mechanism. |
 | Cache location | Expo SecureStore, overwriting the previous cached key on every successful fetch | Per `CLAUDE.md` — device-hardware-backed keystore, alongside the client's own auth token; a single active key, not an accumulating list. |
 | Key count cached | **Exactly one** — the current active key, always overwritten, never appended | This is the deliberate design point: see the rotation discussion below. A multi-key cache (retaining old keys so previously-issued tickets keep verifying past a rotation) was evaluated as an alternative and rejected — it would directly contradict §5.3's stated guarantee that rotation is the *only* revocation lever and that it acts on *everything*, not just newly-issued tickets. |
@@ -180,9 +188,13 @@ async function verifyTicket(qrPayload: string, cachedPublicJwk: JWK): Promise<Ti
 }
 ```
 
+**On-device verification is subject to a spike (Phase 5 checklist D58).** `jose` relies on WebCrypto (`crypto.subtle`), which Hermes/React Native may not provide on the pinned Expo SDK. Before any screen is built, the spike runs `compactVerify` on a real device; if it fails, signature verification moves to `@noble/curves` (pure-JS P-256) with the `alg` still pinned to `ES256`, and this section records the result. The test of M-43 runs the same `verifyTicket` function the device runs.
+
 A `null` result is recorded locally as a rejected scan (`../platform/database-schema.md` §6.1's `REJECTED_INVALID` at the point it later reconciles) — either way, this function never calls the network, exactly as §3/architecture.md §5.3 require.
 
 **Rotation — a deliberate blunt instrument, not a graceful handoff:** `architecture.md` §5.3's Trade-offs section is explicit that "the only way to kill \[a ticket] is rotating the signing key, and that kills every ticket, not just one." This document's single-cached-key model is what makes that statement literally true at the implementation level: because a Check-in Client never retains a previous key once a fetch overwrites it, rotating the signing key means every ticket ever issued under the old key fails verification the moment a device refreshes its cache — not just newly-scanned ones, and with no graceful multi-key transition period. Rotation is reserved for a suspected private-key compromise — a rare, break-glass operation, not a routine one — precisely because its blast radius is "every ticket this system has ever issued." Because the key is fetched over the network rather than baked into the app build, this rotation requires no app rebuild or store release — the new key propagates the next time each device is online, consistent with `architecture.md` §5.4's "secrets/keys injected at runtime, never baked into a build."
+
+**Trade-off — rotation leaves every student with a dead QR (Phase 5 checklist D62, accepted by the owner 2026-10-30):** because a ticket is never regenerated (§4), nothing re-issues tickets after a rotation; every issued QR stops verifying and those students cannot check in until a remedy is decided at the time. Accepted as part of the break-glass procedure, since rotation is reserved for a suspected key compromise. The procedure itself is manual: replace the secret, restart, devices pick up the new key at their next login or sync.
 
 **Trade-off — a device offline across a rotation event has a temporary blind spot in both directions:** if the signing key rotates while a Check-in Client is offline, that device (a) still accepts old-key tickets as authentic until its next successful sync, and (b) rejects any ticket signed with the *new* key as an invalid signature until that same sync happens. Both resolve the moment the device is back online and re-fetches — this is a bounded, self-healing gap, not a permanent one, and it only matters in the already-rare window immediately following a break-glass rotation.
 
@@ -196,26 +208,53 @@ A `null` result is recorded locally as a rejected scan (`../platform/database-sc
 
 **Model — what happens on-device, before any network call:** every scan — accepted or rejected by §6's offline signature check — is appended to the device's local durable queue (Expo SQLite via Drizzle ORM, per `CLAUDE.md`) with its `ticket_code`, `workshop_id`, the scanning staff member's identity, the device's own `device_id`, and the device clock's `scanned_at`. This queue is what survives an app restart or a connectivity gap — nothing about it is server-visible yet.
 
-**Model — sync:** on reconnect, the Check-in Client uploads its queued scans in a batch to the Backend API. The server resolves each scan's `ticket_code` back to a `registrations.id` and inserts one `check_in_scans` row per scan (`../platform/database-schema.md` §6.1) — this is the append-only audit trail `docs/requirement.md` §2.9 requires, and it happens regardless of whether a given scan will go on to win or lose reconciliation.
+Device rules (Phase 5 checklist D53, D59):
+- **Venue workshop.** Before scanning, the staff member selects the workshop being checked in (the list is fetched while online and kept locally). The scan records that **venue** workshop as `workshopId`; a ticket of another workshop raises a warning on the device and is still recorded.
+- **Verified codes only.** The device sends `ticketCode` only for a scan whose signature verified. A scan it rejected is sent with `ticketCode = null` and `deviceVerdict = REJECTED_SIGNATURE`; the raw value stays on the device only (truncated for display). This keeps a crafted QR from ever reaching the server as data (see the poison-batch rule below).
+- **Staff attribution.** Each queued scan records the `sub` of the token in use when it was scanned (`staffUserId`). A sync sends only the scans of the staff member currently logged in; others wait for their own staff member. The server never trusts a client-supplied scanner: `scanned_by` is the caller of the sync. Logout is blocked (or warned) while the user's own scans are unsynced.
+- **`device_id`:** a UUID v4 generated at first launch, kept in SecureStore, unchanged by logout.
+- **No cached key → no scanning** (§8). The key is fetched at login and after every successful sync, overwriting the previous one; a failed fetch keeps the old key.
+- **Re-scan on the same device:** a warning ("already scanned at hh:mm"), and the scan is still recorded.
+- **Automatic sync:** when connectivity returns, when the app comes to the foreground, and periodically while scans are pending; batches of at most 500; a scan leaves the queue only once the server returned a result for its `id`. An expired token keeps the scans and asks for a new login.
 
-**Model — reconciliation (earliest-timestamp-wins):** for each `registration_id`, the winner is the `check_in_scans` row with the earliest `scanned_at` seen so far — not the earliest to arrive at the server. A later-arriving sync batch can carry a scan that *overtakes* an already-recorded winner, if its device timestamp is earlier. When that happens, in a **single transaction** (`../platform/database-schema.md` §6.2):
+**Model — sync:** on reconnect, the Check-in Client uploads its queued scans in a batch to the Backend API (`POST /api/v1/checkin/sync`, `CHECKIN_SCAN`). The server resolves each scan's `ticket_code` back to a `registrations.id` and inserts one `check_in_scans` row per scan (`../platform/database-schema.md` §6.1) — this is the append-only audit trail `docs/requirement.md` §2.9 requires, and it happens regardless of whether a given scan will go on to win or lose reconciliation. A scan the device rejected, or whose code resolves to nothing, is still recorded, with `registration_id` `NULL` and `REJECTED_INVALID` (migration `V6`, D50).
+
+Sync semantics (D54):
+- A batch holds 1 … 500 scans; an empty or oversized batch, or a malformed scan, is `400` for the batch — **except** that a scan carrying `deviceVerdict = REJECTED_SIGNATURE` never fails the batch; it becomes `REJECTED_INVALID` on its own (the poison-batch rule: one crafted QR must never block every later sync of a device, REQ-1.3.5 "no data loss").
+- A scan resubmitted with the same `id` creates no row and returns its **current** stored outcome (which may have moved from `ACCEPTED` to `REJECTED_DUPLICATE` since).
+- The same `id` with different content keeps the stored row, returns its outcome, and logs a WARN with a counter.
+- A device clock far off is **not** rejected — rejecting would lose data. `received_at` is kept, and scans with `scanned_at` more than 5 minutes after `received_at` are counted (see §8).
+- Reads that decide validity (registration status, workshop status) go to the Master, in one bulk lookup per batch through `registration.api` and `workshop.api`.
+
+**Model — reconciliation (earliest-timestamp-wins):** for each `registration_id`, the winner is the valid `check_in_scans` row that is smallest by **`(scanned_at, id)`** — not the earliest to arrive at the server. The `id` breaks a tie on `scanned_at`, so the order is total and the winner never depends on arrival order. A later-arriving sync batch can carry a scan that *overtakes* an already-recorded winner, if its device timestamp is earlier. Each registration in a batch is reconciled in **its own transaction**, serialized per registration by a Postgres advisory lock (`../platform/database-schema.md` §6.2; Phase 5 checklist D52):
 
 ```sql
-UPDATE check_in_scans SET outcome = 'REJECTED_DUPLICATE', updated_at = now()
-  WHERE id = :previous_winning_scan_id;
-
+SELECT pg_advisory_xact_lock(hashtextextended(:registration_id::text, 0));
+-- insert this batch's scans of the registration
+INSERT INTO check_in_scans (...) VALUES (...) ON CONFLICT (id) DO NOTHING;
+-- winner = min (scanned_at, id) over the registration's valid scans
 INSERT INTO attendances (id, registration_id, winning_scan_id, checked_in_at, created_at, updated_at)
-VALUES (gen_random_uuid(), :registration_id, :new_scan_id, :new_scanned_at, now(), now())
+VALUES (gen_random_uuid(), :registration_id, :winner_id, :winner_scanned_at, now(), now())
 ON CONFLICT (registration_id) DO UPDATE
   SET winning_scan_id = excluded.winning_scan_id,
       checked_in_at   = excluded.checked_in_at,
-      updated_at      = now()
-  WHERE excluded.checked_in_at < attendances.checked_in_at;
+      updated_at      = now();
+-- the winner ACCEPTED, every other valid scan of the registration REJECTED_DUPLICATE
+UPDATE check_in_scans SET outcome = CASE WHEN id = :winner_id THEN 'ACCEPTED' ELSE 'REJECTED_DUPLICATE' END,
+       updated_at = now()
+  WHERE registration_id = :registration_id AND outcome <> 'REJECTED_INVALID';
 ```
 
-Doing only one of these two statements would leave `check_in_scans.outcome` and `attendances.winning_scan_id` disagreeing about which scan actually won — the same same-transaction discipline required everywhere else in this corpus (seat reservation in `../modules/registration.md` §2, idempotency in `../modules/payment.md` §8) applies here too.
+The first form written here (`… WHERE excluded.checked_in_at < attendances.checked_in_at`, with no lock) had two defects found in the Phase 5 review: a tie went to the first arrival, and two concurrent batches for one registration could both record `ACCEPTED` (Phase 5 checklist C25, C26). Doing only part of the transaction would leave `check_in_scans.outcome` and `attendances.winning_scan_id` disagreeing about which scan actually won — the same same-transaction discipline required everywhere else in this corpus (seat reservation in `../modules/registration.md` §2, idempotency in `../modules/payment.md` §8) applies here too.
+
+- **Why Postgres and not Redis:** check-in sync must keep working with Redis down (`../../testing/non-functional/resilience-testing.md` §2.3), and a Redis lock is advisory only. Check-in may not lock `registrations` either — that table belongs to Registration.
+- **Transaction unit:** one per registration, taken in ascending `registration_id` order so two batches cannot deadlock. Not one per batch (a failing scan must not lose 499 others) and not one per scan (two scans of one registration in one batch must reach the same result). `READ COMMITTED` is sufficient under the lock.
 
 **A scan is rejected, not overtaken, if the ticket itself was never valid:** a signature-authentic ticket (§3 passed on-device) whose registration was since cancelled server-side is recorded as `REJECTED_INVALID`, not `ACCEPTED` then later revised — this is §3's accepted "authentic but not valid" gap resolving at exactly the point it was always deferred to: reconciliation, not the scan itself.
+
+**Validity rule (Phase 5 checklist D51).** A scan is valid when **all** hold: its registration is `CONFIRMED`; the registration's workshop is not `CANCELLED`; and the scan's venue `workshopId` (the workshop the staff member selected) equals the ticket's workshop. The workshop check is needed because cancelling a workshop does not yet cancel its registrations (`../../guidelines/backend-coding-standards.md` §27 #8, still open), so a registration of a cancelled workshop stays `CONFIRMED`. The venue check stops a valid ticket scanned at the wrong room from counting as attendance for its own workshop, which would corrupt the check-in rates of the report. Scanning outside the workshop's time window is **not** checked: no requirement asks for it.
+
+**Validity is judged per scan, at that scan's own reconciliation,** and an existing `attendances` row is never removed or overturned by a later change of the registration or workshop. Example: S1 is `ACCEPTED` with an attendance, the workshop is then cancelled, then an earlier scan S0 syncs → S0 is `REJECTED_INVALID`; S1 and the attendance stay. A check-in that really happened is not undone by a later cancellation; the outcome recomputation above runs only over scans already judged valid.
 
 ```mermaid
 flowchart TD
@@ -248,6 +287,11 @@ flowchart TD
 
 | Situation | Behavior | Why |
 |---|---|---|
+| A device scans a crafted QR (any length, any bytes) | Rejected on-device; synced as `ticketCode = null`, `REJECTED_SIGNATURE`; the server records `REJECTED_INVALID` for that scan only, never `400` for the batch | The poison-batch rule (§7): one crafted QR must not block every later sync of a device (REQ-1.3.5) |
+| A valid ticket scanned at the wrong room | Warning on the device; `REJECTED_INVALID` at reconciliation, no attendance | Venue check (§7, D51) |
+| A device clock far from real time | Accepted; counted when `scanned_at` is more than 5 minutes after `received_at` | **Known limit of earliest-timestamp-wins (D54):** a clock set far in the past can win every reconciliation. Rejecting such scans would lose data; the counter makes it visible |
+| Staff A never logs in again on a device holding A's unsynced scans | Those scans stay on the device; the history screen shows them, logout is blocked while they are pending | **Residual risk of staff attribution (D53),** recorded in the Phase 5 sign-off so "no data loss" is not overclaimed |
+| Redis or the Payment Gateway down | Check-in sync and reporting keep working | Reconciliation uses a Postgres lock only (§7); INV-05's Check-in half (M-80) |
 | Ticket signature invalid (tampered/forged/garbage QR) | Reject instantly, offline, on the scanning device | §3 — authenticity is a local, zero-round-trip decision; there is no server call in this path to fail differently. |
 | Ticket signature valid, but registration since cancelled | **Accepted** at scan time; caught at server-side reconciliation (§7), recorded `REJECTED_INVALID` | §3's explicit, accepted gap — authenticity and validity are different questions, and only the second one needs the network. |
 | Two different devices scan the same real ticket | Both scans recorded in `check_in_scans`; exactly one wins `attendances` by earliest `scanned_at` once both have synced (§7) | `proposal.md` §11.4 — a photographed/copied QR code is a copying problem, not a forgery problem; signing was never meant to catch it, reconciliation is. |
@@ -269,11 +313,30 @@ Every claim, algorithm, and key-management decision for the QR e-ticket, in one 
 | Verification key distribution | `GET /api/v1/checkin/verification-key`, `hasAuthority('CHECKIN_SCAN')` (reuses Check-in Staff session), JWK format | Offline-first requirement (`docs/requirement.md` §1.3.5, §2.9) — fetch-while-online, cache-for-offline |
 | Verification key cache | Expo SecureStore, single key, overwrite-on-fetch (never accumulated) | Hardware-backed key integrity (`architecture.md` §5.4); makes rotation a total, not partial, revocation (§6) |
 | Local scan queue | Expo SQLite via Drizzle ORM (per `CLAUDE.md`) | Durable offline queue surviving app restart/connectivity gap (§7) |
-| Reconciliation rule | Earliest `scanned_at` wins, atomic overtake transaction | `proposal.md` §11.4 |
+| Reconciliation rule | Smallest `(scanned_at, id)` among valid scans wins; one transaction per registration under `pg_advisory_xact_lock` | `proposal.md` §11.4; Phase 5 checklist D52 |
+| Validity | Registration `CONFIRMED` ∧ workshop not `CANCELLED` ∧ venue workshop = ticket workshop; judged per scan at its own reconciliation | Phase 5 checklist D51 |
+| Sync batch | 1 … 500 scans; resubmitted `id` returns the current outcome; device-rejected scans never fail a batch | Phase 5 checklist D50, D54 |
+| Signing key configuration | `unihub.ticket.signing-key`, private EC P-256 JWK, required at startup | Phase 5 checklist D49 |
+| Reporting | `GET /api/v1/workshops/{workshopId}/report` (summary) + `listWorkshopAttendances`, `REPORT_VIEW` (Organizer and Admin) | Phase 5 checklist D46 |
 | `check_in_scans.outcome` values | `ACCEPTED` / `REJECTED_DUPLICATE` / `REJECTED_INVALID` | Distinguishes "lost reconciliation" from "ticket was never valid" (§7) |
+
+---
+
+## 10. Reporting — Registration Counts and Check-in Rates
+
+**Rationale:** `docs/requirement.md` §1.3.3 asks for "registration counts and real-time check-in rates for each workshop", and §1.2 gives reports to the "Organizers/Admin" group. Counting on the client from list endpoints would mean fetching every page of a workshop of hundreds of seats (Phase 5 checklist C30).
+
+**Model (Phase 5 checklist D46):**
+- **Summary endpoint** `GET /api/v1/workshops/{workshopId}/report`, owned by Check-in (its `attendances` table is the check-in side): `capacity`, `seatsTaken`, the number of `CONFIRMED` and `RESERVED` registrations, the number of check-ins, and the rate (check-ins / `CONFIRMED`). The registration counts come through a new read interface in `registration.api` (interaction type 1, `../../guidelines/backend-coding-standards.md` §7). Unknown workshop → `404`.
+- **List endpoint** `listWorkshopAttendances` stays for the per-registration view.
+- **Reads go to the Replica.** "Real-time" here means a few seconds of replica lag plus the page's periodic refetch — accepted and stated (D62).
+- **Permission:** `REPORT_VIEW`, granted to `Organizer` by migration `V6` (`../platform/database-schema.md` §10.3); it was Admin-only in `V2`.
+- **Web:** a read-only page `/admin/workshops/:id/report` (figures + a rate bar, refetch while the tab is visible), reached from the workshop detail page when the session has `REPORT_VIEW`.
+
+**Guarantee:** the counts the page shows are counts the database computed, never totals assembled by a client from paged lists.
 
 ---
 
 ## API Surface
 
-The concrete HTTP contract for every endpoint this module exposes is specified in `../../../packages/api-contract/paths/checkin.yaml` (schemas in `../../../packages/api-contract/schemas/checkin.yaml`), not repeated here — including the verification-key JWK response shape (§6) and the offline scan/reconciliation model (§7) verbatim. Where the two disagree, this file is the authority and the OpenAPI contract has a bug. `syncScanBatch` (the scan-batch upload endpoint) and `listWorkshopAttendances` (the Organizer reporting view) are both flagged there as inferred endpoints — this file narrates the sync *behavior* in full (§7) but never fixes a literal route for it, and never specifies a reporting endpoint at all. See `../../../packages/api-contract/README.md` for the toolchain.
+The concrete HTTP contract for every endpoint this module exposes is specified in `../../../packages/api-contract/paths/checkin.yaml` (schemas in `../../../packages/api-contract/schemas/checkin.yaml`), not repeated here — including the verification-key JWK response shape (§6) and the offline scan/reconciliation model (§7) verbatim. Where the two disagree, this file is the authority and the OpenAPI contract has a bug. `syncScanBatch` (the scan-batch upload endpoint) and `listWorkshopAttendances` (the Organizer reporting view) were flagged there as inferred endpoints. Phase 5 fixes them (`POST /api/v1/checkin/sync`, §7; reporting, §10) and adds the summary endpoint; the contract is updated with the controllers (Phase 5 checklist task 1.2), and the "Inferred" flags are removed then. See `../../../packages/api-contract/README.md` for the toolchain.

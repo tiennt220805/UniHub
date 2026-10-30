@@ -40,6 +40,7 @@ All SQL in this document targets PostgreSQL (the Master; DDL runs once, ahead of
 - [10. DDL Appendix](#10-ddl-appendix)
   - [10.1 Pending migration `V3` — specification](#101-pending-migration-v3--specification-phase-2-not-yet-a-file)
   - [10.2 Migration `V5` — specification](#102-migration-v5--specification-phase-4-applied-as-v5__notification_dedup_claim_and_inboxsql)
+  - [10.3 Migration `V6` — specification](#103-migration-v6--specification-phase-5-not-yet-applied)
 - [11. Traceability Matrix](#11-traceability-matrix)
 
 ---
@@ -218,7 +219,7 @@ Rationale for each column, and the anti-overbooking flow this table is central t
 | `ticket_type` | VARCHAR(10) | NOT NULL, CHECK IN (`FREE`, `PAID`) | |
 | `status` | VARCHAR(20) | NOT NULL, CHECK IN (`RESERVED`, `CONFIRMED`, `CANCELLED`, `EXPIRED`) | `RESERVED`: seat held pending payment. `CONFIRMED`: free ticket confirmed immediately, or paid ticket confirmed after payment success. `EXPIRED`: the 15-minute hold lapsed (§1.3.1) — the delayed-message/key-expiration mechanism that *triggers* this transition is `../modules/registration.md`'s concern, not this file's. |
 | `hold_expires_at` | TIMESTAMPTZ | NULL, CHECK (`(status = 'RESERVED') = (hold_expires_at IS NOT NULL)`) | Set iff the row is currently `RESERVED`; this is the column the TTL-release mechanism watches. |
-| `ticket_code` | VARCHAR(64) | UNIQUE, NULL | Set once, at the moment `status` becomes `CONFIRMED` (`../modules/registration.md` §1) — `NULL` for a `RESERVED` hold that hasn't converted yet. Retained as-is if the row later moves to `CANCELLED`/`EXPIRED` after having been `CONFIRMED`, never cleared once set. The identifier embedded in the QR payload — what a Check-in device resolves to look up the registration. |
+| `ticket_code` | VARCHAR(64) | UNIQUE, NULL | Set once, at the moment `status` becomes `CONFIRMED` (`../modules/registration.md` §1) — `NULL` for a `RESERVED` hold that hasn't converted yet. Retained as-is if the row later moves to `CANCELLED`/`EXPIRED` after having been `CONFIRMED`, never cleared once set. The identifier embedded in the QR payload — what a Check-in device resolves to look up the registration. Format (Phase 5 checklist D48): 128 random bits from `SecureRandom`, Crockford base32 without padding (26 characters). The `UNIQUE` constraint is the backstop for a collision; a violation rolls the confirming transaction back like any other failure, with no retry loop of its own. Rows confirmed before Phase 5 keep `NULL` — no backfill and no CHECK tying `CONFIRMED` to a non-null code, because such a CHECK would break an old pod mid-rollout (INV-15). |
 | `qr_payload` | TEXT | NULL | Same lifecycle as `ticket_code` — set once at `CONFIRMED`, retained afterward. The full signed JWS token captured at issuance (`../modules/checkin.md`) — stored, not recomputed on read, so a ticket keeps displaying correctly even after signing-key rotation. |
 | `version` | INT | NOT NULL, DEFAULT 0 | Optimistic-concurrency marker for status transitions racing against expiry/payment/cancellation. |
 | `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
@@ -276,7 +277,7 @@ A single table can satisfy one of these cleanly or the other, not both without t
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
 | `id` | UUID | PK | Client-generated on-device (offline-first — `../modules/checkin.md`), not server-assigned. |
-| `registration_id` | UUID | NOT NULL, FK → `registrations.id` ON DELETE RESTRICT | Resolved server-side from the scanned `ticket_code` at sync time. |
+| `registration_id` | UUID | NULL, FK → `registrations.id` ON DELETE RESTRICT; CHECK (`registration_id IS NOT NULL OR outcome = 'REJECTED_INVALID'`) | *Specified as migration `V6` (§10.3), not yet applied: today `NOT NULL`.* Resolved server-side from the scanned `ticket_code` at sync time. `NULL` only for a scan the device itself rejected (signature check failed) or whose code resolves to no registration: such a scan carries no trustworthy ticket code, but REQ-2.9/§2.11 still want it in the server-side trail. Nullable since migration `V6` (§10.3; Phase 5 checklist D50); `NOT NULL` in `V1`. |
 | `scanned_by` | UUID | NOT NULL, FK → `users.id` ON DELETE RESTRICT | The Check-in Staff member who performed the scan. |
 | `device_id` | VARCHAR(100) | NOT NULL | Identifies which physical Check-in Client device recorded this scan — needed because §2.9's reconciliation must compare scans **across** devices. |
 | `scanned_at` | TIMESTAMPTZ | NOT NULL | The device's own clock at scan time — the value earliest-timestamp-wins reconciliation actually compares. Never the server's receipt time. |
@@ -298,11 +299,13 @@ A single table can satisfy one of these cleanly or the other, not both without t
 | `checked_in_at` | TIMESTAMPTZ | NOT NULL | Denormalized copy of the winning scan's `scanned_at`, so check-in-rate reports (§1.3.3) don't need to join `check_in_scans` for the common case. |
 | `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | `updated_at` changes when a later-arriving-but-earlier-timestamped scan overtakes the current winner. |
 
-**Overtake logic — one transaction, two tables:** when a new `check_in_scans` row's `scanned_at` is earlier than the current winner's, reconciliation must, together, in a single transaction:
-1. `UPDATE check_in_scans SET outcome = 'REJECTED_DUPLICATE', updated_at = now() WHERE id = :previous_winning_scan_id;`
-2. `INSERT INTO attendances (...) VALUES (...) ON CONFLICT (registration_id) DO UPDATE SET winning_scan_id = excluded.winning_scan_id, checked_in_at = excluded.checked_in_at, updated_at = now() WHERE excluded.checked_in_at < attendances.checked_in_at;`
+**Overtake logic — one transaction per registration, serialized, two tables** (Phase 5 checklist D52, replacing the two-statement form first written here, which let the first arrival win a tie and had no concurrency control): for each registration in a sync batch, in one transaction at the Master:
+1. `SELECT pg_advisory_xact_lock(hashtextextended(:registration_id::text, 0));` — serializes every reconciliation of this registration, across batches, devices and instances. Postgres only; never a Redis lock (check-in sync must keep working with Redis down, `../../testing/non-functional/resilience-testing.md` §2.3).
+2. Insert the batch's scans of this registration, `ON CONFLICT (id) DO NOTHING`.
+3. The winner is the smallest `(scanned_at, id)` among the registration's scans judged valid; upsert `attendances` to that scan.
+4. Set `outcome` for those valid scans: the winner `ACCEPTED`, every other one `REJECTED_DUPLICATE`.
 
-Doing only one of these two would leave `check_in_scans.outcome` and `attendances.winning_scan_id` disagreeing about which scan actually won — the same same-transaction discipline required elsewhere in this document (§3.1, §4.1, §8.1) applies here too. Full walkthrough in `../modules/checkin.md`.
+Doing only part of this would leave `check_in_scans.outcome` and `attendances.winning_scan_id` disagreeing about which scan actually won — the same same-transaction discipline required elsewhere in this document (§3.1, §4.1, §8.1) applies here too. `(scanned_at, id)` is a total order, so the winner does not depend on arrival order even when two scans share a timestamp. Transactions run in ascending `registration_id` order within a batch so two batches cannot deadlock. `READ COMMITTED` is sufficient under the lock. Full walkthrough in `../modules/checkin.md` §7.
 
 ---
 
@@ -983,6 +986,30 @@ CREATE INDEX idx_notifications_inbox ON notifications (user_id, channel, created
 | `UNIQUE (source_event_id, user_id, channel)` | — | Relies on it | Safe; created on an empty table |
 
 `V5` is forward-only, like every migration here.
+
+### 10.3 Migration `V6` — specification (Phase 5; not yet applied)
+
+Specified here first, per the rule above; the runnable file is written with Phase 5 checklist task 1.1. Decisions: Phase 5 checklist D50 (scans the device rejected reach the server with no registration), D46 (Organizers read reports).
+
+```sql
+ALTER TABLE check_in_scans ALTER COLUMN registration_id DROP NOT NULL;
+ALTER TABLE check_in_scans
+    ADD CONSTRAINT chk_check_in_scans_unresolved_is_invalid
+    CHECK (registration_id IS NOT NULL OR outcome = 'REJECTED_INVALID');
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r, permissions p
+WHERE r.name = 'Organizer' AND p.code = 'REPORT_VIEW'
+ON CONFLICT (role_id, permission_id) DO NOTHING;
+```
+
+| Change | Old pod (before `V6`) | New pod | Verdict |
+|---|---|---|---|
+| `check_in_scans.registration_id` nullable + CHECK | Never writes `check_in_scans` (no Check-in code before Phase 5) | Writes `NULL` only with `REJECTED_INVALID` | Safe; the table is empty in every environment, so the CHECK validates nothing existing |
+| `Organizer` gains `REPORT_VIEW` | Has no endpoint guarded by `REPORT_VIEW` | Report endpoints accept Organizers | Safe; a token issued before `V6` lacks the code until its holder logs in again (≤ 30 minutes, `auth-and-identity.md` §4), as with `V4` |
+
+`V6` is forward-only.
 
 ---
 

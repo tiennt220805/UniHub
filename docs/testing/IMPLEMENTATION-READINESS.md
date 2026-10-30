@@ -20,7 +20,6 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 | B1 | 1c: health-check điều khiển fallback Replica-unreachable → Master (hướng đã duyệt, cơ chế chưa có; `overlays/dev` 0 replica giải quyết theo) | D |
 | B2 | INV-07 với Redis outage dài hơn retry chain (~5m35s): hold-expiry bị đưa vào parking lot | Q |
 | B3 | Rule alert cho audit-publish failure (metric `unihub_audit_publish_failures_total` đã định nghĩa 2026-10-14, `observability.md` §4; rule + test INV-14 vẫn ở Phase 6) | D |
-| B4 | Response status khi S3 unreachable (contract chỉ có 404/409) | Q |
 | B5 | Cách backend lấy `ipAddress` phía sau Ingress (ảnh hưởng limiter, load test, S-16) | Q |
 
 ## C. Tham số load-test (`non-functional/performance-load.md`)
@@ -43,7 +42,6 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 |---|---|---|
 | D2 | Nâng Semgrep/Dependency-Check lên blocking: ngưỡng severity và khoảng thời gian ổn định chưa định nghĩa | Q |
 | D3 | Gradle task `resilienceTest` cho kịch bản on-demand (kịch bản 3) — vẫn cần quyết, nhưng không còn chặn Phase 4 sign-off: M-40/M-41 (INV-11, INV-10 relay) có đường Passing riêng qua Integration level thường (`integration-testing.md` §4); kịch bản 3 chỉ là bằng chứng bổ sung | Q |
-| D4 | Mobile test runner; CI job cho test mobile chưa có | Q |
 | D5 | Hình dạng IT có ≥2 app instance (mở rộng `IntegrationTestSupport` hay tạo base class anh em) | Q |
 | D7 | Bộ rule Semgrep chỉ là giá trị khởi đầu | Q |
 
@@ -69,7 +67,7 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 
 ## G. Cờ có sẵn trong corpus từ trước, không đụng, chưa audit lại
 
-- Endpoint suy luận trong api-contract: `syncScanBatch`, `listWorkshopAttendances`, `getPayment`, `cancelRegistration`, body của `chargePayment`, `maxItems` 500.
+- Endpoint suy luận trong api-contract: `getPayment`, `cancelRegistration`, body của `chargePayment`. (`syncScanBatch`, `listWorkshopAttendances`, `maxItems` 500 đã chốt 2026-10-30, Phase 5 checklist D46, D54; cờ "Inferred" gỡ khi controller có, task 1.2.)
 - Chuyển trạng thái `SUSPENDED → ACTIVE` chưa xác nhận (`guidelines/test-design-techniques.md` §2).
 - Phase cho INV-13.
 - Package-glob của JaCoCo.
@@ -82,6 +80,8 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 
 | # | Mục | Quyết định | Ngày |
 |---|---|---|---|
+| B4 | Response status khi S3 unreachable | `503` problem `storage-unavailable` ở `confirmBrochureUpload` (Phase 5 checklist D60; `workshop.md` §8, `resilience-testing.md` §2.6) | 2026-10-30 |
+| D4 | Mobile test runner; CI job cho test mobile | Jest + `jest-expo` + React Native Testing Library; job CI `mobile` độc lập (typecheck, lint, Jest), không build EAS trong CI (Phase 5 checklist D57) | 2026-10-30 |
 | D1 | Required status checks trên `main` | Yêu cầu cả năm check: `lint`, `unit-test`, `integration-test`, `contract-diff`, `secret-scan-gitleaks` (`technical-design/platform/deployment-and-cicd.md` §5) | 2026-09-24 |
 | E2 | `minimumNumberOfCalls` của breaker | 10, override được trong test; hiệu chỉnh lại ở Phase 8 (`payment.md` §2; Phase 2 checklist D12) | 2026-10-14 |
 | E6 (một phần) | Phase sở hữu test chữ ký webhook S-17 | Phase 2, dòng `test-matrix.md` M-79 (Phase 2 checklist D13) | 2026-10-14 |

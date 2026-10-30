@@ -73,12 +73,12 @@ This file is the physical-level completion of `../strategy/test-strategy.md` §2
 | S-5 | Expired token | `exp` in the past | `401` | INV-01 | Integration; per-push |
 | S-6 | Malformed / empty bearer | Truncated, non-JWT, empty | `401` | INV-01 | Integration; per-push |
 | S-7 | Role name honored instead of permissions | A **correctly signed** token carrying `role: "ORGANIZER"` and `permissions: []` | `403` — role plays no part at request time (`architecture.md` §5.1). Together with S-1…S-6, asserts `401` (bad token) and `403` (good token, no permission) are never confused | INV-01 | Integration; per-push |
-| S-8 | Verification key endpoint reachable without the permission | Student token on `GET /api/v1/checkin/verification-key` | `403` (`checkin.md` §6 gates it on `CHECKIN_SCAN`) | INV-01 | Integration; on-demand |
+| S-8 | Verification key endpoint reachable without the permission | Student token on `GET /api/v1/checkin/verification-key` | `403` (`checkin.md` §6 gates it on `CHECKIN_SCAN`) | INV-01 | Integration; **per-push** from Phase 5, inside M-48's `VerificationKeyIT` (Phase 5 checklist D61) |
 | S-9 | *Characterization of a deliberate limit* | Suspend a user: a fresh login is refused; a token issued before suspension keeps working until its `exp` | Documented behavior, pinned so nobody "fixes" it silently (`architecture.md` §5.2, §5.6; `auth-and-identity.md` §4) | — | Integration; on-demand |
 | **E-ticket (QR)** | | | | | |
-| S-10 | Forged or tampered ticket, verified on-device | Vectors below — every one must be rejected offline, instantly, recorded `REJECTED_INVALID` scenario (a) (`test-design-techniques.md` §2), no network call | Rejected (`checkin.md` §6, §8) | INV-12 | Unit (mobile test runner — tool not yet chosen, `test-plan.md` Phase 5); **no CI job exists for mobile tests — TODO** |
+| S-10 | Forged or tampered ticket, verified on-device | Vectors below — every one must be rejected offline, instantly, recorded `REJECTED_INVALID` scenario (a) (`test-design-techniques.md` §2), no network call | Rejected (`checkin.md` §6, §8) | INV-12 | Unit (mobile: Jest + `jest-expo` + RNTL, on the same `verifyTicket` code path the device runs, asserting no network call); CI job `mobile` (Phase 5 checklist D57, D58) |
 | S-11 | Genuine ticket, workshop since cancelled | Real signature, registration cancelled before sync | Accepted at scan (the documented authenticity-vs-validity gap), `REJECTED_INVALID` at reconciliation — scenario (b) of `test-design-techniques.md` §2 — and **no `attendances` row** | INV-12 | Integration; per-push (Phase 5) |
-| S-12 | Compromised device yields signing capability | Inspect `GET /api/v1/checkin/verification-key`'s JWK | Public members only — no private-key member (`d`); a device that can verify can never forge (`architecture.md` §5.3) | INV-12 | Integration; on-demand |
+| S-12 | Compromised device yields signing capability | Inspect `GET /api/v1/checkin/verification-key`'s JWK | Public members only — no private-key member (`d`); a device that can verify can never forge (`architecture.md` §5.3) | INV-12 | Integration; **per-push** from Phase 5, inside M-48's `VerificationKeyIT` (Phase 5 checklist D61) |
 | **Rate limiting** | | | | | |
 | S-13 | Per-user budget bypassed by scaling out | Two application instances, one Redis; alternate 6 registration attempts from one user between them | 5 accepted in total, the 6th `429` with `Retry-After` — a per-instance limiter would allow 10 (`distributed-coordination.md` §3; boundary values in `test-design-techniques.md` §4) | INV-17 | Integration, ≥2 instances; per-push (Phase 7) |
 | S-14 | Per-IP budget bypassed by scaling out | Same, 101 requests from one IP split across the two instances | 100 accepted, the 101st `429` | INV-17 | Integration, ≥2 instances; per-push (Phase 7) |
@@ -107,7 +107,7 @@ This file is the physical-level completion of `../strategy/test-strategy.md` §2
 | Need | Mechanism | New dependency? |
 |---|---|---|
 | Forge/edit auth JWTs (S-1…S-7) | `nimbus-jose-jwt`, already the server's JOSE library (`auth-and-identity.md` §3), used in a test-only helper that builds arbitrary headers and claims | No |
-| Forge/edit QR tickets on-device (S-10) | `jose`, already the Check-in Client's library (`CLAUDE.md`), plus the mobile test runner — not yet chosen (`test-plan.md` Phase 5) | Runner: open item |
+| Forge/edit QR tickets on-device (S-10) | `jose`, already the Check-in Client's library (`CLAUDE.md`) (or `@noble/curves` if the Hermes spike requires it), with Jest + `jest-expo` + RNTL (Phase 5 checklist D57, D58) | Runner: decided 2026-10-30 |
 | ≥2 application instances (S-13, S-14) | A second Spring Boot application context on another port sharing the same Testcontainers. This is a new integration-test shape: `integration-testing.md` §2's `IntegrationTestSupport` boots one context. **TODO: extend it or add a sibling base class.** | No |
 | Full-topology rows (S-15, S-19) | `kubectl` against Minikube | No |
 | SAST, dependency check, secret scanning | Semgrep and OWASP Dependency-Check (non-blocking); Gitleaks (blocking) — CI jobs (§2.1) | Chosen in review; the CI jobs are in `deployment-and-cicd.md` §5 |
@@ -121,7 +121,7 @@ This file is the physical-level completion of `../strategy/test-strategy.md` §2
 - **PoC scope, stated in the file** — a targeted adversarial set plus an OWASP map, not a penetration test; the OWASP map shows partial coverage (A03, A05, A09) and non-blocking coverage (A06) instead of hiding them.
 - **Known limits are pinned, not fixed** — S-9 characterizes the revocation lag, and copied-QR reuse is excluded on purpose; a change to either is a design decision surfaced to the user (`CLAUDE.md` Boundaries), not a test-suite side effect.
 - **Every INV keeps its own authority** — INV-01, INV-12 and INV-17 rows cross-reference `test-design-techniques.md` for outcome semantics instead of restating them.
-- **No invented tooling or behavior** — where the corpus fixes no tool or setting (client-IP derivation, the mobile test runner), the row says TODO.
+- **No invented tooling or behavior** — where the corpus fixes no tool or setting (client-IP derivation), the row says TODO.
 - **Nothing is marked as passing by inspection** — S-20 is a static check, not a runtime test, and says so.
 
 ---
@@ -136,6 +136,6 @@ This file is the physical-level completion of `../strategy/test-strategy.md` §2
 | Rate-limit vectors | S-13…S-16 | §2.2 |
 | INV covered | INV-01, INV-12 (adversarial half), INV-17, INV-18; INV-20 — pending, not yet in force | §2.2 |
 | Rows with no INV | S-9, S-17, S-18 | §2.2 |
-| Open tool decisions | Mobile test runner; Semgrep rule sets; promoting Semgrep/Dependency-Check to blocking (`deployment-and-cicd.md` §5) | §2.1, §3 |
+| Open tool decisions | Semgrep rule sets; promoting Semgrep/Dependency-Check to blocking (`deployment-and-cicd.md` §5) | §2.1, §3 |
 | Open spec gaps | Client-IP derivation; A03 dynamic-injection rule; OWASP edition | §2.2, §1 |
 | Full topology needed | S-15, S-19 only (S-19 pending the STRICT preconditions) | §2.2 |

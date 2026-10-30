@@ -419,6 +419,9 @@ data:
   # no placeholder here on purpose: a non-blank dummy value would pass that check and silently
   # turn every email into UNAVAILABLE. Each overlay sets the real SMTP host.
   UNIHUB_NOTIFICATION_SMTP_PORT: "587"
+  # Optional: the summarization flow is off the critical path, so a blank base URL does not stop
+  # startup (workshop.md §9; Phase 5 checklist D60). No real AI provider is chosen yet.
+  UNIHUB_AI_SUMMARIZATION_BASE_URL: ""
 ---
 # secret.example.yaml — committed as a template, never as `secret.yaml` with real values;
 # `.gitignore` excludes any locally-generated `secret.yaml`. Real values are created via
@@ -438,6 +441,10 @@ stringData:
   PAYMENT_GATEWAY_API_KEY: "<injected at runtime>"
   UNIHUB_NOTIFICATION_SMTP_USERNAME: "<injected at runtime>"   # Phase 4 checklist D36
   UNIHUB_NOTIFICATION_SMTP_PASSWORD: "<injected at runtime>"
+  # Private EC P-256 JWK that signs QR e-tickets; required at startup, read by the Registration
+  # module only (checkin.md §4; Phase 5 checklist D49). Rotation = replace + restart (break-glass).
+  UNIHUB_TICKET_SIGNING_KEY: "<injected at runtime>"
+  UNIHUB_AI_SUMMARIZATION_API_KEY: "<injected at runtime>"   # Phase 5 checklist D60; empty until a provider is chosen
 ```
 
 `base/postgres-master-statefulset.yaml` gives PostgreSQL the stable identity and persistent storage `docs/requirement.md` §3.3 requires; `database-schema.md` owns everything about the schema this instance holds, not this document:
@@ -964,6 +971,26 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm run api:types
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
+  # The Check-in Client (apps/mobile, Phase 5 checklist D57): same shape as `web`, outside the chain,
+  # blocking. Jest + jest-expo + React Native Testing Library; no EAS build and no emulator in CI.
+  mobile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
       - run: npm ci
       - run: npm run api:types
       - run: npm run typecheck

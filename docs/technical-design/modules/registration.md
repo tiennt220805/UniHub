@@ -30,7 +30,7 @@ This file is the physical-level completion of `architecture.md` §4.2 (the seat-
 - **`status`** (`RESERVED`/`CONFIRMED`/`CANCELLED`/`EXPIRED`) — `RESERVED` means a seat held pending payment; `CONFIRMED` means a free ticket confirmed immediately, or a paid ticket confirmed after payment success; `EXPIRED` is what §3's delayed-message mechanism transitions a row into once the 15-minute hold lapses (`docs/requirement.md` §1.3.1).
 - **`hold_expires_at`** — set if and only if `status = 'RESERVED'` (enforced by a CHECK constraint, `../platform/database-schema.md` §4.1) — the column the expiry sweep/listener in §3 watches.
 - **`version`** — the optimistic-concurrency marker for status transitions racing against expiry, payment confirmation, or organizer cancellation — the same pattern `workshops.version` carries, applied to this table's own race conditions.
-- **`ticket_code`/`qr_payload`** — written once, at the moment a row transitions to `CONFIRMED`; the actual signing mechanism (algorithm, key management) is `../modules/checkin.md`'s design — this module only triggers it and persists the result.
+- **`ticket_code`/`qr_payload`** — written once, at the moment a row transitions to `CONFIRMED`; the actual signing mechanism (algorithm, key management) is `../modules/checkin.md`'s design — this module only triggers it and persists the result. From Phase 5 (Phase 5 checklist D47, D48): the module signs through its `TicketSigner` port (adapter `NimbusEs256TicketSigner`), inside the confirming transaction, on both paths — `confirmFree` at reservation and the payment-confirmation consumer — with one statement writing `status`, `ticket_code` and `qr_payload` (the `INSERT` of a free registration, which is created already `CONFIRMED`; the conditional `UPDATE` of a paid one). A redelivered confirmation finds `CONFIRMED` and does not sign again. Rows confirmed before Phase 5 keep `NULL` (no backfill).
 
 **The non-negotiable invariant this table's writes must uphold (`../platform/database-schema.md` §4.1):** every write to this table's `status` that also changes seat occupancy — `RESERVED` (hold taken), `CONFIRMED` (hold converted or free ticket confirmed), `CANCELLED`/`EXPIRED` (hold released) — **must** commit in the **same database transaction** as the corresponding `UPDATE workshops SET seats_taken = ..., version = version + 1 WHERE id = ... AND version = :expected`. §2 and §3 below are both concrete instances of this invariant; neither ever issues these as two separate transactions.
 
@@ -202,7 +202,7 @@ The same lookup also runs once before the seat lock (fast replay path, `../../gu
      CONFIRMED            → COMMIT, no-op  (a redelivery of a message already applied)
      EXPIRED | CANCELLED  → compensation, below
    ```
-   `seats_taken` does not change: the seat was claimed when the registration entered `RESERVED` (§1). Ticket signing at `CONFIRMED` is `../modules/checkin.md` §4's design; until it is built (Phase 5) `ticket_code`/`qr_payload` stay `NULL`.
+   `seats_taken` does not change: the seat was claimed when the registration entered `RESERVED` (§1). Ticket signing at `CONFIRMED` is `../modules/checkin.md` §4's design: the signature is computed inside this transaction (no network I/O), so `:code` and `:payload` are the new ticket (Phase 5 checklist D48).
 
 **Model — compensation (payment succeeded, registration no longer `RESERVED`):** the money was taken but the seat cannot be held — it was released by expiry (§3) or cancellation and may already belong to someone else. The seat is **never** re-granted (`EXPIRED → CONFIRMED` is a forbidden transition, `../../testing/guidelines/test-design-techniques.md` §2). Instead:
 
@@ -260,6 +260,12 @@ Every key format, tuning parameter, and idempotency scope in this document, in o
 
 
 **Internal read for Notification (Phase 4 checklist D35):** `registration.api` exposes a read interface returning the `(userId, registrationId)` pairs of a workshop's registrations in `CONFIRMED` or `RESERVED` (`EXPIRED`/`CANCELLED` excluded). Notification calls it through its own `WorkshopRecipients` port (`notification.md` §3), at the Master, when it consumes a cancellation or reschedule. When "workshop cancelled → cancel its registrations" is built (`backend-coding-standards.md` §27 #8), registrations cancelled for that reason must still be returned for the cancellation notice.
+
+**Internal reads for Check-in and Notification (Phase 5 checklist D47, D51, D46, D55):** `registration.api` gains four read interfaces, each returning only what its caller needs and never an entity:
+- `TicketVerificationKey` — the current **public** JWK of the ticket key (`kty`, `crv`, `x`, `y`), for Check-in's `GET /api/v1/checkin/verification-key`. The private key never crosses the module boundary.
+- `TicketLookup` — bulk resolution `ticket_code` → `registrationId`, `status`, `workshopId`, at the Master, for sync reconciliation (`checkin.md` §7).
+- A per-workshop count of `CONFIRMED` and `RESERVED` registrations, at the Replica, for the report (`checkin.md` §10).
+- The ticket (`ticket_code`, `qr_payload`) of a registration, at the Master, for the confirmation email's QR (`notification.md` §4).
 
 **As built (Phase 4 checklist 1.3, 2026-10-29):** `registration.api.WorkshopAttendees` with two reads, both returning `Attendee(registrationId, userId, workshopId)`: `holdingSeatsFor(WorkshopId)` — the `RESERVED`/`CONFIRMED` list above, oldest first so a retried fan-out walks the same order — and `find(RegistrationId)` — one registration in **any** status, which is how a `REGISTRATION_CONFIRMED` message naming a registration that does not exist is recognised (AC35.3). Both are `@Transactional(readOnly = true) @ReadFromPrimary` reads, not `MANDATORY` (the consumer holds no transaction while it sends).
 

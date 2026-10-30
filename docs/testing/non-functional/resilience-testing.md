@@ -107,7 +107,7 @@ This is the scenario `test-design-techniques.md` §3.1's note hands off to this 
 ### 2.6 Scenario 5 — S3 outage
 
 - **Inject:** dedicated MinIO container, stopped and paused. MinIO, not LocalStack, is the S3 stand-in this corpus decided (`mocking-guidelines.md` §1; `workshop.md` ADR) — no second S3 emulator is introduced.
-- **Expected:** the brochure flow degrades and nothing else. `POST /api/v1/workshops/{id}/brochure-upload-confirm` cannot complete its `HeadObject`, so **no `brochure_s3_key` is written** (PostgreSQL is authoritative, `architecture.md` §4.4); the summarization consumer fails into the retry chain with `ai_summary` left `NULL` (`workshop.md` §10). **TODO: the contract documents only `404`/`409` for that endpoint — the status for "S3 unreachable" is unspecified; assert only that it is a non-`2xx` error response until it is.** Issuing a presigned URL is expected to keep working (the SDK signs locally without calling S3) — verify, don't assume.
+- **Expected:** the brochure flow degrades and nothing else. `POST /api/v1/workshops/{id}/brochure-upload-confirm` cannot complete its `HeadObject`, so **no `brochure_s3_key` is written** (PostgreSQL is authoritative, `architecture.md` §4.4); the summarization consumer fails into the retry chain with `ai_summary` left `NULL` (`workshop.md` §10). S3 unreachable → **`503`** problem `storage-unavailable` (decided 2026-10-30, Phase 5 checklist D60; the contract gains it with the endpoint). Issuing a presigned URL is expected to keep working (the SDK signs locally without calling S3) — verify, don't assume.
 - **Must stay unaffected (probe, including free registration):** registration, payment charge (gateway stubbed), check-in sync, browsing — workshop detail returns `200` because `brochure_s3_key` is only a pointer.
 - **INV:** INV-19 (`test-strategy.md` §2) — per-push `*IT` at Phase 5, the first phase in which Registration, Payment and Check-in all exist for the probe to assert against.
 
@@ -170,4 +170,4 @@ Manual (or a dedicated pipeline), never per-push; it is a deployment smoke test,
 | New dependency, not adopted | Toxiproxy | §3 |
 | Needs a decision | A `resilience` Gradle task for the one on-demand scenario (3) | §3 |
 | INV covered | INV-03, INV-05, INV-08, INV-10, INV-11, INV-14, INV-16, INV-19 (INV-09 skip side; INV-17's fail-open limit noted) | §1 |
-| Open items | Probe latency multiplier; the Replica-unreachable health check; S3-unreachable status; audit-publish alert signal; pod-kill burst bound and unhealthy-pod mechanism; WireMock stub placement | §2 |
+| Open items | Probe latency multiplier; the Replica-unreachable health check; audit-publish alert signal; pod-kill burst bound and unhealthy-pod mechanism; WireMock stub placement | §2 |

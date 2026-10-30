@@ -24,6 +24,7 @@ This file is the physical-level completion of `../strategy/test-strategy.md` §3
 | Level | What it exercises | Needs a backend? | Needs a real browser? |
 |---|---|---|---|
 | Frontend Unit/Component (proposed: **Vitest + React Testing Library**) | One React component or hook in isolation | No | No (JSDOM) |
+| Mobile Unit/Component — Check-in Client (**Jest + `jest-expo` + React Native Testing Library**, decided 2026-10-30, Phase 5 checklist D57) | One screen, hook or module of `apps/mobile` in isolation; the durable queue runs its Drizzle repository on a real SQLite file through `better-sqlite3` (D58) | No | No |
 | True E2E (Playwright, §2 below) | A full user journey — Student registration→payment→e-ticket, or an Organizer dashboard flow | Yes, the real deployed stack | Yes |
 
 **Decision for the frontend Unit/Component row:** Vitest + React Testing Library — not a new open decision, essentially the default pairing for a Vite-based React/TypeScript stack already fixed in `CLAUDE.md`, low-risk enough to treat as settled here rather than left open alongside true E2E. This un-bundles `../strategy/test-plan.md` §1's Phase 1 phrasing, which previously listed frontend component tests as "tool not yet chosen, same open item as E2E" — that file's Phase 1 row now names Vitest+RTL directly and no longer bundles the two.
@@ -57,5 +58,6 @@ This file is the physical-level completion of `../strategy/test-strategy.md` §3
 | Item | Value | Section |
 |---|---|---|
 | Frontend Unit/Component tool | Vitest + React Testing Library — decided, applied in `../strategy/test-plan.md` §1 Phase 1 | §1 |
+| Mobile Unit/Component tool | Jest + `jest-expo` + React Native Testing Library, CI job `mobile` — decided (Phase 5 checklist D57); no on-device automation (Maestro/Detox not adopted, D58) | §1 |
 | True E2E tool | Playwright — decided, on multi-browser (WebKit) coverage and native cross-origin iframe support | §2 |
 | CI placement | Pre-release only — tied to `../strategy/test-plan.md` §1 Phase 7's existing smoke-test deliverable, never per-push | §3 |
