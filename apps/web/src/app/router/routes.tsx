@@ -4,6 +4,7 @@ import { Permission } from '@/features/auth'
 import { SignInPage } from '@/routes/auth/SignInPage'
 import { CheckoutPage } from '@/routes/me/CheckoutPage'
 import { MyRegistrationsPage } from '@/routes/me/MyRegistrationsPage'
+import { NotificationsPage } from '@/routes/me/NotificationsPage'
 import { WorkshopCatalogPage } from '@/routes/public/WorkshopCatalogPage'
 import { WorkshopDetailPage } from '@/routes/public/WorkshopDetailPage'
 import { AppLayout } from './AppLayout'
@@ -24,6 +25,15 @@ export const routes: RouteObject[] = [
         element: (
           <RequireSession>
             <MyRegistrationsPage />
+          </RequireSession>
+        ),
+      },
+      {
+        // listMyNotifications declares no permission either: scoped to the caller, a session is enough.
+        path: '/me/notifications',
+        element: (
+          <RequireSession>
+            <NotificationsPage />
           </RequireSession>
         ),
       },

@@ -8,7 +8,7 @@
 |---|---|
 | Phase | 4 — Notifications |
 | Ngày bắt đầu | 2026-10-29 (checklist soạn 2026-10-28, sau khi ký `phase-3.md`) |
-| Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☑ Đang làm` / `☐ Chờ sign-off` / `☐ Hoàn tất` — **Mục 0 đã chốt 2026-10-28 (Q1–Q14 → D31–D44, Mục 0A)**; tài liệu sở hữu đã sửa (contract của Q8 sửa ở task 1.4, C16, xong 2026-10-29); Mục 0B đã đóng C16 ở task 1.4; bước purge của D44 chạy trước task 2.5; Mục 1 và 2.1–2.7 xong 2026-10-29; Mục 3 và 2.8 xong 2026-10-29 (CI xanh trên `639d86a`, M-37 `Passing`); 2.5a (purge D44) chạy 2026-10-29; Mục 4 và 2.9 xong 2026-10-29 (chạy local; M-38 `Passing` sau khi CI xanh; CI của `262a966` đỏ lần đầu ở một test thời gian của Payment, xanh khi chạy lại; M-38 `Passing`); Mục 5 xong 2026-10-29 (CI xanh trên `ce51237`, M-39 `Passing`); Mục 6 xong 2026-10-29 (chạy local, M-40 `Drafted` đến khi CI xanh); còn Mục 7–11 (cập nhật 2026-10-29) |
+| Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☑ Đang làm` / `☐ Chờ sign-off` / `☐ Hoàn tất` — **Mục 0 đã chốt 2026-10-28 (Q1–Q14 → D31–D44, Mục 0A)**; tài liệu sở hữu đã sửa (contract của Q8 sửa ở task 1.4, C16, xong 2026-10-29); Mục 0B đã đóng C16 ở task 1.4; bước purge của D44 chạy trước task 2.5; Mục 1 và 2.1–2.7 xong 2026-10-29; Mục 3 và 2.8 xong 2026-10-29 (CI xanh trên `639d86a`, M-37 `Passing`); 2.5a (purge D44) chạy 2026-10-29; Mục 4 và 2.9 xong 2026-10-29 (CI của `262a966` đỏ lần đầu ở một test thời gian của Payment, xanh khi chạy lại; M-38 `Passing`); Mục 5 xong 2026-10-29 (CI xanh trên `ce51237`, M-39 `Passing`); Mục 6 xong 2026-10-29 (CI xanh trên `7d428aa`, M-40 `Passing`); Mục 7 viết xong 2026-10-29 (commit `1f26b7b`, M-41 `Drafted` đến khi CI của commit đó xanh); Mục 8 viết xong 2026-10-30 (trang hộp thư ở web, dòng mới M-81 `Drafted` đến khi job `web` xanh); còn Mục 9–11 (cập nhật 2026-10-30) |
 | Nhánh làm việc | `main` (push thẳng, không PR — `test-matrix.md` §4.4) |
 | INV trong scope | INV-10 (nửa relay), INV-11 (`test-plan.md` §3) |
 | Matrix rows | M-37 … M-41 (`test-matrix.md` §4.1: "4 — M-37 … M-41 (5 rows)"); M-37, M-38 và M-39 đã rời danh sách `⚠` ở §4.2 (2026-10-29, khi test của Mục 3, 4, 5 được viết) |
@@ -400,7 +400,14 @@ Mỗi mục sửa ở tài liệu được ghi, trước khi code phụ thuộc 
 
 ## 8. Web Application (sau Q8)
 
-- [ ] **8.1** `[→ M-37, M-38]` `features/notifications`: API types sinh từ contract, query key theo `web-coding-standards.md`, trang hộp thư (danh sách, rỗng, lỗi, phân trang), đường dẫn ở header khi đã đăng nhập, refetch khi focus. Test Vitest/RTL cho từng trạng thái. Nếu cần dòng matrix web mới (như M-78), thêm theo skeleton `test-matrix.md` §2.3.
+> **Evidence Mục 8 (2026-10-30), `web` job chưa chạy cho phần này.** Chỉ đổi `apps/web`; `src/main` không đổi, `schema.gen.ts` sinh lại từ contract không có diff.
+> - **Code:** `features/notifications` (`api/{keys,requests,queries}.ts`, `components/NotificationList.tsx`, `index.ts`; không có `model/` vì contract nói client hiện `title`/`body` nguyên văn, nên không cần bảng nhãn theo `type`), trang `routes/me/NotificationsPage.tsx` ở `/me/notifications` (chỉ cần session, như `/me/registrations`: endpoint không đòi permission), liên kết "Thông báo" ở header khi đã đăng nhập, `refetchOnWindowFocus: true` đặt tường minh. Số trang nằm trong URL (`?page=`), `size` 20.
+> - **Cố ý không có:** số chưa đọc, nút "đánh dấu đã đọc", lọc theo `status`, polling. Contract không có read state (D38) và việc lọc `status` ở client làm hỏng phân trang. `title`/`body` hiện dạng text (React escape), không `dangerouslySetInnerHTML`; các template IN_APP hiện đều một dòng, `whitespace-pre-line` chỉ giữ xuống dòng nếu sau này có.
+> - **Test:** `NotificationsPage.test.tsx` 14 test trên route table thật, Backend giả bằng MSW (danh sách theo thứ tự trả về, markup không bị diễn giải, rỗng, đang tải, `500` có mã tham chiếu, `429`, phân trang theo URL, trang vô nghĩa → 0, quay lại tab thì hỏi lại, không có trạng thái chưa đọc, ẩn danh → `/login`, `401` kết thúc session, liên kết header chỉ khi có session). Đột biến: tắt refetch khi focus → 1 đỏ; bỏ `RequireSession` → 2 đỏ; tiêu đề qua `dangerouslySetInnerHTML` → 1 đỏ; sai đường dẫn endpoint → 12 đỏ. Cả bộ web local: `typecheck` sạch, `lint` chỉ còn 2 cảnh báo có sẵn (`utils.test.ts`, `button.tsx`), 202 test xanh.
+> - **`web-coding-standards.md` §3:** `notifications` đổi từ `planned` sang `active`; đoạn ví dụ cũ nói feature dựng chữ từ `NotificationType`, trái với contract hiện tại (`title`/`body` lưu sẵn, D38), đã sửa.
+> - **`test-matrix.md`:** thêm **M-81** (Phase 4, Unit — Vitest + RTL) vì đây là hành vi mới của web, không thuộc một dòng backend nào; `Drafted` đến khi job `web` xanh trên `main`. Số dòng ở §4/§5 (80 dòng) là ảnh chụp, làm mới ở 10.2 và phải đếm thêm M-81.
+
+- [x] **8.1** `[→ M-37, M-38]` `features/notifications`: API types sinh từ contract, query key theo `web-coding-standards.md`, trang hộp thư (danh sách, rỗng, lỗi, phân trang), đường dẫn ở header khi đã đăng nhập, refetch khi focus. Test Vitest/RTL cho từng trạng thái. Nếu cần dòng matrix web mới (như M-78), thêm theo skeleton `test-matrix.md` §2.3.
 
 ## 9. CI/CD
 
@@ -422,7 +429,7 @@ Exit criteria, chép nguyên văn từ `test-plan.md` §1 dòng Phase 4 (2 khẳ
 1. "Redelivery test (INV-11) proves reprocessing is a safe no-op — no duplicate notification side-effect" → M-40 (theo định nghĩa D33)
 2. "outbox-relay test (INV-10) proves no committed event is left unpublished" → M-41
 
-- [ ] Mọi dòng INV-10 (M-41; M-25 đã `Passing` từ Phase 2) và INV-11 (M-40) = `Passing`; M-37, M-38, M-39 `Passing` hoặc ghi ở §5 với lý do.
+- [ ] Mọi dòng INV-10 (M-41; M-25 đã `Passing` từ Phase 2) và INV-11 (M-40) = `Passing`; M-37, M-38, M-39, M-81 `Passing` hoặc ghi ở §5 với lý do.
 - [ ] Coverage ≥ 80% (JaCoCo xanh), gồm use case mới của Notification.
 - [ ] CI xanh toàn bộ trên **cùng một commit SHA**.
 - [ ] Không `TODO`/`FIXME` trong test code; không `@Disabled`/`.skip` trên test của INV-10/INV-11.

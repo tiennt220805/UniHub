@@ -20,9 +20,14 @@ export function AppLayout() {
             Workshop
           </Link>
           {session && (
-            <Link to="/me/registrations" className="hover:underline">
-              Đăng ký của tôi
-            </Link>
+            <>
+              <Link to="/me/registrations" className="hover:underline">
+                Đăng ký của tôi
+              </Link>
+              <Link to="/me/notifications" className="hover:underline">
+                Thông báo
+              </Link>
+            </>
           )}
           <span className="ml-auto flex items-center gap-3">
             {session ? (

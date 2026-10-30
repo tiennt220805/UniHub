@@ -198,7 +198,7 @@ is created when the first screen consuming those operations is built — never a
 | `registrations` | Registration | `Registration` | `createRegistration`, `listMyRegistrations`, `getRegistration` (renders/downloads the QR e-ticket), `cancelRegistration`; reporting: `listWorkshopRegistrations` | **active** — register button, my-registrations list, hold countdown; `cancelRegistration`, `listWorkshopRegistrations` and the QR e-ticket planned |
 | `payments` | Payment | `Payment` | `chargePayment`, `getPayment` | **active** — checkout (`routes/me/`) with the test-token dropdown |
 | `checkin` | Check-in | `Check-in` | `listWorkshopAttendances` (Organizer check-in reporting only) | planned |
-| `notifications` | Notification | `Notification` | `listMyNotifications` | planned |
+| `notifications` | Notification | `Notification` | `listMyNotifications` | **active** — the inbox (`routes/me/NotificationsPage.tsx`, `/me/notifications`) and the header link while signed in |
 | `legacy-sync` | User | `User` | `listSyncRuns`, `getSyncRun`, `listQuarantinedRecords`, `resolveQuarantinedRecord` | planned |
 
 Deliberately **not** created:
@@ -221,10 +221,11 @@ Check-in tag and module (`paths/checkin.yaml#/workshopAttendances`), even though
 scans. Creating feature folders ahead of their screens produces empty scaffolding that drifts
 from the contract before it is ever used.
 
-**Example.** The notification inbox is in the contract, so `notifications` is planned — but the
-contract also states what it cannot provide (`schemas/notification.yaml#/Notification`): no
-rendered text and no read/unread state. The feature therefore derives its display copy from
-`NotificationType` and offers no "mark as read", rather than inventing either.
+**Example.** The notification inbox is in the contract and the `notifications` feature is built, but
+the contract also states what it cannot provide (`schemas/notification.yaml#/Notification`): no
+read/unread state. The feature therefore shows each item's stored `title` and `body` exactly as the
+Backend rendered them (Phase 4 checklist D38), never rebuilds the wording from `NotificationType`,
+and offers no "mark as read", rather than inventing it.
 
 ---
 
