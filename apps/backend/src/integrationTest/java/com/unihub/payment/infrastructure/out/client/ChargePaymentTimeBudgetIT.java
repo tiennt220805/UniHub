@@ -226,18 +226,28 @@ class ChargePaymentTimeBudgetIT extends IntegrationTestSupport {
 
     @Test
     @DisplayName(
-            "the worst request, a slow create then a stalled confirm, takes about 6.5 s and no more")
+            "the worst request, a slow create then a stalled confirm, is two calls and within the budget")
     void worstCase_isAboutSixAndAHalfSeconds() throws Exception {
-        stubCreate(2_500); // inside its limit, so the charge goes on to confirm
+        // Well inside its 3 s limit (1 s to spare, for a loaded runner and a cold first call), so
+        // the charge goes on to confirm. At 2.5 s a slow CI machine cut the create off and the
+        // charge answered 503 instead of 201.
+        stubCreate(2_000);
         stubConfirm(10_000);
         var held = aHeldSeat();
 
         var charge = timedCharge(held);
 
-        assertThat(charge.response().getStatusCode().value()).isEqualTo(201);
-        // 2.5 s for create, 3 s until confirm is cut off, plus the two short transactions.
-        assertThat(charge.took()).isGreaterThanOrEqualTo(Duration.ofMillis(5_400));
-        assertThat(charge.took()).isLessThan(Duration.ofMillis(7_500));
+        assertThat(charge.response().getStatusCode().value())
+                .as("status after %s, body %s", charge.took(), charge.response().getBody())
+                .isEqualTo(201);
+        // 2 s for create, 3 s until confirm is cut off, plus the two short transactions; the
+        // documented ceiling (payment.md §3) is two full 3 s calls and a transaction, about 6.5 s.
+        assertThat(charge.took())
+                .as("measured %s", charge.took())
+                .isGreaterThanOrEqualTo(Duration.ofMillis(4_900));
+        assertThat(charge.took())
+                .as("measured %s", charge.took())
+                .isLessThan(Duration.ofMillis(7_000));
         assertThat(gateway.getAllServeEvents()).hasSize(2); // neither call was repeated
     }
 }
