@@ -1032,6 +1032,11 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+      # Gradle has no lockfile; the boot jar is what lets the scan see the backend's runtime dependencies.
+      - uses: actions/setup-java@v4
+        with: { java-version: '21', distribution: temurin, cache: gradle }
+      - run: ./gradlew bootJar --no-daemon
+        working-directory: apps/backend
       - run: |
           docker run --rm -v "$PWD:/src" -v "$PWD/dc-report:/report" owasp/dependency-check:13.0.0 \
             --scan /src --format HTML --format JSON --out /report --nvdApiKey "$NVD_API_KEY"
@@ -1059,7 +1064,7 @@ jobs:
 | `contract-diff` | Every push + PR | `integration-test` success | Diffs the `springdoc`-generated spec against `packages/api-contract`'s hand-written one, filtered to already-implemented operations (path + method) and compared as fully resolved shape (prose excluded); fails on any shape difference in an implemented operation or on any undocumented endpoint, per that package's README (Contract-Diff Mechanism ADR above). |
 | `build-and-push` | **Only** `push` to `main` | `contract-diff` and `secret-scan-gitleaks` success | The only job that can publish an artifact — structurally unreachable from a PR or from any failed upstream job. |
 | `sast-semgrep` | Every push + PR | — (parallel, non-blocking) | SAST. Findings reported, never gating (Security Scan Jobs ADR). |
-| `dependency-check` | Every push + PR | — (parallel, non-blocking) | Dependency vulnerabilities (OWASP Dependency-Check); HTML/JSON report uploaded as a workflow artifact. |
+| `dependency-check` | Every push + PR | — (parallel, non-blocking) | Dependency vulnerabilities (OWASP Dependency-Check): the npm lockfile plus the backend's runtime dependencies, read from the boot jar the job builds first (Gradle has no lockfile); HTML/JSON report uploaded as a workflow artifact. |
 | `secret-scan-gitleaks` | Every push + PR | — (parallel; **blocking** — `build-and-push` `needs:` it) | Secret scanning over full history — INV-18's enforcement (Security Scan Jobs ADR). |
 
 `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` and `NVD_API_KEY` (the vulnerability-database key `dependency-check` uses) are GitHub Actions repository secrets, injected by the Actions runtime — never committed to the workflow file itself, consistent with `CLAUDE.md`'s secrets invariant extended to CI configuration.

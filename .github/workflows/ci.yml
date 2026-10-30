@@ -151,6 +151,16 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+      # The scan reads manifests and archives, and Gradle has no lockfile, so the backend's runtime
+      # dependencies would not be scanned at all. The boot jar carries exactly those (as nested jars,
+      # which the tool opens); building it needs the JDK and nothing else. Phase 4 checklist 9.3.
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'gradle'
+      - run: ./gradlew bootJar --no-daemon
+        working-directory: apps/backend
       - uses: actions/cache/restore@v4
         with:
           path: dc-data
