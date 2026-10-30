@@ -40,7 +40,7 @@ All SQL in this document targets PostgreSQL (the Master; DDL runs once, ahead of
 - [10. DDL Appendix](#10-ddl-appendix)
   - [10.1 Pending migration `V3` — specification](#101-pending-migration-v3--specification-phase-2-not-yet-a-file)
   - [10.2 Migration `V5` — specification](#102-migration-v5--specification-phase-4-applied-as-v5__notification_dedup_claim_and_inboxsql)
-  - [10.3 Migration `V6` — specification](#103-migration-v6--specification-phase-5-not-yet-applied)
+  - [10.3 Migration `V6` — specification](#103-migration-v6--specification-phase-5-applied-as-v6__checkin_unresolved_scans_and_organizer_reportssql)
 - [11. Traceability Matrix](#11-traceability-matrix)
 
 ---
@@ -277,7 +277,7 @@ A single table can satisfy one of these cleanly or the other, not both without t
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
 | `id` | UUID | PK | Client-generated on-device (offline-first — `../modules/checkin.md`), not server-assigned. |
-| `registration_id` | UUID | NULL, FK → `registrations.id` ON DELETE RESTRICT; CHECK (`registration_id IS NOT NULL OR outcome = 'REJECTED_INVALID'`) | *Specified as migration `V6` (§10.3), not yet applied: today `NOT NULL`.* Resolved server-side from the scanned `ticket_code` at sync time. `NULL` only for a scan the device itself rejected (signature check failed) or whose code resolves to no registration: such a scan carries no trustworthy ticket code, but REQ-2.9/§2.11 still want it in the server-side trail. Nullable since migration `V6` (§10.3; Phase 5 checklist D50); `NOT NULL` in `V1`. |
+| `registration_id` | UUID | NULL, FK → `registrations.id` ON DELETE RESTRICT; CHECK (`registration_id IS NOT NULL OR outcome = 'REJECTED_INVALID'`) | *Migration `V6` (§10.3).* Resolved server-side from the scanned `ticket_code` at sync time. `NULL` only for a scan the device itself rejected (signature check failed) or whose code resolves to no registration: such a scan carries no trustworthy ticket code, but REQ-2.9/§2.11 still want it in the server-side trail. Nullable since migration `V6` (§10.3; Phase 5 checklist D50); `NOT NULL` in `V1`. |
 | `scanned_by` | UUID | NOT NULL, FK → `users.id` ON DELETE RESTRICT | The Check-in Staff member who performed the scan. |
 | `device_id` | VARCHAR(100) | NOT NULL | Identifies which physical Check-in Client device recorded this scan — needed because §2.9's reconciliation must compare scans **across** devices. |
 | `scanned_at` | TIMESTAMPTZ | NOT NULL | The device's own clock at scan time — the value earliest-timestamp-wins reconciliation actually compares. Never the server's receipt time. |
@@ -987,9 +987,9 @@ CREATE INDEX idx_notifications_inbox ON notifications (user_id, channel, created
 
 `V5` is forward-only, like every migration here.
 
-### 10.3 Migration `V6` — specification (Phase 5; not yet applied)
+### 10.3 Migration `V6` — specification (Phase 5; applied as `V6__checkin_unresolved_scans_and_organizer_reports.sql`)
 
-Specified here first, per the rule above; the runnable file is written with Phase 5 checklist task 1.1. Decisions: Phase 5 checklist D50 (scans the device rejected reach the server with no registration), D46 (Organizers read reports).
+Specified here first, per the rule above; the runnable file is `src/main/resources/db/migration/V6__checkin_unresolved_scans_and_organizer_reports.sql` (written 2026-10-30 with Phase 5 checklist task 1.1; the SQL is identical to the block below). `CheckInSchemaIT` asserts the CHECK by its constraint name and `DefaultRbacSeedIT` the seed and its idempotency. Decisions: Phase 5 checklist D50 (scans the device rejected reach the server with no registration), D46 (Organizers read reports).
 
 ```sql
 ALTER TABLE check_in_scans ALTER COLUMN registration_id DROP NOT NULL;

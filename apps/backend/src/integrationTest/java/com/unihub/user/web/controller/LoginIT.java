@@ -152,7 +152,7 @@ class LoginIT extends IntegrationTestSupport {
     @DisplayName("only the Student role resolves to REGISTRATION_CREATE (AC7.2)")
     void permissionsPerRole() throws Exception {
         assertThat(permissionsOf("Organizer"))
-                .containsExactlyInAnyOrder("WORKSHOP_CREATE", "WORKSHOP_EDIT");
+                .containsExactlyInAnyOrder("WORKSHOP_CREATE", "WORKSHOP_EDIT", "REPORT_VIEW");
         assertThat(permissionsOf("Admin"))
                 .containsExactlyInAnyOrder("WORKSHOP_CREATE", "WORKSHOP_EDIT", "REPORT_VIEW");
         assertThat(permissionsOf("Check-in Staff")).containsExactly("CHECKIN_SCAN");

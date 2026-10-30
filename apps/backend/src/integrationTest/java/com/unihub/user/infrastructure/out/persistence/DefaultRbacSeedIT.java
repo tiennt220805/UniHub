@@ -42,10 +42,10 @@ class DefaultRbacSeedIT extends RolledBackJdbcSupport {
     }
 
     @Test
-    @DisplayName("Organizer bundles WORKSHOP_CREATE and WORKSHOP_EDIT")
+    @DisplayName("Organizer bundles WORKSHOP_CREATE, WORKSHOP_EDIT and REPORT_VIEW (V6, D46)")
     void organizerBundle() {
         assertThat(permissionCodesOfRole("Organizer"))
-                .containsExactlyInAnyOrder("WORKSHOP_CREATE", "WORKSHOP_EDIT");
+                .containsExactlyInAnyOrder("WORKSHOP_CREATE", "WORKSHOP_EDIT", "REPORT_VIEW");
     }
 
     @Test
@@ -106,5 +106,35 @@ class DefaultRbacSeedIT extends RolledBackJdbcSupport {
                                 "SELECT count(*) FROM permissions WHERE code = 'REGISTRATION_CREATE'",
                                 Long.class))
                 .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("V6 gives Organizer REPORT_VIEW once: its seed statement run again adds nothing")
+    void v6SeedIsIdempotent() throws Exception {
+        var sql =
+                new String(
+                        getClass()
+                                .getResourceAsStream(
+                                        "/db/migration/V6__checkin_unresolved_scans_and_organizer_reports.sql")
+                                .readAllBytes());
+        var before = jdbc.queryForObject("SELECT count(*) FROM role_permissions", Long.class);
+
+        // Only the seed: the DDL statements of V6 are not meant to run twice.
+        for (var statement : sql.replaceAll("(?m)^--.*$", "").split(";")) {
+            if (statement.strip().startsWith("INSERT")) {
+                jdbc.execute(statement);
+            }
+        }
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM role_permissions", Long.class))
+                .isEqualTo(before);
+        assertThat(permissionCodesOfRole("Organizer")).containsOnlyOnce("REPORT_VIEW");
+    }
+
+    @Test
+    @DisplayName("REPORT_VIEW stays with Organizer and Admin: Student and Check-in Staff lack it")
+    void reportViewIsNotForStudentsOrStaff() {
+        assertThat(permissionCodesOfRole("Student")).doesNotContain("REPORT_VIEW");
+        assertThat(permissionCodesOfRole("Check-in Staff")).doesNotContain("REPORT_VIEW");
     }
 }
