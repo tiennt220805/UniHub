@@ -314,7 +314,9 @@ workshopRegistrations:
     description: >-
       Reporting view backing `docs/requirement.md` §1.3.3's "clear, visual
       reports and statistics on registration counts" — this endpoint
-      supplies the underlying data; aggregation/visualization is a frontend
+      supplies the per-registration data. The totals and the check-in rate come from
+      `getWorkshopReport` (`paths/checkin.yaml`), counted by the database; a client does not
+      page through this list to total anything. Visualization is a frontend
       concern. Backed by `../../../docs/technical-design/platform/database-schema.md` §4.1's
       `(workshop_id)` index, documented there as existing for exactly this
       reporting purpose.

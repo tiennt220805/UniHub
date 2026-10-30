@@ -328,6 +328,7 @@ Every claim, algorithm, and key-management decision for the QR e-ticket, in one 
 
 **Model (Phase 5 checklist D46):**
 - **Summary endpoint** `GET /api/v1/workshops/{workshopId}/report`, owned by Check-in (its `attendances` table is the check-in side): `capacity`, `seatsTaken`, the number of `CONFIRMED` and `RESERVED` registrations, the number of check-ins, and the rate (check-ins / `CONFIRMED`). The registration counts come through a new read interface in `registration.api` (interaction type 1, `../../guidelines/backend-coding-standards.md` §7). Unknown workshop → `404`.
+- **The rate:** `checkInRate` is check-ins divided by `CONFIRMED` registrations, as a ratio (not a percentage), and is `null` when there are no `CONFIRMED` registrations. It can exceed 1: an attendance already recorded is never undone by a later cancellation of its registration (§7), so the check-ins can outnumber the `CONFIRMED` registrations. The server does not clamp it; a page that draws a bar clamps for display.
 - **List endpoint** `listWorkshopAttendances` stays for the per-registration view.
 - **Reads go to the Replica.** "Real-time" here means a few seconds of replica lag plus the page's periodic refetch — accepted and stated (D62).
 - **Permission:** `REPORT_VIEW`, granted to `Organizer` by migration `V6` (`../platform/database-schema.md` §10.3); it was Admin-only in `V2`.

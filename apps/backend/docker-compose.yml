@@ -73,7 +73,8 @@ services:
 
   # SMTP catcher for the EMAIL channel (notification.md §2): accepts every message, keeps it, shows it in a
   # web UI and an HTTP API. Nothing is ever delivered. Point the backend at it with
-  # UNIHUB_NOTIFICATION_SMTP_HOST=127.0.0.1 (port 1025).
+  # UNIHUB_NOTIFICATION_SMTP_HOST=127.0.0.1 (port 1025). The backend also needs UNIHUB_TICKET_SIGNING_KEY,
+  # which is not a container: make one with scripts/generate-ticket-key.sh (see env.example).
   mailpit:
     image: axllent/mailpit:v1.20.7
     container_name: unihub-mailpit
