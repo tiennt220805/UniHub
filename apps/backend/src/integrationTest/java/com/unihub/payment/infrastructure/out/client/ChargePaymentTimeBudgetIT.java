@@ -229,8 +229,8 @@ class ChargePaymentTimeBudgetIT extends IntegrationTestSupport {
             "the worst request, a slow create then a stalled confirm, is two calls and within the budget")
     void worstCase_isAboutSixAndAHalfSeconds() throws Exception {
         // Well inside its 3 s limit (1 s to spare, for a loaded runner and a cold first call), so
-        // the charge goes on to confirm. At 2.5 s a slow CI machine cut the create off and the
-        // charge answered 503 instead of 201.
+        // the charge goes on to confirm. At 2.5 s a slow CI machine most likely cut the create
+        // off (inferred, not logged) and the charge answered 503 instead of 201.
         stubCreate(2_000);
         stubConfirm(10_000);
         var held = aHeldSeat();
