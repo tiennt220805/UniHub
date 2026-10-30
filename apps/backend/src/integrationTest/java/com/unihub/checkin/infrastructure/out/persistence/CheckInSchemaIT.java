@@ -8,9 +8,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Proves migration {@code V6} lets a scan the device rejected reach the server with no registration,
- * and only as {@code REJECTED_INVALID} (Phase 5 checklist D50; database-schema.md §6.1, §10.3). The
- * old guarantees stay: a scan that does name a registration still needs it to exist.
+ * Proves migration {@code V6} lets a scan the device rejected reach the server with no
+ * registration, and only as {@code REJECTED_INVALID} (Phase 5 checklist D50; database-schema.md
+ * §6.1, §10.3). The old guarantees stay: a scan that does name a registration still needs it to
+ * exist.
  */
 class CheckInSchemaIT extends RolledBackJdbcSupport {
 
@@ -31,8 +32,7 @@ class CheckInSchemaIT extends RolledBackJdbcSupport {
     @Test
     @DisplayName("AC50.1: a scan with no registration cannot be ACCEPTED")
     void unresolvedScan_cannotBeAccepted() {
-        assertRejected(
-                () -> insertScan(null, "ACCEPTED"), CHECK_VIOLATION, UNRESOLVED_IS_INVALID);
+        assertRejected(() -> insertScan(null, "ACCEPTED"), CHECK_VIOLATION, UNRESOLVED_IS_INVALID);
     }
 
     @Test
@@ -62,7 +62,8 @@ class CheckInSchemaIT extends RolledBackJdbcSupport {
     }
 
     @Test
-    @DisplayName("a scan that names a registration which does not exist is still a foreign-key error")
+    @DisplayName(
+            "a scan that names a registration which does not exist is still a foreign-key error")
     void unknownRegistration_isStillRejected() {
         assertRejected(
                 () -> insertScan(UUID.randomUUID(), "REJECTED_INVALID"), FOREIGN_KEY_VIOLATION);

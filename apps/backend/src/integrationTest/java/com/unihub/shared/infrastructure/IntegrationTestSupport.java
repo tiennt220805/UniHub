@@ -1,5 +1,6 @@
 package com.unihub.shared.infrastructure;
 
+import com.unihub.registration.infrastructure.out.crypto.TicketTestKeys;
 import java.io.IOException;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -109,6 +110,11 @@ public abstract class IntegrationTestSupport {
         System.setProperty("unihub.notification.smtp.host", MAILPIT.getHost());
         System.setProperty(
                 "unihub.notification.smtp.port", String.valueOf(MAILPIT.getMappedPort(1025)));
+
+        // The ticket signing key is required configuration (Phase 5 checklist D49): every context
+        // gets a key generated for this JVM, never one read from a file or committed. A test's own
+        // @DynamicPropertySource or command-line argument still overrides it.
+        System.setProperty("unihub.ticket.signing-key", TicketTestKeys.newPrivateJwk());
 
         System.setProperty("spring.rabbitmq.host", RABBITMQ.getHost());
         System.setProperty("spring.rabbitmq.port", String.valueOf(RABBITMQ.getAmqpPort()));

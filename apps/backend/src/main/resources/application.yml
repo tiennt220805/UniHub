@@ -169,6 +169,13 @@ unihub:
       registration-confirmed: EMAIL,IN_APP
       workshop-cancelled: EMAIL,IN_APP
       workshop-rescheduled: EMAIL,IN_APP
+  # QR e-ticket signing (checkin.md §4, Phase 5 checklist D49). The private EC P-256 JWK is never set here: it
+  # comes from the environment only (UNIHUB_TICKET_SIGNING_KEY, a Kubernetes Secret in a deployed environment).
+  # It is required: a blank, non-JWK, non-P-256 or public-only value stops the application at start with a
+  # message that says what to set (and never prints the value). Make a local one with
+  # scripts/generate-ticket-key.sh. Rotating it invalidates every ticket ever issued (checkin.md §6).
+  ticket:
+    signing-key:
   # Where the Web Application lives, for links in emails ("My registrations"). Not a secret.
   web:
     base-url: http://localhost:5173

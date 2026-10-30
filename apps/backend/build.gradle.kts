@@ -111,6 +111,12 @@ dependencies {
     // JWT via nimbus-jose-jwt (pulled in transitively, the JOSE library the design names). Verification
     // and, through Spring Security's NimbusJwtEncoder, signing: the login endpoint issues the HS256 token.
     implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
+    // nimbus-jose-jwt as a DIRECT dependency (Phase 5 checklist Q3/D47): the Registration module signs the QR
+    // e-ticket with ES256 through it (checkin.md §4). Until Phase 5 it arrived only through the starter above.
+    // Spring Boot's BOM does not manage it, so the version is pinned here to the one the starter already
+    // resolves (spring-security-oauth2-jose 6.3.x -> 9.37.3): the auth JWT and the ticket use one library at
+    // one version. Bump it deliberately, never by letting a transitive upgrade move it.
+    implementation("com.nimbusds:nimbus-jose-jwt:9.37.3")
     // Hibernate/JPA for the Tier A persistence adapters (backend-coding-standards.md §9.1/§9.2: a separate
     // JPA entity + Spring Data interface + mapper per aggregate; Workshop is the first). JdbcTemplate below
     // stays for read-model queries and Tier B adapters. Schema generation stays off (application.yml).
