@@ -339,4 +339,67 @@ class ArchitectureTest {
                     .as(
                             "the dispatcher, use cases and listener depend on no concrete channel"
                                     + " class (M-39)");
+
+    // ---------- Ticket signing key (Phase 5 checklist D47, AC47.1) ----------
+
+    /** The types that make, hold or configure the ticket signing key, all inside Registration. */
+    private static final com.tngtech.archunit.base.DescribedPredicate<JavaClass>
+            TICKET_SIGNING_TYPES =
+                    resideInAPackage("com.unihub.registration..")
+                            .and(
+                                    JavaClass.Predicates.simpleNameStartingWith("TicketSign")
+                                            .or(
+                                                    JavaClass.Predicates.simpleName(
+                                                            "NimbusEs256TicketSigner"))
+                                            .or(
+                                                    JavaClass.Predicates.simpleName(
+                                                            "TicketCodeGenerator")));
+
+    /**
+     * Registration is the only module that signs (checkin.md §4): no class outside it names the
+     * signer port, the key, its properties or the adapter. Check-in reaches the <em>public</em> key
+     * through {@code registration.api.TicketVerificationKey} and nothing else. {@code
+     * TicketKeyRulesTest} applies this rule to a class that breaks it.
+     */
+    @ArchTest
+    static final ArchRule only_registration_depends_on_ticket_signing =
+            noClasses()
+                    .that()
+                    .resideOutsideOfPackage("com.unihub.registration..")
+                    .should()
+                    .dependOnClassesThat(TICKET_SIGNING_TYPES)
+                    .as(
+                            "no class outside the registration module depends on the ticket signer or"
+                                    + " its key (D47)");
+
+    /**
+     * The private key itself is only ever touched where the signature is made: the EC key and the
+     * ECDSA signer of the JOSE library stay in {@code registration.infrastructure.out.crypto}, so a
+     * private key cannot reach a use case, a controller or another adapter.
+     */
+    @ArchTest
+    static final ArchRule private_ticket_key_types_stay_in_the_crypto_package =
+            noClasses()
+                    .that()
+                    .resideOutsideOfPackage("com.unihub.registration.infrastructure.out.crypto..")
+                    .should()
+                    .dependOnClassesThat(
+                            JavaClass.Predicates.equivalentTo(com.nimbusds.jose.jwk.ECKey.class)
+                                    .or(
+                                            JavaClass.Predicates.equivalentTo(
+                                                    com.nimbusds.jose.crypto.ECDSASigner.class)))
+                    .as(
+                            "the EC key and ECDSA signer types are used only in"
+                                    + " registration.infrastructure.out.crypto (D47)");
+
+    /** What crosses the module boundary is plain values: {@code api} depends on no JOSE type. */
+    @ArchTest
+    static final ArchRule registration_api_depends_on_no_jose_library =
+            noClasses()
+                    .that()
+                    .resideInAPackage("com.unihub.registration.api..")
+                    .should()
+                    .dependOnClassesThat()
+                    .resideInAPackage("com.nimbusds..")
+                    .as("registration.api hands out plain values, never a JOSE key type (D47)");
 }
