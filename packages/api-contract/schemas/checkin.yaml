@@ -30,10 +30,29 @@ ScanEvent:
     `scannedBy` is deliberately absent — derived server-side from the
     caller's own authenticated session, the same server-derivation
     discipline `../schemas/registration.yaml#/CreateRegistrationRequest`
-    applies to `ticketType`. The Check-in Client authenticates its staff
-    user once per session (§6); every scan in that session's synced batch
-    is attributed to that same user, never client-asserted per scan.
-  required: [id, ticketCode, workshopId, scannedAt, deviceId]
+    applies to `ticketType`. The device records the staff member's id with
+    every queued scan and syncs **only the scans of the staff member
+    currently logged in**, so a scan is never attributed to someone who
+    merely synced it (Phase 5 checklist D53); the server still never reads a
+    scanner from the request, and `scanned_by` is always the caller of the
+    sync. That per-scan staff id stays on the device and is not part of
+    this schema.
+
+
+    **`ticketCode` depends on `deviceVerdict`** (Phase 5 checklist D50,
+    `if`/`then`/`else` below). A scan whose signature verified
+    (`VERIFIED`) carries the ticket code from the verified payload — a
+    required string of at most 64 characters. A scan the device rejected
+    (`REJECTED_SIGNATURE`) carries no trustworthy code: the device sends
+    `null`, and the server **ignores whatever value arrives** under
+    `ticketCode`, whatever its type or length. That is deliberate and is the
+    one place a scan field is left unvalidated: the raw QR content of a
+    rejected scan is attacker-controlled, and if a malformed value made the
+    whole batch `400`, one crafted QR would block every later sync of the
+    device (data loss, `docs/requirement.md` §1.3.5). Every other field of a
+    `REJECTED_SIGNATURE` scan is validated as usual — they come from the
+    device, not from the QR.
+  required: [id, deviceVerdict, workshopId, scannedAt, deviceId]
   properties:
     id:
       type: string
@@ -44,52 +63,74 @@ ScanEvent:
         resynced batch safe to retry: re-submitting a scan with the same
         `id` is a natural no-op at the database's primary key, not the
         `idempotency_keys` mechanism (`architecture.md` §4.5), which this
-        corpus scopes only to `REGISTRATION_CREATE`/`PAYMENT_CHARGE`.
-    ticketCode:
+        corpus scopes only to `REGISTRATION_CREATE`/`PAYMENT_CHARGE`. A
+        resubmitted `id` returns the scan's *current* stored outcome; the
+        same `id` with different content keeps the stored row (the response
+        carries the stored row's outcome, the server logs a warning).
+    deviceVerdict:
       type: string
-      maxLength: 64
+      enum: [VERIFIED, REJECTED_SIGNATURE]
       description: >-
-        Resolved server-side to a `registrations.id` at sync time
-        (`../../../docs/technical-design/modules/checkin.md` §7). Bounded to
-        `registrations.ticket_code`'s own `VARCHAR(64)`
-        (`../../../docs/technical-design/platform/database-schema.md` §4.1) — an over-length value
-        can never resolve to a real ticket, so it's rejected here rather
-        than only failing a lookup server-side.
+        The device's own offline signature check (`checkin.md` §6).
+        `VERIFIED`: the compact JWS verified against the cached key, and
+        `ticketCode` is the verified claim. `REJECTED_SIGNATURE`: it did not
+        verify (tampered, forged, wrong key, malformed) — recorded as
+        `REJECTED_INVALID` with no registration. Whether a verified ticket
+        is *valid* (registration `CONFIRMED`, workshop not cancelled, right
+        room) is not decided here but at reconciliation, server-side.
+    ticketCode:
+      description: >-
+        See the schema description. Required, a string of 1–64 characters,
+        when `deviceVerdict` is `VERIFIED` (bounded to
+        `registrations.ticket_code`'s own `VARCHAR(64)`,
+        `../../../docs/technical-design/platform/database-schema.md` §4.1);
+        `null` from a conforming device, and ignored by the server, when
+        it is `REJECTED_SIGNATURE`. Resolved server-side to a
+        `registrations.id` at sync time (`checkin.md` §7); a verified code
+        that resolves to nothing is recorded `REJECTED_INVALID`, never a
+        `404`.
     workshopId:
       type: string
       format: uuid
       description: >-
-        **Informational only — not persisted, not currently validated
-        server-side. Flagged as an assumption**, the same way
-        `syncScanBatch` itself is flagged in `../paths/checkin.yaml`.
-        `../../../docs/technical-design/modules/checkin.md` §7's on-device model lists `workshop_id`
-        as one of the fields the Check-in Client stores locally per scan
-        (alongside `ticket_code`, staff identity, `device_id`,
-        `scanned_at`), so requiring it here is faithful to what the device
-        actually has on hand. But §7's *sync* model only ever resolves
-        `ticketCode` → `registrations.id` and never mentions using
-        `workshop_id`, and `check_in_scans`
-        (`../../../docs/technical-design/platform/database-schema.md` §6.1) has no `workshop_id`
-        column to write it into — so as specified today, this field is
-        accepted and then dropped. A plausible future use is a defensive
-        cross-check (does this scan's claimed workshop match the resolved
-        registration's actual `workshop_id`, catching a corrupted or
-        stale on-device cache) — but that's a validation rule this corpus
-        has never stated, and this schema does not invent it. Revisit when
-        a design note either specifies that check or confirms the field is
-        client-side-only and should be dropped from this request instead.
+        The **venue** workshop: the workshop the staff member selected on the
+        device before scanning (Phase 5 checklist D51, `checkin.md` §7), not
+        the workshop printed in the ticket. Validated at reconciliation: a
+        verified ticket whose workshop differs from this one is recorded
+        `REJECTED_INVALID` (a valid ticket scanned in the wrong room must not
+        count as attendance for its own workshop), as is a scan of a
+        workshop that is `CANCELLED`. The value is not persisted on
+        `check_in_scans` (`database-schema.md` §6.1 has no such column); it
+        is used to decide the scan's outcome.
     scannedAt:
       type: string
       format: date-time
-      description: The device's own clock at scan time — the value earliest-timestamp-wins reconciliation compares. Never the server's receipt time.
+      description: >-
+        The device's own clock at scan time — the value earliest-timestamp-wins
+        reconciliation compares, together with `id` as the tie-break. Never
+        the server's receipt time. A clock far from real time is accepted,
+        not rejected (rejecting would lose data); that is a known limit of
+        earliest-timestamp-wins (`checkin.md` §8).
     deviceId:
       type: string
+      minLength: 1
       maxLength: 100
       description: >-
         Identifies the physical Check-in Client device — reconciliation
-        compares scans across devices by this field. Bounded to
-        `check_in_scans.device_id`'s own `VARCHAR(100)`
-        (`../../../docs/technical-design/platform/database-schema.md` §6.1).
+        compares scans across devices by this field. A UUID v4 the app
+        generates on first launch. Bounded to `check_in_scans.device_id`'s own
+        `VARCHAR(100)` (`../../../docs/technical-design/platform/database-schema.md` §6.1).
+  if:
+    properties:
+      deviceVerdict:
+        const: VERIFIED
+  then:
+    required: [ticketCode]
+    properties:
+      ticketCode:
+        type: string
+        minLength: 1
+        maxLength: 64
 
 SyncScanBatchRequest:
   type: object
@@ -100,20 +141,16 @@ SyncScanBatchRequest:
       minItems: 1
       maxItems: 500
       description: >-
-        **`maxItems` value inferred — flagged as an assumption**; not
-        specified in `../../../docs/technical-design/modules/checkin.md` §7. Bounded because
-        `syncScanBatch` (`../paths/checkin.yaml`) processes every scan
-        synchronously and inline against Postgres within this one request
-        — an unbounded array here would mean an unbounded number of
-        sequential per-scan transactions (some running the
-        earliest-timestamp-wins overtake transaction) holding one request
-        thread and one Postgres connection for as long as the whole batch
-        takes. A device with a larger backlog splits it across multiple
-        sync calls — safe to do because each scan's own client-generated
-        `id` (not batch membership) is what makes resyncing idempotent
-        (`ScanEvent.id`'s description above), and the device's local queue
-        (Expo SQLite) already survives partial syncing across app
-        restarts.
+        1 to 500 scans (Phase 5 checklist D54; the number was an assumption
+        until then). Bounded because `syncScanBatch` (`../paths/checkin.yaml`)
+        processes every scan synchronously and inline against Postgres within
+        this one request, one short transaction per registration — an
+        unbounded array would hold one request thread and one Postgres
+        connection for as long as the whole batch takes. A device with a
+        larger backlog splits it across several sync calls — safe because
+        each scan's own client-generated `id` (not batch membership) is what
+        makes resyncing idempotent (`ScanEvent.id`), and the device's local
+        queue survives partial syncing across app restarts.
       items:
         $ref: '#/ScanEvent'
 
@@ -134,11 +171,17 @@ CheckInScanOutcome:
   enum: [ACCEPTED, REJECTED_DUPLICATE, REJECTED_INVALID]
   description: >-
     `../../../docs/technical-design/platform/database-schema.md` §6.1. Not immutable at the
-    database layer — a later-syncing batch with an earlier `scannedAt` can
-    flip a previously `ACCEPTED` scan to `REJECTED_DUPLICATE`
-    (`../../../docs/technical-design/modules/checkin.md` §7's overtake transaction) — but the value
-    returned in `SyncScanBatchResponse` reflects only the outcome as of
-    *this* sync call, not a live subscription to later revisions.
+    database layer — a later-syncing scan with an earlier `scannedAt` (ties
+    broken by `id`) can flip a previously `ACCEPTED` scan to
+    `REJECTED_DUPLICATE` (`../../../docs/technical-design/modules/checkin.md` §7's overtake
+    transaction). The value returned in `SyncScanBatchResponse` is the
+    scan's outcome **as stored when the response is built**: a scan resent
+    after such a flip comes back `REJECTED_DUPLICATE`, not the outcome it had
+    the first time. It is not a live subscription to later revisions.
+    `REJECTED_INVALID` covers a scan the device rejected, a code that
+    resolves to no registration, a registration that is not `CONFIRMED`, a
+    cancelled workshop, and a ticket scanned for another workshop's room; an
+    attendance already recorded is never undone by a later cancellation.
 
 SyncScanBatchResponse:
   type: object
@@ -146,17 +189,18 @@ SyncScanBatchResponse:
   properties:
     results:
       type: array
+      description: One result per scan of the request, in no guaranteed order; keyed by `id`.
       items:
         $ref: '#/ScanSyncResult'
 
 AttendanceSummary:
   type: object
   description: >-
-    Reporting projection for `docs/requirement.md` §1.3.3's "real-time
-    check-in rates" — one row per registration that has a winning scan
-    (`../../../docs/technical-design/platform/database-schema.md` §6.2). Rate/percentage math against
-    a workshop's total registrations is a frontend concern; this is the
-    underlying data.
+    One row per registration that has a winning scan
+    (`../../../docs/technical-design/platform/database-schema.md` §6.2) — the per-registration
+    view behind the summary figures of `WorkshopReport`. The totals and the
+    rate come from `WorkshopReport`, computed by the database; a client does
+    not page through this list to count.
   required: [registrationId, checkedInAt]
   properties:
     registrationId:
@@ -177,3 +221,52 @@ AttendanceListResponse:
         $ref: '#/AttendanceSummary'
     page:
       $ref: '../common/pagination.yaml#/PageMeta'
+
+WorkshopReport:
+  type: object
+  description: >-
+    Registration counts and check-in rate of one workshop
+    (`../../../docs/technical-design/modules/checkin.md` §10; `docs/requirement.md` §1.3.3). Every
+    figure is computed by the database, not assembled from paged lists. Read
+    from a Replica: "real time" means a few seconds of replica lag plus the
+    reporting page's periodic refetch (Phase 5 checklist D62).
+
+
+    `checkInRate` is **check-ins divided by `CONFIRMED` registrations**, as a
+    ratio (0.5 is half; not a percentage). It can exceed 1: an attendance that
+    already happened is never undone by a later cancellation of its
+    registration (`checkin.md` §7), so `checkedInCount` can be larger than
+    `confirmedCount`. The server does not clamp it; a client that draws a bar
+    clamps for display.
+  required: [workshopId, capacity, seatsTaken, confirmedCount, reservedCount, checkedInCount, checkInRate]
+  properties:
+    workshopId:
+      type: string
+      format: uuid
+    capacity:
+      type: integer
+      minimum: 1
+      description: '`workshops.capacity`.'
+    seatsTaken:
+      type: integer
+      minimum: 0
+      description: '`workshops.seats_taken` — `RESERVED` plus `CONFIRMED` registrations (a hold takes a seat).'
+    confirmedCount:
+      type: integer
+      minimum: 0
+      description: Registrations in status `CONFIRMED` (free and paid).
+    reservedCount:
+      type: integer
+      minimum: 0
+      description: Registrations in status `RESERVED` (an unpaid hold that has not expired).
+    checkedInCount:
+      type: integer
+      minimum: 0
+      description: Rows of `attendances` for this workshop — one per registration with a winning scan.
+    checkInRate:
+      type: [number, 'null']
+      minimum: 0
+      description: >-
+        `checkedInCount / confirmedCount`; `null` when `confirmedCount` is 0
+        (a rate over nothing is undefined, and `0` would claim nobody showed up
+        of nobody). See the schema description for why it can exceed 1.

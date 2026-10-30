@@ -88,6 +88,8 @@ paths:
     $ref: './paths/checkin.yaml#/sync'
   /api/v1/workshops/{workshopId}/attendances:
     $ref: './paths/checkin.yaml#/workshopAttendances'
+  /api/v1/workshops/{workshopId}/report:
+    $ref: './paths/checkin.yaml#/workshopReport'
   /api/v1/auth/login:
     $ref: './paths/user.yaml#/login'
   /api/v1/legacy-sync/runs:

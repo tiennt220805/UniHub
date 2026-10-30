@@ -67,7 +67,7 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 
 ## G. Cờ có sẵn trong corpus từ trước, không đụng, chưa audit lại
 
-- Endpoint suy luận trong api-contract: `getPayment`, `cancelRegistration`, body của `chargePayment`. (`syncScanBatch`, `listWorkshopAttendances`, `maxItems` 500 đã chốt 2026-10-30, Phase 5 checklist D46, D54; cờ "Inferred" gỡ khi controller có, task 1.2.)
+- Endpoint suy luận trong api-contract: `getPayment`, `cancelRegistration`, body của `chargePayment`. (`syncScanBatch`, `listWorkshopAttendances`, `maxItems` 500 đã chốt 2026-10-30, Phase 5 checklist D46, D54; cờ "Inferred" đã gỡ khỏi contract ở task 1.2, 2026-10-30.)
 - Chuyển trạng thái `SUSPENDED → ACTIVE` chưa xác nhận (`guidelines/test-design-techniques.md` §2).
 - Phase cho INV-13.
 - Package-glob của JaCoCo.

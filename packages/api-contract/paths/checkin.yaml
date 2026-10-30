@@ -42,35 +42,53 @@ sync:
     operationId: syncScanBatch
     summary: Upload a batch of offline scan events
     description: >-
-      **Inferred endpoint — flagged as an assumption.**
-      `../../../docs/technical-design/modules/checkin.md` §7 narrates "the Check-in Client uploads
-      its queued scans in a batch to the Backend API" but never fixes a
-      literal route — this is that route, modeled directly on §7's own
-      described behavior: the server resolves each scan's `ticketCode` to
-      a `registrations.id`, inserts one `check_in_scans` row per scan (the
-      append-only audit trail `docs/requirement.md` §2.9 requires), and
-      runs earliest-timestamp-wins reconciliation (§7) as part of
-      processing this batch — synchronously, not as a separately-queued
-      job, since §7 never describes a queue for this step the way it does
-      for the seat-hold-expiry or summarization flows elsewhere in this
-      corpus.
+      `../../../docs/technical-design/modules/checkin.md` §7, verbatim endpoint path (Phase 5
+      checklist D54 fixed the route and the semantics below). The Check-in
+      Client uploads its queued scans in a batch; the server resolves each
+      verified scan's `ticketCode` to a `registrations.id`, inserts one
+      `check_in_scans` row per scan (the append-only audit trail
+      `docs/requirement.md` §2.9 requires), and runs earliest-timestamp-wins
+      reconciliation (§7) as part of this request — synchronously, one short
+      transaction per registration. Every scan is recorded, including one
+      the device rejected and one whose code resolves to nothing
+      (`registration_id` `NULL`, `REJECTED_INVALID`, migration `V6`).
 
-      **No `Idempotency-Key` header** — unlike `createRegistration`/
-      `chargePayment`, retry-safety here comes from each `ScanEvent`'s own
-      client-generated `id` (a database primary key), not from the
-      `idempotency_keys` table mechanism. Resyncing an already-processed
-      batch (e.g. after a dropped response) is safe: each scan's `id` is
-      unchanged, so re-processing is a natural no-op per scan, not a
-      distinct idempotency scope this file needs to declare.
+      **`scannedBy` is the caller.** The server stores the authenticated
+      user of this request as the scanner and never reads one from the body;
+      the device sends only the scans of the staff member currently logged
+      in (`../schemas/checkin.yaml#/ScanEvent`).
 
-      A signature-authentic ticket whose registration was since cancelled
-      is recorded `REJECTED_INVALID`, not rejected at the HTTP layer — see
-      `../../../docs/technical-design/modules/checkin.md` §7's "authentic but not valid" framing.
-      This endpoint never 404s for an unresolvable `ticketCode`; an
-      unresolvable one is itself recorded as `REJECTED_INVALID`, consistent
-      with treating every submitted scan as audit-trail data worth keeping
-      (`docs/requirement.md` §2.9), not as a request parameter to validate
-      away.
+      **Retry safety, no `Idempotency-Key` header.** Unlike
+      `createRegistration`/`chargePayment`, it comes from each `ScanEvent`'s
+      own client-generated `id` (a database primary key). A resubmitted `id`
+      creates no row and returns the scan's *current* stored outcome, which
+      may have moved from `ACCEPTED` to `REJECTED_DUPLICATE` since the first
+      sync because an earlier scan arrived. The same `id` with different
+      content keeps the stored row and returns its outcome (the server logs a
+      warning); it is not a `409`, so one bad scan never blocks the other
+      499.
+
+      **Validity is decided here, per scan** (D51): a verified ticket counts
+      only if its registration is `CONFIRMED`, its workshop is not
+      `CANCELLED`, and the scan's venue `workshopId` equals the ticket's
+      workshop; otherwise the scan is recorded `REJECTED_INVALID`, not
+      rejected at the HTTP layer. This endpoint never answers `404` for an
+      unresolvable `ticketCode`. A device clock far from real time is not
+      rejected (`checkin.md` §8).
+
+      **Which scans fail the batch.** A malformed scan (missing field,
+      wrong type, `id`/`workshopId` not a UUID, `deviceId` over 100
+      characters, a `VERIFIED` scan whose `ticketCode` is missing or over 64
+      characters) or a batch of 0 or more than 500 scans is `400` for the
+      whole batch. **A scan with `deviceVerdict` `REJECTED_SIGNATURE` never
+      does**, whatever it carries under `ticketCode`: it becomes
+      `REJECTED_INVALID` on its own, so one crafted QR cannot block every
+      later sync of a device.
+
+      **Reads and locks.** Validity reads go to the Master. Reconciliation
+      serializes per registration with a Postgres advisory lock — never
+      Redis — so this endpoint keeps working while Redis or the Payment
+      Gateway is down (`checkin.md` §8; INV-05).
     tags: [Check-in]
     x-required-permission: CHECKIN_SCAN
     parameters:
@@ -93,9 +111,10 @@ sync:
               $ref: '../schemas/checkin.yaml#/SyncScanBatchResponse'
       '400':
         description: >-
-          Malformed batch (e.g. missing required fields on a `ScanEvent`,
-          or `scans` empty/exceeding the 500-item cap —
-          `../schemas/checkin.yaml#/SyncScanBatchRequest`).
+          Malformed batch: `scans` empty or over 500, or a scan with a missing
+          or ill-typed field (see the operation description for the exact
+          rule). Never returned because of the `ticketCode` of a
+          `REJECTED_SIGNATURE` scan.
         content:
           application/problem+json:
             schema:
@@ -118,16 +137,16 @@ workshopAttendances:
     operationId: listWorkshopAttendances
     summary: Organizer/Admin view of a workshop's check-ins
     description: >-
-      **Inferred endpoint — flagged as an assumption**, mirroring
-      `../paths/registration.yaml#/workshopRegistrations`'s own inferred
-      status exactly: backs `docs/requirement.md` §1.3.3's "real-time
-      check-in rates," but no document specifies this route. Returns only
-      the finalized `attendances` projection
+      The per-registration view behind `getWorkshopReport`
+      (`docs/requirement.md` §1.3.3's "real-time check-in rates";
+      `../../../docs/technical-design/modules/checkin.md` §10; Phase 5 checklist D46). Returns only the
+      finalized `attendances` projection
       (`../../../docs/technical-design/platform/database-schema.md` §6.2) — one row per registration
       with a winning scan — not the raw, larger `check_in_scans` audit
       trail; an operator investigating a specific reconciliation decision
       needs a different, not-yet-specified tool, not this reporting
-      endpoint.
+      endpoint. Totals and the rate are not computed from this list:
+      `getWorkshopReport` returns them. Read from a Replica.
     tags: [Check-in]
     x-required-permission: REPORT_VIEW
     parameters:
@@ -145,6 +164,71 @@ workshopAttendances:
           application/json:
             schema:
               $ref: '../schemas/checkin.yaml#/AttendanceListResponse'
+      '400':
+        description: Malformed `workshopId`, or `page`/`size` outside their bounds.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, missing REPORT_VIEW permission.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '404':
+        description: No workshop with this id.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+
+workshopReport:
+  get:
+    operationId: getWorkshopReport
+    summary: Registration counts and check-in rate of one workshop
+    description: >-
+      The summary behind `docs/requirement.md` §1.3.3 ("registration counts
+      and real-time check-in rates for each workshop"; Phase 5 checklist
+      D46, `../../../docs/technical-design/modules/checkin.md` §10). Owned by Check-in (its
+      `attendances` table is the check-in side); the registration counts
+      come from Registration through an internal read interface. Every
+      figure is counted by the database, so a client never pages through a
+      list to total anything (contrast `listWorkshopAttendances`,
+      `listWorkshopRegistrations`).
+
+      Authorization: `REPORT_VIEW`, held by Organizer and Admin (migration
+      `V6`). It is a permission, not a per-workshop grant: `workshops` has
+      no owner column, so any holder reads the report of any workshop, and
+      one without it gets `403`. Read from a Replica — "real time" is a few
+      seconds of replica lag plus the reporting page's refetch.
+    tags: [Check-in]
+    x-required-permission: REPORT_VIEW
+    parameters:
+      - $ref: '../paths/registration.yaml#/RegistrationWorkshopIdParam'
+      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
+    responses:
+      '200':
+        description: The report of the given workshop.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/checkin.yaml#/WorkshopReport'
+      '400':
+        description: Malformed `workshopId`.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
       '401':
         description: Missing or invalid token.
         content:
