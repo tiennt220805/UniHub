@@ -169,17 +169,36 @@ public final class MultiInstanceHarness implements AutoCloseable {
                 .web(WebApplicationType.SERVLET)
                 .properties(properties.toArray(String[]::new))
                 .initializers(
-                        context ->
-                                ((ConfigurableApplicationContext) context)
-                                        .getBeanFactory()
-                                        .addBeanPostProcessor(
-                                                new RecordingLocks(
-                                                        instance,
-                                                        locking,
-                                                        holdPadding,
-                                                        seatHoldPadding,
-                                                        log)))
+                        context -> {
+                            // A builder context lacks the filter @SpringBootTest adds, so a nested
+                            // @TestConfiguration of a test class (a seam that injects a failure
+                            // into the relay, say) would be scanned into this instance.
+                            ((org.springframework.context.support.GenericApplicationContext)
+                                            context)
+                                    .registerBeanDefinition(
+                                            "testTypeExcludeFilter",
+                                            new org.springframework.beans.factory.support
+                                                    .RootBeanDefinition(testTypeExcludeFilter()));
+                            ((ConfigurableApplicationContext) context)
+                                    .getBeanFactory()
+                                    .addBeanPostProcessor(
+                                            new RecordingLocks(
+                                                    instance,
+                                                    locking,
+                                                    holdPadding,
+                                                    seatHoldPadding,
+                                                    log));
+                        })
                 .run();
+    }
+
+    private static Class<?> testTypeExcludeFilter() {
+        try {
+            return Class.forName(
+                    "org.springframework.boot.test.context.filter.TestTypeExcludeFilter");
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     public int instances() {

@@ -175,4 +175,23 @@ public abstract class NotificationITBase extends IntegrationTestSupport {
     protected int queuedMessages() {
         return admin.getQueueInfo(QUEUE).getMessageCount();
     }
+
+    /**
+     * M-41, AC42.2: the relay has published every outbox row this test caused. Awaited, never read
+     * at once: the consumer's effect can be visible a moment before the relay's own {@code UPDATE}
+     * commits.
+     */
+    protected void awaitNoOutboxRowPending() {
+        org.awaitility.Awaitility.await()
+                .atMost(java.time.Duration.ofSeconds(30))
+                .untilAsserted(
+                        () ->
+                                org.assertj.core.api.Assertions.assertThat(
+                                                jdbc.queryForObject(
+                                                        "SELECT count(*) FROM event_publications"
+                                                                + " WHERE status = 'PENDING'",
+                                                        Integer.class))
+                                        .as("outbox rows the relay has not published")
+                                        .isZero());
+    }
 }

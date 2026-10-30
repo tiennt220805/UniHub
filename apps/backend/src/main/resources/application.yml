@@ -37,6 +37,10 @@ spring:
   # default-requeue-rejected=false: business queues have no dead-letter exchange, so a failed message is
   # republished to its retry chain by the shared recoverer (never by a broker reject).
   rabbitmq:
+    # A broker that does not answer a channel RPC (opening a channel for the next publish) in this
+    # time is as unhealthy as one that does not confirm: the default is 10 minutes, far past the
+    # relay's 30 s lease (messaging.md §5, Phase 4 checklist D42, 7.4).
+    channel-rpc-timeout: 5s
     publisher-confirm-type: correlated
     publisher-returns: true
     template:

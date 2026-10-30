@@ -142,6 +142,7 @@ class WorkshopChangeNotificationIT extends NotificationITSupport {
                                 workshop.value()))
                 .as("N recipients x 2 channels")
                 .isEqualTo(8);
+        awaitNoOutboxRowPending();
         assertThat(queuedMessages()).isZero();
         assertThat(parkedMessages()).isZero();
     }
@@ -214,6 +215,7 @@ class WorkshopChangeNotificationIT extends NotificationITSupport {
                                                     "Thời gian mới: 03/12/2026 16:00 - 03/12/2026"
                                                             + " 18:00"));
         }
+        awaitNoOutboxRowPending();
         assertThat(queuedMessages()).isZero();
         assertThat(parkedMessages()).isZero();
     }

@@ -7,10 +7,10 @@ package com.unihub.shared.application.port.out;
 public interface MessageBroker {
 
     /**
-     * @throws BrokerPublishException this message was not delivered (nack, no confirm in time,
-     *     unroutable); other messages may still go through
-     * @throws BrokerUnavailableException the broker cannot be reached at all; trying the next
-     *     message would only wait again
+     * @throws BrokerPublishException this message was not delivered (nack, unroutable); other
+     *     messages may still go through
+     * @throws BrokerUnavailableException the broker cannot be reached or does not confirm in time;
+     *     trying the next message would only wait again
      */
     void publish(PendingEvent event);
 }

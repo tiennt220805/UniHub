@@ -293,6 +293,47 @@ class RetryChainRecovererTest {
                 .isInstanceOf(ImmediateRequeueAmqpException.class);
     }
 
+    @Test
+    @DisplayName("a republish the broker never confirms is requeued too (AC42.6, the timeout kind)")
+    void unconfirmedRepublish_requeuesTheOriginal() {
+        var quick =
+                new RetryChainRecoverer(
+                        template,
+                        new MessagingProperties(Duration.ofMillis(50), Topology.RETRY_DELAYS));
+        doAnswer(invocation -> null)
+                .when(template)
+                .send(
+                        any(String.class),
+                        any(String.class),
+                        any(Message.class),
+                        any(CorrelationData.class));
+
+        assertThatThrownBy(() -> quick.recover(failedMessage(null), new IllegalStateException("x")))
+                .isInstanceOf(ImmediateRequeueAmqpException.class)
+                .hasCauseInstanceOf(
+                        com.unihub.shared.application.port.out.BrokerUnavailableException.class);
+    }
+
+    @Test
+    @DisplayName("a republish that fails in the client is requeued too (AC42.6, the other kind)")
+    void failedRepublish_requeuesTheOriginal() {
+        doThrow(new org.springframework.amqp.AmqpIOException(new java.io.IOException("closed")))
+                .when(template)
+                .send(
+                        any(String.class),
+                        any(String.class),
+                        any(Message.class),
+                        any(CorrelationData.class));
+
+        assertThatThrownBy(
+                        () ->
+                                recoverer.recover(
+                                        failedMessage(null), new IllegalStateException("x")))
+                .isInstanceOf(ImmediateRequeueAmqpException.class)
+                .hasCauseInstanceOf(
+                        com.unihub.shared.application.port.out.BrokerPublishException.class);
+    }
+
     /** A failure that says a dependency is down (the seat lock, the gateway), not a bad message. */
     private static final class DependencyDown extends RuntimeException
             implements RetryUntilAvailable {

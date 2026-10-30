@@ -119,6 +119,7 @@ class RegistrationConfirmationNotificationIT extends NotificationITSupport {
                 .contains(registration)
                 .contains("http://localhost:5173/registrations");
         assertThat(notificationRows(student)).as("one row per channel").isEqualTo(2);
+        awaitNoOutboxRowPending();
         assertThat(queuedMessages()).isZero();
         assertThat(parkedMessages()).isZero();
         assertThat(

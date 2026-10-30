@@ -99,6 +99,20 @@ class PaidRegistrationNotificationIT extends ShortChainITSupport {
                 status);
     }
 
+    /** M-41, AC42.2: awaited, because the effect can be seen before the relay's UPDATE commits. */
+    private void awaitNoOutboxRowPending() {
+        await().atMost(LONG_ENOUGH)
+                .untilAsserted(
+                        () ->
+                                assertThat(
+                                                jdbc.queryForObject(
+                                                        "SELECT count(*) FROM event_publications"
+                                                                + " WHERE status = 'PENDING'",
+                                                        Integer.class))
+                                        .as("outbox rows the relay has not published")
+                                        .isZero());
+    }
+
     private int confirmationsPublished(UUID registration) {
         return jdbc.queryForObject(
                 "SELECT count(*) FROM event_publications WHERE aggregate_id = ? AND routing_key"
@@ -132,6 +146,7 @@ class PaidRegistrationNotificationIT extends ShortChainITSupport {
                 .contains(paid.registration().toString())
                 .contains("01/12/2026 16:00");
         assertThat(confirmationsPublished(paid.registration())).isEqualTo(1);
+        awaitNoOutboxRowPending();
         assertThat(waiting("unihub.notification.queue")).isZero();
         assertThat(parkedMessages()).isZero();
     }
@@ -188,6 +203,7 @@ class PaidRegistrationNotificationIT extends ShortChainITSupport {
                                 student.value()))
                 .isZero();
         assertThat(Mailpit.to(emailOf(student.value()))).isEmpty();
+        awaitNoOutboxRowPending();
         assertThat(waiting("unihub.notification.queue")).isZero();
         assertThat(parkedMessages()).isZero();
         assertThat(Topology.retryStageQueues("unihub.notification.queue"))
