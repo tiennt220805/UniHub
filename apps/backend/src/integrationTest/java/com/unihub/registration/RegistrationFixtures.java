@@ -222,6 +222,13 @@ public final class RegistrationFixtures {
                                 "DELETE FROM event_publications WHERE aggregate_type ="
                                         + " 'REGISTRATION' AND payload ->> 'workshopId' = ?",
                                 id.toString()));
+        // A workshop cancelled or rescheduled over HTTP leaves its own outbox row.
+        workshops.forEach(
+                id ->
+                        jdbc.update(
+                                "DELETE FROM event_publications WHERE aggregate_type = 'WORKSHOP'"
+                                        + " AND aggregate_id = ?",
+                                id));
         workshops.forEach(id -> jdbc.update("DELETE FROM workshops WHERE id = ?", id));
         users.forEach(user -> jdbc.update("DELETE FROM users WHERE id = ?", user));
         users.clear();
