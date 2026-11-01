@@ -1,6 +1,7 @@
 import { Navigate, type RouteObject } from 'react-router'
 
 import { Permission } from '@/features/auth'
+import { WorkshopReportPage } from '@/routes/admin/WorkshopReportPage'
 import { SignInPage } from '@/routes/auth/SignInPage'
 import { CheckoutPage } from '@/routes/me/CheckoutPage'
 import { MyRegistrationsPage } from '@/routes/me/MyRegistrationsPage'
@@ -35,6 +36,15 @@ export const routes: RouteObject[] = [
           <RequireSession>
             <NotificationsPage />
           </RequireSession>
+        ),
+      },
+      {
+        // getWorkshopReport is guarded by REPORT_VIEW (held by Organizer and Admin).
+        path: '/admin/workshops/:workshopId/report',
+        element: (
+          <RequirePermission anyOf={[Permission.REPORT_VIEW]}>
+            <WorkshopReportPage />
+          </RequirePermission>
         ),
       },
       {

@@ -5,6 +5,10 @@ import com.unihub.checkin.application.command.SyncScanBatchCommand;
 import com.unihub.checkin.application.result.ScanResult;
 import com.unihub.checkin.application.result.SyncScanBatchResult;
 import com.unihub.checkin.application.result.VerificationKeyResult;
+import com.unihub.checkin.application.result.WorkshopAttendancesResult;
+import com.unihub.checkin.application.result.WorkshopReportResult;
+import com.unihub.checkin.web.dto.AttendanceListResponse;
+import com.unihub.checkin.web.dto.AttendanceSummary;
 import com.unihub.checkin.web.dto.CheckInScanOutcome;
 import com.unihub.checkin.web.dto.DeviceVerdict;
 import com.unihub.checkin.web.dto.ScanEvent;
@@ -12,7 +16,9 @@ import com.unihub.checkin.web.dto.ScanSyncResult;
 import com.unihub.checkin.web.dto.SyncScanBatchRequest;
 import com.unihub.checkin.web.dto.SyncScanBatchResponse;
 import com.unihub.checkin.web.dto.VerificationKeyResponse;
+import com.unihub.checkin.web.dto.WorkshopReport;
 import com.unihub.shared.security.Actor;
+import com.unihub.shared.web.dto.PageMeta;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -63,6 +69,26 @@ public final class CheckInWebMapper {
 
     public static VerificationKeyResponse toResponse(VerificationKeyResult key) {
         return new VerificationKeyResponse(key.kty(), key.crv(), key.x(), key.y());
+    }
+
+    public static WorkshopReport toResponse(WorkshopReportResult report) {
+        return new WorkshopReport(
+                report.workshopId(),
+                report.capacity(),
+                report.seatsTaken(),
+                Math.toIntExact(report.confirmedCount()),
+                Math.toIntExact(report.reservedCount()),
+                Math.toIntExact(report.checkedInCount()),
+                report.checkInRate());
+    }
+
+    public static AttendanceListResponse toResponse(WorkshopAttendancesResult result) {
+        return new AttendanceListResponse(
+                result.items().stream()
+                        .map(i -> new AttendanceSummary(i.registrationId(), i.checkedInAt()))
+                        .toList(),
+                new PageMeta(
+                        result.page(), result.size(), result.totalElements(), result.totalPages()));
     }
 
     private static ScanSyncResult toResult(ScanResult result) {

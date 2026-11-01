@@ -39,7 +39,11 @@ public final class CheckInFixtures {
     }
 
     public WorkshopId aWorkshop() {
-        var workshop = aPublishedWorkshop().withCapacity(50).build();
+        return aWorkshop(50);
+    }
+
+    public WorkshopId aWorkshop(int capacity) {
+        var workshop = aPublishedWorkshop().withCapacity(capacity).build();
         tx.executeWithoutResult(s -> workshops.save(workshop));
         return base.track(workshop.id());
     }

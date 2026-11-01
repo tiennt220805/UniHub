@@ -18,3 +18,10 @@ export function formatDateTime(iso: string): string {
 export function formatNumber(value: number): string {
   return numberFormat.format(value)
 }
+
+const percentFormat = new Intl.NumberFormat('vi-VN', { style: 'percent', maximumFractionDigits: 0 })
+
+/** A ratio as a whole percent: 0.5 → "50%". Not clamped: 1.25 → "125%". */
+export function formatPercent(ratio: number): string {
+  return percentFormat.format(ratio)
+}

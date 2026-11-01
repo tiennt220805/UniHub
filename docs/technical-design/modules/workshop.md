@@ -362,6 +362,8 @@ Every algorithm, threshold, TTL, and naming decision in this document, in one pl
 | AI Summarization outcomes | `200` → persist; `422 UNSUPPORTED_CONTENT` → terminal, ack; other 4xx/5xx/timeout → retry/dead-letter | Distinguishes deterministic-failure from transient-failure without inventing a new mechanism |
 
 
+**Internal read for the report (Phase 5 checklist 5.1, 2026-11-01):** `workshop.api.WorkshopSeatFigures.find(WorkshopId)` → `SeatFigures(capacity, seatsTaken)` (empty when the workshop does not exist; any status counts as existing), for Check-in's `getWorkshopReport` and `listWorkshopAttendances`. A `@Transactional(readOnly = true)` read **at the Replica**, straight from the `workshops` row through its own query port (`WorkshopSeatQueries`) and **never through the Redis catalog cache**: a report must not depend on Redis, or the Redis-outage probe (`resilience-testing.md` §2.3) would make every report wait out the client's command timeout.
+
 **Internal read for Notification (Phase 4 checklist D35):** `workshop.api` exposes a read interface returning a workshop's title, start/end time, location and status by `workshopId`. Notification calls it through its own `WorkshopDetails` port (`notification.md` §3), at the Master; the status and times are what let Notification skip a stale reschedule.
 
 **As built (Phase 4 checklist 1.3, 2026-10-29):** `workshop.api.WorkshopSummaries.find(WorkshopId)` → `WorkshopSummary(id, title, startTime, endTime, location, cancelled)`; any status is returned (the lookup decides no visibility), `cancelled` is the only status fact Notification needs. A `@Transactional(readOnly = true) @ReadFromPrimary` read, not `MANDATORY` (the consumer holds no transaction while it sends).

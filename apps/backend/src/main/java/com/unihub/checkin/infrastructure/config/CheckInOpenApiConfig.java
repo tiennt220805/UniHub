@@ -59,6 +59,20 @@ class CheckInOpenApiConfig {
         };
     }
 
+    @Bean
+    OpenApiCustomizer workshopReportRate() {
+        return openApi -> {
+            var report = openApi.getComponents().getSchemas().get("WorkshopReport");
+            if (report == null) {
+                return;
+            }
+            var rate = new JsonSchema();
+            rate.setTypes(Set.of("number", "null"));
+            rate.setMinimum(java.math.BigDecimal.ZERO);
+            report.addProperty("checkInRate", rate);
+        };
+    }
+
     private static Schema<?> constant(Object value, String type) {
         var schema = new JsonSchema();
         schema.setTypes(Set.of(type));

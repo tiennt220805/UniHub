@@ -10,6 +10,7 @@ import com.unihub.shared.infrastructure.IntegrationTestSupport;
 import com.unihub.shared.security.TestJwts;
 import com.unihub.workshop.application.port.out.WorkshopRepository;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +26,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -52,8 +54,13 @@ public abstract class CheckInITSupport extends IntegrationTestSupport {
     @Autowired protected WorkshopRepository workshops;
     @Autowired protected TransactionTemplate tx;
 
+    protected static final String PASSWORD = "correct-horse-battery";
+
     protected CheckInFixtures fixtures;
     protected UserId staff;
+
+    private final BCryptPasswordEncoder bcrypt = new BCryptPasswordEncoder();
+    private final List<UUID> loginUsers = new ArrayList<>();
 
     @BeforeEach
     void setUpCheckIn() {
@@ -65,6 +72,44 @@ public abstract class CheckInITSupport extends IntegrationTestSupport {
     @AfterEach
     void cleanUpCheckIn() {
         fixtures.cleanUp();
+        loginUsers.forEach(
+                id -> {
+                    jdbc.update("DELETE FROM user_roles WHERE user_id = ?", id);
+                    jdbc.update("DELETE FROM users WHERE id = ?", id);
+                });
+    }
+
+    /**
+     * A real user holding the seeded {@code role} who logs in at the real endpoint: the token it
+     * returns carries the permissions the seed gives that role, which is what a test of "who may"
+     * has to prove (a forged token proves only the filter).
+     */
+    protected String loginAs(String role) throws Exception {
+        var id = UUID.randomUUID();
+        var email = "login-" + id + "@example.test";
+        jdbc.update(
+                "INSERT INTO users (id, email, password_hash, full_name, status)"
+                        + " VALUES (?, ?, ?, 'Login Tester', 'ACTIVE')",
+                id,
+                email,
+                bcrypt.encode(PASSWORD));
+        loginUsers.add(id);
+        jdbc.update(
+                "INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name = ?",
+                id,
+                role);
+        var headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        var response =
+                http.exchange(
+                        "/api/v1/auth/login",
+                        HttpMethod.POST,
+                        new HttpEntity<>(
+                                "{\"email\":\"%s\",\"password\":\"%s\"}".formatted(email, PASSWORD),
+                                headers),
+                        String.class);
+        assertThat(response.getStatusCode().value()).as("login as " + role).isEqualTo(200);
+        return JSON.readTree(response.getBody()).get("accessToken").asText();
     }
 
     /** One scan of a request, as the device would write it. */

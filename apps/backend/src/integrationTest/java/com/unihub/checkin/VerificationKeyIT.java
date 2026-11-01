@@ -16,12 +16,10 @@ import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
 import com.nimbusds.jose.util.Base64URL;
 import com.unihub.shared.security.TestJwts;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Stream;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -30,7 +28,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -48,7 +45,6 @@ import org.springframework.test.context.DynamicPropertySource;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class VerificationKeyIT extends CheckInITSupport {
     private static final String KEY_URL = "/api/v1/checkin/verification-key";
-    private static final String PASSWORD = "correct-horse-battery";
     private static final ECKey OPERATOR_KEY = operatorKey();
 
     @DynamicPropertySource
@@ -68,18 +64,6 @@ class VerificationKeyIT extends CheckInITSupport {
         }
     }
 
-    private final BCryptPasswordEncoder bcrypt = new BCryptPasswordEncoder();
-    private final List<UUID> createdUsers = new ArrayList<>();
-
-    @AfterEach
-    void deleteSeededRoleUsers() {
-        createdUsers.forEach(
-                id -> {
-                    jdbc.update("DELETE FROM user_roles WHERE user_id = ?", id);
-                    jdbc.update("DELETE FROM users WHERE id = ?", id);
-                });
-    }
-
     // ---------- helpers ----------
 
     private ResponseEntity<String> fetch(String bearer) {
@@ -94,35 +78,6 @@ class VerificationKeyIT extends CheckInITSupport {
         var response = fetch(token(staff));
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         return JSON.readTree(response.getBody());
-    }
-
-    /** A real user holding {@code role}, who logs in at the real endpoint: its token is real. */
-    private String loginAs(String role) throws Exception {
-        var id = UUID.randomUUID();
-        var email = "key-" + id + "@example.test";
-        jdbc.update(
-                "INSERT INTO users (id, email, password_hash, full_name, status)"
-                        + " VALUES (?, ?, ?, 'Key Tester', 'ACTIVE')",
-                id,
-                email,
-                bcrypt.encode(PASSWORD));
-        createdUsers.add(id);
-        jdbc.update(
-                "INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name = ?",
-                id,
-                role);
-        var headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        var response =
-                http.exchange(
-                        "/api/v1/auth/login",
-                        HttpMethod.POST,
-                        new HttpEntity<>(
-                                "{\"email\":\"%s\",\"password\":\"%s\"}".formatted(email, PASSWORD),
-                                headers),
-                        String.class);
-        assertThat(response.getStatusCode().value()).as("login as " + role).isEqualTo(200);
-        return JSON.readTree(response.getBody()).get("accessToken").asText();
     }
 
     private static ECKey asPublicKey(JsonNode jwk) {

@@ -4,10 +4,13 @@ import static com.unihub.workshop.domain.model.WorkshopBuilder.aPublishedWorksho
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.dockerjava.api.model.ExposedPort;
 import com.github.dockerjava.api.model.PortBinding;
 import com.github.dockerjava.api.model.Ports;
 import com.stripe.net.Webhook;
+import com.unihub.checkin.CheckInFixtures;
+import com.unihub.checkin.CheckInITSupport;
 import com.unihub.registration.RegistrationFixtures;
 import com.unihub.shared.application.port.in.PurgeIdempotencyKeysUseCase;
 import com.unihub.shared.domain.id.UserId;
@@ -72,9 +75,11 @@ import org.testcontainers.containers.GenericContainer;
  *
  * <p>Runs on a Redis container of its own, never the shared singleton: stopping that one would fail
  * every later class (resilience-testing.md §3). Its host port is fixed so the address survives a
- * stop and start. Asserts outcomes, never which Redisson exception carried the failure. The
- * check-in, reporting and rate-limiter probes of §2.3 are not assertable before Phase 5 and Phase 7
- * (checklist C9).
+ * stop and start. Asserts outcomes, never which Redisson exception carried the failure. Check-in
+ * sync, the workshop report and the attendance list carry on as well, and sync stores its scan
+ * (Phase 5 checklist 5.5; check-in depends on no Redis: its serialization is a PostgreSQL advisory
+ * lock, and the report bypasses the catalog cache). The rate-limiter probe of §2.3 waits for Phase
+ * 7 (checklist C9).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -217,16 +222,19 @@ class RedisOutageIT extends IntegrationTestSupport {
     @Autowired private ApplicationContext context;
 
     private RegistrationFixtures fixtures;
+    private CheckInFixtures checkIn;
     private final ExecutorService threads = Executors.newFixedThreadPool(STUDENTS);
 
     @BeforeEach
     void setUp() {
         fixtures = new RegistrationFixtures(jdbc);
+        checkIn = new CheckInFixtures(jdbc, workshops, tx);
     }
 
     @AfterEach
     void cleanUp() {
         threads.shutdownNow();
+        checkIn.cleanUp();
         fixtures.cleanUp();
     }
 
@@ -244,6 +252,9 @@ class RedisOutageIT extends IntegrationTestSupport {
             students.add(fixtures.aStudent());
         }
         warmUpTheClient();
+        var venue = checkIn.aWorkshop();
+        var scanner = checkIn.aStaffMember();
+        var ticket = checkIn.aConfirmedTicket(venue);
 
         fault.inject();
         try {
@@ -272,6 +283,7 @@ class RedisOutageIT extends IntegrationTestSupport {
                     .as("detail")
                     .isEqualTo(200);
             assertThat(webhook().getStatusCode().value()).as("payment webhook").isEqualTo(200);
+            assertCheckInCarriesOn(scanner, venue, ticket);
 
             // a scheduled tick finds no lock and its job body does not run
             int runsBefore = CountJobRuns.PURGES.get();
@@ -312,6 +324,97 @@ class RedisOutageIT extends IntegrationTestSupport {
                             + jobLockTtlMillis(),
                     stuck);
         }
+    }
+
+    /**
+     * Check-in sync, the report and the attendance list while Redis is down (Phase 5 checklist 5.5;
+     * resilience-testing.md §2.3): all {@code 2xx}, each within the same bound as the refused
+     * registrations, and the scan sync was given is really stored and reconciled.
+     */
+    private void assertCheckInCarriesOn(
+            UserId scanner, WorkshopId venue, CheckInFixtures.Ticket ticket) throws Exception {
+        var scan =
+                new CheckInITSupport.Scan(
+                        UUID.randomUUID(),
+                        "VERIFIED",
+                        "\"" + ticket.code() + "\"",
+                        venue.value(),
+                        Instant.now(),
+                        "dev-1");
+
+        var synced =
+                timed(
+                        () ->
+                                bearer(
+                                        HttpMethod.POST,
+                                        "/api/v1/checkin/sync",
+                                        TestJwts.valid(scanner.value(), "CHECKIN_SCAN"),
+                                        "{\"scans\":[" + scan.json() + "]}"));
+        var viewer = TestJwts.valid(scanner.value(), "REPORT_VIEW");
+        var report =
+                timed(
+                        () ->
+                                bearer(
+                                        HttpMethod.GET,
+                                        "/api/v1/workshops/" + venue.value() + "/report",
+                                        viewer,
+                                        null));
+        var list =
+                timed(
+                        () ->
+                                bearer(
+                                        HttpMethod.GET,
+                                        "/api/v1/workshops/" + venue.value() + "/attendances",
+                                        viewer,
+                                        null));
+
+        assertThat(synced.response().getStatusCode().is2xxSuccessful())
+                .as("check-in sync")
+                .isTrue();
+        assertThat(report.response().getStatusCode().is2xxSuccessful()).as("report").isTrue();
+        assertThat(list.response().getStatusCode().is2xxSuccessful())
+                .as("attendance list")
+                .isTrue();
+        for (var probe : List.of(synced, report, list)) {
+            assertThat(probe.took())
+                    .as("a check-in request does not hang on the dead Redis")
+                    .isLessThan(BOUND);
+        }
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT outcome FROM check_in_scans WHERE id = ?",
+                                String.class,
+                                scan.id()))
+                .as("sync really stored and reconciled its scan")
+                .isEqualTo("ACCEPTED");
+        var figures = new ObjectMapper().readTree(report.response().getBody());
+        assertThat(figures.get("confirmedCount").asInt()).isEqualTo(1);
+        assertThat(figures.get("checkedInCount").asInt()).isEqualTo(1);
+        assertThat(
+                        new ObjectMapper()
+                                .readTree(list.response().getBody())
+                                .get("page")
+                                .get("totalElements")
+                                .asInt())
+                .isEqualTo(1);
+    }
+
+    private record Timed(ResponseEntity<String> response, Duration took) {}
+
+    private Timed timed(java.util.function.Supplier<ResponseEntity<String>> request) {
+        var started = System.nanoTime();
+        var response = request.get();
+        return new Timed(response, Duration.ofNanos(System.nanoTime() - started));
+    }
+
+    private ResponseEntity<String> bearer(
+            HttpMethod method, String path, String token, String body) {
+        var headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        if (body != null) {
+            headers.setContentType(MediaType.APPLICATION_JSON);
+        }
+        return http.exchange(path, method, new HttpEntity<>(body, headers), String.class);
     }
 
     private String jobLockTtlMillis() {

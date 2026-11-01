@@ -14,6 +14,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import com.stripe.net.Webhook;
+import com.unihub.checkin.CheckInFixtures;
+import com.unihub.checkin.CheckInITSupport;
 import com.unihub.payment.application.command.ReconcilePaymentCommand;
 import com.unihub.payment.application.port.in.ReconcilePaymentUseCase;
 import com.unihub.registration.RegistrationFixtures;
@@ -58,7 +60,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>Small numbers keep it fast: a window and minimum of 4 calls, a 1 s open state, 2 probes; the
  * defaults are {@code PaymentBreakerPropertiesTest}'s. The gateway's HTTP timeouts (2 s) are longer
  * than the sync time limit (500 ms), so the time limiter is what cuts a slow call off. The Check-in
- * half of "browsing and check-in stay up" waits for a Check-in module (Phase 5).
+ * half of "browsing and check-in stay up" is {@link #checkInSync_andReporting_areUnaffected()}
+ * (M-80, Phase 5).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class PaymentCircuitBreakerIT extends IntegrationTestSupport {
@@ -378,6 +381,139 @@ class PaymentCircuitBreakerIT extends IntegrationTestSupport {
                     .isEqualTo(state);
         }
         assertThat(gatewayCalls()).as("none of them called the gateway").isZero();
+    }
+
+    /**
+     * M-80, the half of M-24 and M-27 that Phase 2 could not probe (Phase 5 checklist 5.3;
+     * resilience-testing.md §2.1, §2.2): with the gateway really dead and the circuit really open,
+     * check-in sync, the report and the attendance list answer {@code 2xx}, sync really stores its
+     * scan, none of them reaches the gateway or moves the circuit.
+     *
+     * <p>The latency bound is absolute, like the other bounds of this class: resilience-testing.md
+     * §2.1 still has its TODO for a multiplier over a fault-free baseline, which has no source in
+     * the corpus, and none is invented here.
+     */
+    @Test
+    @DisplayName(
+            "M-80, M-24: with the gateway dead and the circuit open, check-in sync and the reports carry on")
+    void checkInSync_andReporting_areUnaffected() throws Exception {
+        var checkIn = new CheckInFixtures(jdbc, workshops, tx);
+        try {
+            var venue = checkIn.aWorkshop();
+            var staff = checkIn.aStaffMember();
+            var tickets =
+                    java.util.List.of(
+                            checkIn.aConfirmedTicket(venue),
+                            checkIn.aConfirmedTicket(venue),
+                            checkIn.aConfirmedTicket(venue));
+            gateway.stop(); // connection refused
+            failCharges(4);
+            assertThat(paymentGatewayBreaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+            gateway.start(); // the circuit does not know yet; the journal can now be read
+            gateway.resetAll();
+            var syncToken = TestJwts.valid(staff.value(), "CHECKIN_SCAN");
+            var reportToken = TestJwts.valid(staff.value(), "REPORT_VIEW");
+            var states =
+                    new Runnable[] {
+                        () -> {}, // the state the failures left: OPEN
+                        paymentGatewayBreaker::transitionToHalfOpenState,
+                        paymentGatewayBreaker::transitionToClosedState
+                    };
+
+            for (var round = 0; round < states.length; round++) {
+                states[round].run();
+                var state = paymentGatewayBreaker.getState();
+                var ticket = tickets.get(round);
+                var scan =
+                        new CheckInITSupport.Scan(
+                                UUID.randomUUID(),
+                                "VERIFIED",
+                                "\"" + ticket.code() + "\"",
+                                venue.value(),
+                                Instant.now(),
+                                "dev-1");
+
+                var synced =
+                        timed(
+                                () ->
+                                        bearerPost(
+                                                "/api/v1/checkin/sync",
+                                                syncToken,
+                                                "{\"scans\":[" + scan.json() + "]}"));
+                var report =
+                        timed(
+                                () ->
+                                        bearerGet(
+                                                "/api/v1/workshops/" + venue.value() + "/report",
+                                                reportToken));
+                var list =
+                        timed(
+                                () ->
+                                        bearerGet(
+                                                "/api/v1/workshops/"
+                                                        + venue.value()
+                                                        + "/attendances",
+                                                reportToken));
+
+                assertThat(synced.response().getStatusCode().is2xxSuccessful())
+                        .as("sync, %s", state)
+                        .isTrue();
+                assertThat(report.response().getStatusCode().is2xxSuccessful())
+                        .as("report, %s", state)
+                        .isTrue();
+                assertThat(list.response().getStatusCode().is2xxSuccessful())
+                        .as("attendances, %s", state)
+                        .isTrue();
+                for (var probe : java.util.List.of(synced, report, list)) {
+                    assertThat(probe.took())
+                            .as("latency, %s", state)
+                            .isLessThan(Duration.ofSeconds(2));
+                }
+                assertThat(
+                                jdbc.queryForObject(
+                                        "SELECT outcome FROM check_in_scans WHERE id = ?",
+                                        String.class,
+                                        scan.id()))
+                        .as("sync really stored its scan, %s", state)
+                        .isEqualTo("ACCEPTED");
+                var figures = JSON.readTree(report.response().getBody());
+                assertThat(figures.get("confirmedCount").asInt()).isEqualTo(3);
+                assertThat(figures.get("checkedInCount").asInt()).isEqualTo(round + 1);
+                assertThat(
+                                JSON.readTree(list.response().getBody())
+                                        .get("page")
+                                        .get("totalElements")
+                                        .asInt())
+                        .isEqualTo(round + 1);
+                assertThat(paymentGatewayBreaker.getState())
+                        .as("none of them touched the circuit")
+                        .isEqualTo(state);
+            }
+            assertThat(gatewayCalls()).as("none of them called the gateway").isZero();
+        } finally {
+            checkIn.cleanUp();
+        }
+    }
+
+    private record Timed(ResponseEntity<String> response, Duration took) {}
+
+    private Timed timed(java.util.function.Supplier<ResponseEntity<String>> request) {
+        var started = System.nanoTime();
+        var response = request.get();
+        return new Timed(response, Duration.ofNanos(System.nanoTime() - started));
+    }
+
+    private ResponseEntity<String> bearerGet(String path, String token) {
+        var headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        return http.exchange(path, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+    }
+
+    private ResponseEntity<String> bearerPost(String path, String token, String body) {
+        var headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return http.exchange(path, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
     }
 
     private ResponseEntity<String> webhook(String body) {

@@ -29,6 +29,14 @@ export function WorkshopDetailPage() {
       <Link to="/workshops" className="text-sm text-muted-foreground hover:underline">
         ← Danh sách workshop
       </Link>
+      {session !== null && hasAnyPermission(session, [Permission.REPORT_VIEW]) && (
+        <Link
+          to={`/admin/workshops/${workshopId}/report`}
+          className="ml-4 text-sm text-muted-foreground hover:underline"
+        >
+          Xem báo cáo
+        </Link>
+      )}
       <WorkshopDetailView query={workshop}>
         <RegisterButton
           workshopId={workshopId}

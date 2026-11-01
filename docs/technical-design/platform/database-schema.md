@@ -299,6 +299,8 @@ A single table can satisfy one of these cleanly or the other, not both without t
 | `checked_in_at` | TIMESTAMPTZ | NOT NULL | Denormalized copy of the winning scan's `scanned_at`, so check-in-rate reports (§1.3.3) don't need to join `check_in_scans` for the common case. |
 | `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | `updated_at` changes when a later-arriving-but-earlier-timestamped scan overtakes the current winner. |
 
+**No `workshop_id` on purpose.** The workshop of an attendance is the workshop of its registration. The report and the attendance list of a workshop count and page `attendances` by the ids of that workshop's registrations, obtained through `registration.api` (`../modules/checkin.md` §10), rather than denormalising a second copy of the workshop onto this table.
+
 **Overtake logic — one transaction per registration, serialized, two tables** (Phase 5 checklist D52, replacing the two-statement form first written here, which let the first arrival win a tie and had no concurrency control): for each registration in a sync batch, in one transaction at the Master:
 1. `SELECT pg_advisory_xact_lock(hashtextextended(:registration_id::text, 0));` — serializes every reconciliation of this registration, across batches, devices and instances. Postgres only; never a Redis lock (check-in sync must keep working with Redis down, `../../testing/non-functional/resilience-testing.md` §2.3).
 2. Insert the batch's scans of this registration, `ON CONFLICT (id) DO NOTHING`.

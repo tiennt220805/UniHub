@@ -147,6 +147,11 @@ workshopAttendances:
       needs a different, not-yet-specified tool, not this reporting
       endpoint. Totals and the rate are not computed from this list:
       `getWorkshopReport` returns them. Read from a Replica.
+
+      Order: `checkedInAt` ascending, then `registrationId` ascending, so
+      a page boundary is stable and paging through every page shows each
+      row once. A `page` past the last is `200` with empty `items`, not
+      `400`.
     tags: [Check-in]
     x-required-permission: REPORT_VIEW
     parameters:

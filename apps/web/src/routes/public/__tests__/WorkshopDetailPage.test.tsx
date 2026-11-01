@@ -354,6 +354,36 @@ describe('WorkshopDetailPage: the register button', () => {
   })
 })
 
+describe('WorkshopDetailPage: the link to the report', () => {
+  it('offers the report to a session holding REPORT_VIEW, pointing at its page', async () => {
+    serveDetail(aWorkshop())
+    signInAs({ permissions: ['REPORT_VIEW'] })
+
+    renderRoute(`/workshops/${WORKSHOP_ID}`)
+
+    const link = await screen.findByRole('link', { name: 'Xem báo cáo' })
+    expect(link).toHaveAttribute('href', `/admin/workshops/${WORKSHOP_ID}/report`)
+  })
+
+  it('offers nothing to an anonymous visitor', async () => {
+    serveDetail(aWorkshop())
+
+    renderRoute(`/workshops/${WORKSHOP_ID}`)
+    await screen.findByRole('heading', { level: 1, name: 'Intro to Distributed Locks' })
+    expect(screen.queryByRole('link', { name: 'Xem báo cáo' })).not.toBeInTheDocument()
+  })
+
+  it('offers nothing to a session without REPORT_VIEW, whatever else it holds', async () => {
+    serveDetail(aWorkshop())
+    signInAs({ permissions: ['REGISTRATION_CREATE', 'WORKSHOP_EDIT'] })
+
+    renderRoute(`/workshops/${WORKSHOP_ID}`)
+
+    await screen.findByRole('heading', { level: 1, name: 'Intro to Distributed Locks' })
+    expect(screen.queryByRole('link', { name: 'Xem báo cáo' })).not.toBeInTheDocument()
+  })
+})
+
 describe('WorkshopDetailPage: a busy server (503) and a lost connection', () => {
   beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }))
   afterEach(() => vi.useRealTimers())

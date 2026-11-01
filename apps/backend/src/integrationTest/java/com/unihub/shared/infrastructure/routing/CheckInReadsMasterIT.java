@@ -5,8 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.unihub.registration.RegistrationFixtures;
 import com.unihub.registration.api.TicketLookup;
-import com.unihub.shared.infrastructure.ReplicaIntegrationTestSupport;
-import com.unihub.shared.security.TestJwts;
 import com.unihub.workshop.api.WorkshopSummaries;
 import com.unihub.workshop.application.port.out.WorkshopRepository;
 import java.util.List;
@@ -18,8 +16,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -30,18 +26,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * Replica really lags, and a control read proves it.
  */
 @SpringBootTest
-class CheckInReadsMasterIT extends ReplicaIntegrationTestSupport {
-
-    @DynamicPropertySource
-    static void properties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
-        registry.add(
-                "unihub.datasource.replica.url", ReplicaIntegrationTestSupport::replicaJdbcUrl);
-        registry.add("unihub.security.jwt.secret", () -> TestJwts.SECRET);
-        registry.add("unihub.jobs.idempotency-cleanup.enabled", () -> "false");
-    }
+class CheckInReadsMasterIT extends CheckInReplicaITSupport {
 
     @Autowired private TicketLookup tickets;
     @Autowired private WorkshopSummaries workshopSummaries;
