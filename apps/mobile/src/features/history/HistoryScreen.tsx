@@ -4,6 +4,7 @@ import { FlatList, StyleSheet, Text, View } from 'react-native'
 
 import { recentScans, type StoredScan } from '@/shared/db/scan-queue'
 import { useServices, useSession } from '@/shared/services/services'
+import { Screen } from '@/shared/ui/Screen'
 import { colors } from '@/shared/ui/theme'
 
 const OUTCOME_TEXT: Record<string, string> = {
@@ -40,7 +41,7 @@ export function HistoryScreen() {
   )
 
   return (
-    <View style={styles.container}>
+    <Screen style={styles.container}>
       <FlatList
         data={scans}
         keyExtractor={(scan) => scan.id}
@@ -57,7 +58,7 @@ export function HistoryScreen() {
           </View>
         )}
       />
-    </View>
+    </Screen>
   )
 }
 

@@ -8,6 +8,7 @@ import type { Db } from '@/shared/db/types'
 import { useServices, useSession } from '@/shared/services/services'
 import { type SyncOutcome, useSync } from '@/shared/sync'
 import { Button, Notice } from '@/shared/ui/components'
+import { Screen } from '@/shared/ui/Screen'
 import { colors } from '@/shared/ui/theme'
 
 import { clockTime, REJECTION_TEXT } from './messages'
@@ -64,7 +65,7 @@ export function ScanScreen() {
   )
 
   return (
-    <View style={styles.container}>
+    <Screen style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.room}>
           {room ? `${room.title} · ${room.location}` : 'Chưa chọn phòng'}
@@ -114,7 +115,7 @@ export function ScanScreen() {
         </Link>
         <SignOutButton />
       </View>
-    </View>
+    </Screen>
   )
 }
 
@@ -160,7 +161,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, gap: 12, padding: 16, backgroundColor: colors.background },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   room: { flex: 1, fontSize: 16, fontWeight: '600', color: colors.text },
-  link: { color: colors.primary, fontSize: 15 },
+  link: { color: colors.primary, fontSize: 16, paddingVertical: 10, paddingHorizontal: 8 },
   camera: { height: 320, borderRadius: 12, overflow: 'hidden' },
   gap: { gap: 8 },
   footer: { gap: 8 },

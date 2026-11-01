@@ -3,6 +3,7 @@ const preset = require('jest-expo/jest-preset')
 /** @type {import('jest').Config} */
 module.exports = {
   preset: 'jest-expo',
+  setupFiles: ['<rootDir>/jest.setup.js'],
   moduleNameMapper: { '^@/(.*)$': '<rootDir>/src/$1' },
   // The first React Native render of a file is slow on a cold CI runner (it took ~10 s emulated on amd64).
   testTimeout: 30_000,

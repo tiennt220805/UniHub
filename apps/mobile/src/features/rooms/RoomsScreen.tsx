@@ -1,9 +1,10 @@
 import { useRouter } from 'expo-router'
 import { useCallback, useEffect, useState } from 'react'
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
+import { FlatList, Pressable, StyleSheet, Text } from 'react-native'
 
 import { useServices } from '@/shared/services/services'
 import { Button, Notice } from '@/shared/ui/components'
+import { Screen } from '@/shared/ui/Screen'
 import { colors } from '@/shared/ui/theme'
 
 import { listRooms, refreshRooms, type Room, selectedRoom, selectRoom } from '@/shared/db/rooms'
@@ -34,7 +35,7 @@ export function RoomsScreen() {
   }, [load])
 
   return (
-    <View style={styles.container}>
+    <Screen style={styles.container}>
       {failed && (
         <Notice tone="warn">
           Không tải được danh sách phòng. Đang dùng danh sách đã lưu trên máy.
@@ -65,7 +66,7 @@ export function RoomsScreen() {
         onPress={() => void load()}
         disabled={loading}
       />
-    </View>
+    </Screen>
   )
 }
 

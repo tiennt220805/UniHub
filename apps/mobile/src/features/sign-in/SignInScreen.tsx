@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, StyleSheet, Text, TextInput } from 'react-native'
 
 import { env } from '@/shared/config/env'
 import { useServices, useSession } from '@/shared/services/services'
 import { Button, Notice } from '@/shared/ui/components'
+import { Screen } from '@/shared/ui/Screen'
 import { colors } from '@/shared/ui/theme'
 
 type Failure = 'BAD_CREDENTIALS' | 'NOT_STAFF' | 'UNAVAILABLE'
@@ -35,7 +36,7 @@ export function SignInScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <Screen style={styles.container}>
       <Text style={styles.title}>UniHub Check-in</Text>
       {expired && (
         <Notice tone="warn">
@@ -68,7 +69,7 @@ export function SignInScreen() {
         disabled={busy || !email || !password}
       />
       {busy && <ActivityIndicator />}
-    </View>
+    </Screen>
   )
 }
 
