@@ -95,6 +95,29 @@ jobs:
       - run: npm run lint
       - run: npm test
 
+  # The Check-in Client (apps/mobile, Phase 5 checklist D57, `docs/guidelines/mobile-coding-standards.md`).
+  # Independent of the backend jobs like `web`: typecheck, lint, Jest (jest-expo, better-sqlite3 for the
+  # durable-queue tests). No EAS build and no device here: the camera, Hermes and SecureStore are checked
+  # by hand on a phone and recorded in the Phase 5 evidence. schema.gen.ts is gitignored, so the types are
+  # generated first.
+  mobile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - run: npm ci
+      - run: npm run api:types
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
   # deployment-and-cicd.md §5 (Contract-Diff Mechanism ADR). All of the logic lives in the script, which a
   # developer runs unchanged locally (docs/testing/test-levels/contract-testing.md §2) — none of it is
   # repeated here. The script sets its own SPRING_DATASOURCE_URL default (generateOpenApiDocs needs a URL

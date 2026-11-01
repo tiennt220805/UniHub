@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "UniHub Check-in",
+    "slug": "unihub-checkin",
+    "version": "0.0.0",
+    "scheme": "unihub-checkin",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": { "supportsTablet": false, "bundleIdentifier": "vn.unihub.checkin" },
+    "android": { "package": "vn.unihub.checkin" },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      ["expo-camera", { "cameraPermission": "UniHub Check-in dùng camera để quét mã QR trên vé." }]
+    ],
+    "experiments": { "typedRoutes": true }
+  }
+}
