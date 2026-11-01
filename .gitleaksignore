@@ -2,3 +2,10 @@
 # UUID used as an Idempotency-Key in a unit test; the line was replaced by UUID.randomUUID() in the
 # next commit. CI scans full history, so the original commit stays flagged without this entry.
 eb4728414c64beba3fef26c84768888e1cb92e44:apps/backend/src/test/java/com/unihub/shared/application/usecase/IdempotentReplayTest.java:generic-api-key:25
+
+# Reviewed false positive, one exact finding. The "token" is a made-up compact JWS used as the QR payload
+# in a template unit test (`eyJhbGciOiJFUzI1NiJ9.<claims>.c2lnbmF0dXJl`: the third part is the word
+# "signature" in base64url): it signs nothing and matches no key. Added with the owner's approval,
+# 2026-11-01. CI scans the full history, so the commit that introduced the line stays flagged without
+# this entry. A new fixture of this shape should be built at run time (apps/mobile/src/testing/tickets.ts).
+ed7dd95041f3980f9ba7703a18cbff06459ba800:apps/backend/src/test/java/com/unihub/notification/infrastructure/out/template/NotificationTemplatesTest.java:jwt:216
