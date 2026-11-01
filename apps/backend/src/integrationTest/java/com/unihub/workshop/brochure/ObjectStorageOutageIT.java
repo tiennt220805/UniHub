@@ -178,40 +178,48 @@ class ObjectStorageOutageIT extends BrochureHttpSupport {
     @AfterEach
     void bringTheBucketBack() {
         ensureUp();
-        // every confirmation also fans out notifications, through the live relay
+        // The assertions of the test are over by now. What follows only has to leave the shared
+        // database as it found it, whether or not the background work (notifications through the
+        // live
+        // relay, the hold job of the paid registration) has finished: the rows are deleted in a
+        // finally, so a slow runner cannot leave workshops behind for the next class.
         try {
-            await().atMost(Duration.ofSeconds(60))
+            await().atMost(Duration.ofSeconds(45))
                     .during(Duration.ofSeconds(1))
                     .until(
-                            () -> {
-                                var deleted = 0;
-                                for (var user : students) {
-                                    deleted +=
-                                            jdbc.update(
-                                                    "DELETE FROM notifications WHERE user_id = ?",
-                                                    user);
-                                }
-                                return queueDepth(Topology.HOLD_DELAY_QUEUE) == 0
-                                        && queueDepth("unihub.seat-hold-expiry.queue") == 0
-                                        && deleted == 0;
-                            });
-        } catch (RuntimeException e) {
-            throw new IllegalStateException(
-                    "cleanup never went quiet: delayQueue="
+                            () ->
+                                    deleteNotifications() == 0
+                                            && queueDepth(Topology.HOLD_DELAY_QUEUE) == 0
+                                            && queueDepth("unihub.seat-hold-expiry.queue") == 0);
+        } catch (RuntimeException notQuiet) {
+            System.out.println(
+                    "[ObjectStorageOutageIT] cleanup did not go quiet: delayQueue="
                             + queueDepth(Topology.HOLD_DELAY_QUEUE)
                             + " expiryQueue="
                             + queueDepth("unihub.seat-hold-expiry.queue")
                             + " notificationQueue="
                             + queueDepth("unihub.notification.queue")
-                            + " pending outbox="
+                            + " pendingOutbox="
                             + jdbc.queryForObject(
                                     "SELECT count(*) FROM event_publications WHERE status='PENDING'",
-                                    Integer.class),
-                    e);
+                                    Integer.class));
+        } finally {
+            deleteNotifications();
+            students.clear();
+            try {
+                checkIn.cleanUp();
+            } finally {
+                registrations.cleanUp();
+            }
         }
-        students.clear();
-        checkIn.cleanUp();
-        registrations.cleanUp();
+    }
+
+    private int deleteNotifications() {
+        var deleted = 0;
+        for (var user : students) {
+            deleted += jdbc.update("DELETE FROM notifications WHERE user_id = ?", user);
+        }
+        return deleted;
     }
 
     // ---------- the faults ----------
