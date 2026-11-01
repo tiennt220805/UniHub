@@ -1,6 +1,6 @@
 import { Redirect, Stack } from 'expo-router'
 
-import { syncSources } from '@/app/create-services'
+import { syncSources } from '@/bootstrap/create-services'
 import { useSession } from '@/shared/services/services'
 import { SyncProvider } from '@/shared/sync'
 

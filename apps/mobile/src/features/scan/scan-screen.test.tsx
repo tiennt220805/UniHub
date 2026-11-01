@@ -5,7 +5,7 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react-native'
 import { selectRoom } from '@/shared/db/rooms'
 import { recentScans } from '@/shared/db/scan-queue'
 import { rooms } from '@/shared/db/schema'
-import { fakeApi } from '@/testing/fake-api'
+import { fakeApi, offline } from '@/testing/fake-api'
 import { makeHarness, renderWithServices, type Harness } from '@/testing/render-with-services'
 import { asVerificationKey, issueTicket, newTestKey } from '@/testing/tickets'
 
@@ -184,6 +184,25 @@ describe('signing out with scans queued', () => {
 })
 
 describe('the sync button', () => {
+  it('says plainly when the server could not be reached, and keeps the count', async () => {
+    const { api } = fakeApi({ sync: () => Promise.reject(offline()) })
+    harness = makeHarness({ key: asVerificationKey(key), api })
+    pickRoom(harness)
+    await renderWithServices(harness, <ScanScreen />)
+    await scan(issueTicket(key, { workshopId: ROOM }))
+
+    await fireEvent.press(screen.getByText('Đồng bộ ngay'))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('sync-status')).toHaveTextContent('Chưa gửi được', {
+        exact: false,
+      }),
+    )
+    expect(screen.getByLabelText('scans-pending').props.children.join('')).toContain(
+      '1 lần quét chờ gửi',
+    )
+  })
+
   it('sends the queue and the count drops to zero', async () => {
     const { api, batches } = fakeApi()
     harness = makeHarness({ key: asVerificationKey(key), api })

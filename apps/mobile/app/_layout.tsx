@@ -4,7 +4,7 @@ import { StatusBar } from 'expo-status-bar'
 import { useEffect, useState } from 'react'
 import { ActivityIndicator, View } from 'react-native'
 
-import { createServices } from '@/app/create-services'
+import { createServices } from '@/bootstrap/create-services'
 import {
   ServicesProvider,
   useServices,

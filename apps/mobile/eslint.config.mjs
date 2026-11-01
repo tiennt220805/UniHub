@@ -25,7 +25,7 @@ export default [
       'boundaries/legacy-templates': false,
       'boundaries/elements': [
         { type: 'route', pattern: 'app/**', partialMatch: false },
-        { type: 'app', pattern: 'src/app/**', partialMatch: false },
+        { type: 'bootstrap', pattern: 'src/bootstrap/**', partialMatch: false },
         { type: 'feature', pattern: 'src/features/*', capture: ['featureName'] },
         { type: 'shared', pattern: 'src/shared' },
         { type: 'testing', pattern: 'src/testing' },
@@ -38,13 +38,13 @@ export default [
         {
           default: 'disallow',
           policies: [
-            // app/ (the Expo Router files) → src/app, features (their index only), shared.
+            // app/ (the Expo Router files) → src/bootstrap, features (their index only), shared.
             {
               from: { element: { type: 'route' } },
-              allow: { to: [{ element: { types: { anyOf: ['app', 'shared'] } } }, featureIndex] },
+              allow: { to: [{ element: { types: { anyOf: ['bootstrap', 'shared'] } } }, featureIndex] },
             },
             {
-              from: { element: { type: 'app' } },
+              from: { element: { type: 'bootstrap' } },
               allow: { to: [{ element: { type: 'shared' } }, featureIndex] },
             },
             // A feature uses shared code and itself, never another feature.
@@ -71,7 +71,7 @@ export default [
             {
               from: { element: { type: 'testing' } },
               allow: {
-                to: [{ element: { types: { anyOf: ['app', 'shared', 'testing'] } } }, featureIndex],
+                to: [{ element: { types: { anyOf: ['bootstrap', 'shared', 'testing'] } } }, featureIndex],
               },
             },
             {

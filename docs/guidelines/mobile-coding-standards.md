@@ -6,7 +6,7 @@
 
 ## Rules at a Glance
 
-1. **Layers, one way:** `app/` (Expo Router files, thin) → `src/app/` (composition root) → `src/features/*` → `src/shared`. A feature imports `shared` and itself, never another feature; from outside a feature only its `index.ts`. Enforced by ESLint (`eslint.config.mjs`).
+1. **Layers, one way:** `app/` (Expo Router files, thin) → `src/bootstrap/` (composition root) → `src/features/*` → `src/shared`. A feature imports `shared` and itself, never another feature; from outside a feature only its `index.ts`. Enforced by ESLint (`eslint.config.mjs`).
 2. **Verifying a ticket never touches the network, and never throws.** `verifyTicket` (`shared/ticket`) and `processScan` (`features/scan`) are plain functions of their arguments. No `fetch`, no `crypto.subtle`, no native module. The global `fetch` is banned by lint everywhere except `src/shared/api`.
 3. **The algorithm is pinned in code, never read from the ticket.** ES256 only; the header's other members (`jwk`, `kid`, `jku`, `crit`) are never used to choose a key. One cached key, replaced — never two (`checkin.md` §6).
 4. **A scan is written to SQLite before any result is shown.** If the write fails the screen says so and never says "valid".
@@ -19,16 +19,16 @@
 
 ## 1. Stack
 
-| Concern | Choice | Why |
-|---|---|---|
-| Framework | Expo SDK 58 (`expo` 58.0.14), React Native 0.88.0, TypeScript strict | Runs in Expo Go on the owner's iPhone; no native build in Phase 5 |
-| Routing | Expo Router (files under `app/`) | The standard for the SDK |
-| Local database | `expo-sqlite` + Drizzle ORM, hand-written forward-only migrations (`src/shared/db/migrate.ts`, `PRAGMA user_version`) | The durable queue must survive a restart (`architecture.md` §5.3) |
-| Secrets | `expo-secure-store` | Hardware-backed keystore |
-| Camera | `expo-camera`, QR only | |
-| Signature check | `@noble/curves` (P-256) — pure JavaScript | Hermes has no `crypto.subtle`; one code path on the phone and in Jest (checklist D58; `checkin.md` §6) |
-| State | Zustand (the session), React state for the rest; TanStack Query is installed for server reads and unused until a read needs it | Same stack as the Web |
-| Tests | Jest + `jest-expo` + React Native Testing Library; durable-queue tests on a real SQLite **file** via `better-sqlite3` | D57, D58 |
+| Concern         | Choice                                                                                                                         | Why                                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| Framework       | Expo SDK 58 (`expo` 58.0.14), React Native 0.88.0, TypeScript strict                                                           | Runs in Expo Go on the owner's iPhone; no native build in Phase 5                                      |
+| Routing         | Expo Router (files under `app/`)                                                                                               | The standard for the SDK                                                                               |
+| Local database  | `expo-sqlite` + Drizzle ORM, hand-written forward-only migrations (`src/shared/db/migrate.ts`, `PRAGMA user_version`)          | The durable queue must survive a restart (`architecture.md` §5.3)                                      |
+| Secrets         | `expo-secure-store`                                                                                                            | Hardware-backed keystore                                                                               |
+| Camera          | `expo-camera`, QR only                                                                                                         |                                                                                                        |
+| Signature check | `@noble/curves` (P-256) — pure JavaScript                                                                                      | Hermes has no `crypto.subtle`; one code path on the phone and in Jest (checklist D58; `checkin.md` §6) |
+| State           | Zustand (the session), React state for the rest; TanStack Query is installed for server reads and unused until a read needs it | Same stack as the Web                                                                                  |
+| Tests           | Jest + `jest-expo` + React Native Testing Library; durable-queue tests on a real SQLite **file** via `better-sqlite3`          | D57, D58                                                                                               |
 
 `expo` is pinned to **58.0.14**, not the first two-weeks-old 58.x (58.0.10): that one still pinned a React Native release candidate (0.88.0-rc.4), while Expo Go from the App Store runs the stable native runtime; 58.0.11 onward pin 0.88.0 (stable since 2026-10-15). `.npmrc` sets `legacy-peer-deps`: the SDK's packages declare optional peers (`react-dom`, `react-native-web`, `@expo/dom-webview` …) a native-only app does not install, and without the flag npm resolves the tree in a way that leaves `babel-preset-expo` out. `npx expo-doctor` passes 20/20.
 
@@ -36,11 +36,13 @@
 
 ```
 app/                    Expo Router files: one line each, re-exporting a screen
-src/app/                composition root: real database, keystore, network, clock (create-services.ts)
+src/bootstrap/          composition root: real database, keystore, network, clock (create-services.ts)
 src/features/<name>/    scan, sign-in, rooms, history: screens and the logic only they use; index.ts is the API
 src/shared/             api, auth (session, key, device id), crypto, db (schema, queue, rooms), secure, services, sync, ticket, ui, lib
 src/testing/            fixtures: signing test tickets, a real SQLite file, fakes (only test files import it)
 ```
+
+The composition root is **not** called `src/app`: Expo Router treats `src/app` as the routes directory when it exists and would ignore `app/` (found 2026-11-01 the first time the dev server started; Jest cannot see it).
 
 Anything two features need lives in `shared`. The scan queue repository, the session, the sync engine and the ticket verifier are in `shared` for that reason.
 
@@ -63,8 +65,8 @@ Anything two features need lives in `shared`. The scan queue repository, the ses
 
 ## 5. Open items
 
-| # | Item | Status |
-|---|---|---|
-| 1 | `crypto.subtle` on Hermes / `jose` (spike S1) | Not run on a device. The verifier does not depend on it (rule 2). If it did work, `jose` would still not be adopted: one pure-JS path is the point |
-| 2 | Expo Go supports one SDK at a time | When Expo Go moves past SDK 58 the app upgrades or becomes a development build |
-| 3 | Plain-HTTP access to a LAN address from Expo Go | To be confirmed on the phone (the API base URL is `http://<LAN address>:8080`) |
+| #   | Item                                            | Status                                                                                                                                             |
+| --- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `crypto.subtle` on Hermes / `jose` (spike S1)   | Not run on a device. The verifier does not depend on it (rule 2). If it did work, `jose` would still not be adopted: one pure-JS path is the point |
+| 2   | Expo Go supports one SDK at a time              | When Expo Go moves past SDK 58 the app upgrades or becomes a development build                                                                     |
+| 3   | Plain-HTTP access to a LAN address from Expo Go | To be confirmed on the phone (the API base URL is `http://<LAN address>:8080`)                                                                     |

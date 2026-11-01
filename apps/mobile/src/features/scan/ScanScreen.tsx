@@ -6,7 +6,7 @@ import { StyleSheet, Text, View } from 'react-native'
 import { type Room, selectedRoom } from '@/shared/db/rooms'
 import type { Db } from '@/shared/db/types'
 import { useServices, useSession } from '@/shared/services/services'
-import { useSync } from '@/shared/sync'
+import { type SyncOutcome, useSync } from '@/shared/sync'
 import { Button, Notice } from '@/shared/ui/components'
 import { colors } from '@/shared/ui/theme'
 
@@ -101,6 +101,9 @@ export function ScanScreen() {
           {sync.pending} lần quét chờ gửi
           {sync.pendingOfOthers > 0 ? ` · ${sync.pendingOfOthers} của người khác` : ''}
         </Text>
+        {sync.lastOutcome && (
+          <Text accessibilityLabel="sync-status">{syncText(sync.lastOutcome)}</Text>
+        )}
         <Button
           label={sync.syncing ? 'Đang đồng bộ…' : 'Đồng bộ ngay'}
           onPress={() => void sync.syncNow()}
@@ -113,6 +116,21 @@ export function ScanScreen() {
       </View>
     </View>
   )
+}
+
+function syncText(outcome: SyncOutcome): string {
+  switch (outcome.kind) {
+    case 'SYNCED':
+      return `Đã gửi ${outcome.left} lần quét lên máy chủ.`
+    case 'NOTHING_TO_SYNC':
+      return 'Không có lần quét nào cần gửi.'
+    case 'FAILED':
+      return 'Chưa gửi được (không kết nối được máy chủ). Các lần quét vẫn được giữ trên máy.'
+    case 'SESSION_EXPIRED':
+      return 'Phiên đăng nhập đã hết hạn.'
+    case 'ALREADY_RUNNING':
+      return 'Đang đồng bộ.'
+  }
 }
 
 function ResultCard({ result }: { result: ScanOutcome }) {
