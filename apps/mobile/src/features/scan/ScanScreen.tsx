@@ -1,5 +1,5 @@
 import { CameraView, useCameraPermissions } from 'expo-camera'
-import { Link, useFocusEffect } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useRef, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
@@ -34,6 +34,7 @@ export function ScanScreen() {
   const deviceId = useSession((state) => state.deviceId)
   const staffUserId = useSession((state) => state.session?.user.id ?? null)
   const sync = useSync()
+  const router = useRouter()
   const [permission, requestPermission] = useCameraPermissions()
   const [result, setResult] = useState<ScanOutcome | null>(null)
   const last = useRef<{ data: string; at: number } | null>(null)
@@ -70,9 +71,6 @@ export function ScanScreen() {
         <Text style={styles.room}>
           {room ? `${room.title} · ${room.location}` : 'Chưa chọn phòng'}
         </Text>
-        <Link href="/rooms" style={styles.link}>
-          {room ? 'Đổi phòng' : 'Chọn phòng'}
-        </Link>
       </View>
 
       {key === null ? (
@@ -98,6 +96,13 @@ export function ScanScreen() {
       {result && <ResultCard result={result} />}
 
       <View style={styles.footer}>
+        <Button
+          label={room ? 'Đổi phòng' : 'Chọn phòng'}
+          variant="outline"
+          onPress={() => {
+            router.push('/rooms')
+          }}
+        />
         <Text accessibilityLabel="scans-pending">
           {sync.pending} lần quét chờ gửi
           {sync.pendingOfOthers > 0 ? ` · ${sync.pendingOfOthers} của người khác` : ''}
@@ -110,9 +115,13 @@ export function ScanScreen() {
           onPress={() => void sync.syncNow()}
           disabled={sync.syncing}
         />
-        <Link href="/history" style={styles.link}>
-          Lịch sử quét
-        </Link>
+        <Button
+          label="Lịch sử quét"
+          variant="outline"
+          onPress={() => {
+            router.push('/history')
+          }}
+        />
         <SignOutButton />
       </View>
     </Screen>
