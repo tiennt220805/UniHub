@@ -30,6 +30,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.testcontainers.rabbitmq.RabbitMQContainer;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
@@ -43,6 +44,19 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
  */
 public abstract class BrochureITSupport extends IntegrationTestSupport {
     protected static final String SUMMARIZE = "/v1/summarize";
+
+    // The retry stages of these tests are 0.3 s, not 5 s. Queue arguments cannot change once a
+    // queue
+    // exists, so that chain cannot be declared on the broker every other class shares (a class that
+    // came after would fail with PRECONDITION_FAILED on `unihub.*.retry.5s`): a RabbitMQ of their
+    // own, as ShortChainITSupport has for the seat-hold chain.
+    private static final RabbitMQContainer SHORT_BROKER =
+            new RabbitMQContainer("rabbitmq:3.13.7-management");
+
+    static {
+        SHORT_BROKER.start();
+    }
+
     protected static final byte[] A_PDF =
             "%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF"
                     .getBytes(StandardCharsets.US_ASCII);
@@ -66,6 +80,10 @@ public abstract class BrochureITSupport extends IntegrationTestSupport {
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("unihub.security.jwt.secret", () -> TestJwts.SECRET);
+        registry.add("spring.rabbitmq.host", SHORT_BROKER::getHost);
+        registry.add("spring.rabbitmq.port", SHORT_BROKER::getAmqpPort);
+        registry.add("spring.rabbitmq.username", SHORT_BROKER::getAdminUsername);
+        registry.add("spring.rabbitmq.password", SHORT_BROKER::getAdminPassword);
         registry.add("spring.rabbitmq.listener.simple.auto-startup", () -> "true");
         registry.add("unihub.messaging.retry-delays", () -> "PT0.3S,PT0.3S,PT0.3S");
         registry.add("unihub.ai-summarization.base-url", () -> "http://localhost:" + ai.port());
@@ -90,8 +108,17 @@ public abstract class BrochureITSupport extends IntegrationTestSupport {
     public record Brochure(UUID workshop, String key) {}
 
     @BeforeEach
-    void resetAi() {
+    void resetAiAndEmptyTheShortBroker() {
         ai.resetAll();
+        // Declared by the application on first use; purging a queue it has not declared yet fails.
+        rabbit.execute(
+                channel -> {
+                    channel.queueDeclarePassive(Topology.PARKING_LOT);
+                    return null;
+                });
+        Topology.declarables()
+                .getDeclarablesByType(org.springframework.amqp.core.Queue.class)
+                .forEach(q -> amqpAdmin.purgeQueue(q.getName()));
     }
 
     @AfterEach

@@ -392,6 +392,24 @@ class ArchitectureTest {
                             "the EC key and ECDSA signer types are used only in"
                                     + " registration.infrastructure.out.crypto (D47)");
 
+    /**
+     * The only module allowed to reach object storage is Workshop, and only through its own {@code
+     * BrochureStorage} port (architecture.md §2.3; workshop.md §4): the AWS SDK appears in {@code
+     * workshop.infrastructure} and nowhere else, so no other module can write to the bucket and no
+     * use case can depend on SDK types.
+     */
+    @ArchTest
+    static final ArchRule aws_sdk_is_used_only_in_workshop_infrastructure =
+            noClasses()
+                    .that()
+                    .resideOutsideOfPackage("com.unihub.workshop.infrastructure..")
+                    .should()
+                    .dependOnClassesThat()
+                    .resideInAPackage("software.amazon.awssdk..")
+                    .as(
+                            "the AWS SDK is used only in workshop.infrastructure (the one module that"
+                                    + " owns object storage)");
+
     /** What crosses the module boundary is plain values: {@code api} depends on no JOSE type. */
     @ArchTest
     static final ArchRule registration_api_depends_on_no_jose_library =
