@@ -41,7 +41,9 @@ export default [
             // app/ (the Expo Router files) → src/bootstrap, features (their index only), shared.
             {
               from: { element: { type: 'route' } },
-              allow: { to: [{ element: { types: { anyOf: ['bootstrap', 'shared'] } } }, featureIndex] },
+              allow: {
+                to: [{ element: { types: { anyOf: ['bootstrap', 'shared'] } } }, featureIndex],
+              },
             },
             {
               from: { element: { type: 'bootstrap' } },
@@ -71,7 +73,10 @@ export default [
             {
               from: { element: { type: 'testing' } },
               allow: {
-                to: [{ element: { types: { anyOf: ['bootstrap', 'shared', 'testing'] } } }, featureIndex],
+                to: [
+                  { element: { types: { anyOf: ['bootstrap', 'shared', 'testing'] } } },
+                  featureIndex,
+                ],
               },
             },
             {
