@@ -236,3 +236,7 @@ Người chạy: Nguyễn Thành Tiến, iPhone (model, iOS và phiên bản Exp
 **Đã sửa (cùng ngày):** `features/scan/sightings.ts` nhớ **từng mã riêng**, và mỗi lần camera báo lại một mã thì làm mới thời điểm của mã đó; một mã chỉ được tính là lần quét mới khi camera đã không báo nó trong 2,5 giây (dời khỏi khung rồi đưa lại). `sightings.test.ts` (8 ca: một mã giữ nguyên trong khung 30 giây là một lần quét; hai mã xen kẽ 200 lần báo là 2 lần quét; bốn mã cùng trong khung là 4 lần quét; biên đúng 2,5 giây; không phình bộ nhớ) và một ca ở `scan-screen.test.tsx` (40 lần báo xen kẽ hai mã → đúng 2 dòng). Đột biến "chỉ nhớ mã cuối" làm 3 ca đỏ. Trang QR đã đổi thành **một mã mỗi lúc** (phím ← →) để lần chạy lại không tái hiện lỗi này.
 
 Các dòng đã ghi trong DB (163) được giữ làm bằng chứng của lần chạy đầu, chưa xóa.
+
+### Quyết định của chủ dự án
+
+2026-11-01, Nguyễn Thành Tiến: các mục 8.0, 8.3, 8.5, 8.6 được tick theo báo cáo "đã đạt" trên iPhone, **không chạy lại** và **không bổ sung bằng chứng** cho các hàng ghi "Không có bằng chứng" hoặc "Chỉ có lời báo" ở bảng trên. Các khoảng trống đó được chuyển sang `phase-5.md` §5 (Known Gaps) khi ký, không bị xóa khỏi tài liệu này.
