@@ -14,8 +14,9 @@ import { formatDateTime } from '@/shared/lib/format'
 
 const PATH = `/me/registrations/${REGISTRATION_ID}`
 
-// A compact JWS has the shape of a real ticket: three base64url parts, 260 characters (checkin.md §5).
-const QR_PAYLOAD = `eyJhbGciOiJFUzI1NiJ9.${'p'.repeat(136)}.${'s'.repeat(86)}`
+// The size of a real ticket: three base64url parts of 20, 152 and 86 characters, 260 in all
+// (checkin.md §5, pinned by NimbusEs256TicketSignerTest).
+const QR_PAYLOAD = `eyJhbGciOiJFUzI1NiJ9.${'p'.repeat(152)}.${'s'.repeat(86)}`
 const TICKET_CODE = '0123456789ABCDEFGHJKMNPQRS'
 
 const serveRegistration = (registration: ReturnType<typeof aRegistration>) =>
@@ -47,6 +48,8 @@ describe('RegistrationTicketPage', () => {
     renderRoute(PATH)
 
     const qr = await screen.findByRole('img', { name: 'Mã QR e-ticket' })
+    // 260 characters at level Q is version 15, 77 modules, plus a quiet zone of 4 on each side.
+    expect(qr).toHaveAttribute('viewBox', '0 0 85 85')
     const drawn = modulesOf(qr)
     expect(drawn).toBeTruthy()
     // The same symbol, drawn by the same library for the payload: equal for the payload, different

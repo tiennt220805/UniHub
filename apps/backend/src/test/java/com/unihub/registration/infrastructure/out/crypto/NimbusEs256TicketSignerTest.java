@@ -117,6 +117,22 @@ class NimbusEs256TicketSignerTest {
     }
 
     @Test
+    @DisplayName(
+            "every issued ticket is 260 characters: 20 + 152 + 86 (checkin.md section 5, QR version 15 at level Q)")
+    void ticket_isAlways260Characters() {
+        // The size the Web e-ticket page and checkin.md section 5 rely on. If the claim set or the
+        // code length changes, this fails and that document changes with it.
+        for (int i = 0; i < 50; i++) {
+            var parts = signer.issue(WORKSHOP, ISSUED.plusSeconds(i)).qrPayload().split("\\.");
+
+            assertThat(parts).hasSize(3);
+            assertThat(parts[0]).hasSize(20);
+            assertThat(parts[1]).hasSize(152);
+            assertThat(parts[2]).hasSize(86);
+        }
+    }
+
+    @Test
     @DisplayName("AC47.2: the public key has kty, crv, x and y, built from the key's own x and y")
     void publicKey_hasExactlyTheFourMembers() throws ParseException {
         var published = signer.publicKey();
