@@ -5,6 +5,7 @@ import com.unihub.checkin.domain.model.ScanId;
 import com.unihub.shared.domain.id.WorkshopId;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * One scan of a sync batch, as the device queued it (checkin.md §7).
@@ -21,6 +22,27 @@ public record ScanSubmission(
         WorkshopId venue,
         Instant scannedAt,
         String deviceId) {
+
+    /**
+     * For the web layer, which may not name domain types: the verdict as the contract spells it.
+     *
+     * @throws IllegalArgumentException for an unknown verdict, or a verified scan without a code
+     */
+    public static ScanSubmission of(
+            UUID id,
+            String verdict,
+            String ticketCode,
+            UUID venue,
+            Instant scannedAt,
+            String deviceId) {
+        return new ScanSubmission(
+                new ScanId(id),
+                DeviceVerdict.valueOf(verdict),
+                ticketCode,
+                WorkshopId.of(venue),
+                scannedAt,
+                deviceId);
+    }
 
     public ScanSubmission {
         Objects.requireNonNull(id);
