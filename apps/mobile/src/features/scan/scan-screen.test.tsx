@@ -140,6 +140,22 @@ describe('the scan screen (M-43, M-44, AC59.1)', () => {
     expect(recentScans(harness.services.db)).toHaveLength(1)
   })
 
+  it('two codes in frame, reported alternately, are one record each, not one per report', async () => {
+    let clock = new Date('2026-11-01T02:00:00.000Z')
+    harness = makeHarness({ key: asVerificationKey(key), clock: () => clock })
+    pickRoom(harness)
+    await renderWithServices(harness, <ScanScreen />)
+    const a = issueTicket(key, { workshopId: ROOM })
+    const b = issueTicket(key, { workshopId: ROOM })
+
+    for (let i = 0; i < 40; i++) {
+      clock = new Date(clock.getTime() + 100)
+      await scan(i % 2 === 0 ? a : b)
+    }
+
+    expect(recentScans(harness.services.db)).toHaveLength(2)
+  })
+
   it('never shows a ticket as valid when the scan could not be saved', async () => {
     harness = makeHarness({ key: asVerificationKey(key) })
     pickRoom(harness)

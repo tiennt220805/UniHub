@@ -13,11 +13,10 @@ import { colors } from '@/shared/ui/theme'
 
 import { clockTime, REJECTION_TEXT } from './messages'
 import { processScan, type ScanOutcome } from './scan-flow'
+import { createSightings } from './sightings'
 import { SignOutButton } from './SignOutButton'
 
-// The camera reports the same code many times a second while it stays in frame: one physical scan is
-// one record. Holding the same code in front of it longer than this counts as a second scan, which
-// is exactly what the "already scanned" warning is for.
+// How long a code must be out of the camera's reports before it counts as a new scan (`sightings.ts`).
 const SAME_CODE_COOLDOWN_MS = 2_500
 
 function readRoom(db: Db): Room | undefined {
@@ -37,7 +36,7 @@ export function ScanScreen() {
   const router = useRouter()
   const [permission, requestPermission] = useCameraPermissions()
   const [result, setResult] = useState<ScanOutcome | null>(null)
-  const last = useRef<{ data: string; at: number } | null>(null)
+  const isNewScan = useRef(createSightings(SAME_CODE_COOLDOWN_MS))
   // The room is picked on another screen: read it again whenever this one comes back into focus,
   // not on every render, so an unreadable database cannot break the screen showing why.
   const [room, setRoom] = useState<Room | undefined>(() => readRoom(db))
@@ -49,14 +48,7 @@ export function ScanScreen() {
     ({ data }: { data: string }) => {
       if (!canScan) return
       const at = now().getTime()
-      if (
-        last.current &&
-        last.current.data === data &&
-        at - last.current.at < SAME_CODE_COOLDOWN_MS
-      ) {
-        return
-      }
-      last.current = { data, at }
+      if (!isNewScan.current(data, at)) return
       setResult(
         processScan({ db, key, deviceId, staffUserId, roomWorkshopId: room.id, now, newId }, data),
       )

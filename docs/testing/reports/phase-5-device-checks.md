@@ -211,3 +211,28 @@ Gửi kèm ảnh chụp màn hình cho bất kỳ bước nào không đạt.
 - Bản dựng độc lập (EAS preview, TestFlight): không thuộc Phase 5.
 - Chế độ máy bay thật + tắt app + mở lại: không làm được, vì Expo Go cần máy chủ phát triển (Metro) để mở lại app. Vì thế phần "tắt app" (Phần 3) dùng cách tắt **backend** chứ không tắt Wi-Fi; "không có mạng thật" được kiểm riêng ở 2.6–2.10 (app đang mở).
 - Hết hạn token sau khi tắt backend: đã có test tự động, không lặp lại tay.
+
+---
+
+## Kết quả đã nhận (2026-11-01)
+
+Người chạy: Nguyễn Thành Tiến, iPhone (model, iOS và phiên bản Expo Go: **chưa ghi**, cần điền vào bảng "Môi trường"). Báo cáo bằng lời: "các mục còn lại đã đạt". Phần dưới là những gì **cơ sở dữ liệu của server** (`results.sh`) chứng minh, đối chiếu với kỳ vọng:
+
+| Điều cần chứng minh | Bằng chứng trong DB | Kết luận |
+|---|---|---|
+| iPhone (Hermes) xác minh được vé thật do bộ ký Java phát hành, offline (S1) | Server nhận scan `VERIFIED` của A-1, A-2 và ghi `ACCEPTED` ×2, mỗi vé một dòng `attendances` | **Có bằng chứng** |
+| Vé giả (GIẢ) và mã lạ (LẠ) bị nhận ra trên máy và vẫn được ghi lại | 18 dòng `REJECTED_INVALID` **không gắn đăng ký nào** | **Có bằng chứng** |
+| Vé của đăng ký đã hủy (A-3) và vé sai phòng (B-1) bị server từ chối | A-3 (`0FTH9QXX…`) và B-1 (`52VNS348…`) đều `REJECTED_INVALID` | **Có bằng chứng** |
+| Quét lặp cùng vé: chỉ một lần thắng | `attendances` đúng **2** dòng; mọi lần quét A-1/A-2 sau lần đầu là `REJECTED_DUPLICATE` | **Có bằng chứng** |
+| Đồng bộ một lần sau khi có lại máy chủ | Mọi 163 dòng có cùng `received_at` 21:48:43, một `device_id`, `scanned_at` là giờ quét trên máy (21:47–21:48) | **Có bằng chứng** |
+| Tắt app rồi mở lại không mất scan (S2) | Chỉ có thể thấy qua việc scan sau khi mở lại vẫn được đồng bộ; DB không phân biệt được | **Chỉ có lời báo của người chạy** |
+| Hai nhân viên dùng chung điện thoại (Phần 5, D53) | **Không có dòng nào của Dev Check-in Staff 2**; mọi 163 dòng là của Staff 1 | **Không có bằng chứng**: nếu Phần 5 đã chạy thì scan của Staff 2 phải có ở đây. Cần xác nhận lại |
+| Phiên hết hạn sau 30 phút (Phần 6, tùy chọn) | Không quan sát được từ DB | Chưa có bằng chứng |
+
+### Lỗi tìm thấy nhờ lần chạy thật
+
+**163 lần quét thay vì khoảng 10.** Trang QR trên Mac lúc đó hiển thị nhiều mã cùng lúc nên camera thấy A-1, A-2 và các mã khác **xen kẽ** trong khung hình. Cơ chế chống lặp của app chỉ so với **mã vừa quét liền trước**, nên khi các mã xen kẽ nhau thì mỗi lần camera báo đều bị tính là một lần quét mới (A-1: 74 dòng, A-2: 65 dòng, GIẢ/LẠ: 18 dòng). Hậu quả với dữ liệu: server vẫn quyết định đúng (2 `ACCEPTED`, 2 `attendances`) nhưng nhật ký check-in đầy bản ghi trùng.
+
+**Đã sửa (cùng ngày):** `features/scan/sightings.ts` nhớ **từng mã riêng**, và mỗi lần camera báo lại một mã thì làm mới thời điểm của mã đó; một mã chỉ được tính là lần quét mới khi camera đã không báo nó trong 2,5 giây (dời khỏi khung rồi đưa lại). `sightings.test.ts` (8 ca: một mã giữ nguyên trong khung 30 giây là một lần quét; hai mã xen kẽ 200 lần báo là 2 lần quét; bốn mã cùng trong khung là 4 lần quét; biên đúng 2,5 giây; không phình bộ nhớ) và một ca ở `scan-screen.test.tsx` (40 lần báo xen kẽ hai mã → đúng 2 dòng). Đột biến "chỉ nhớ mã cuối" làm 3 ca đỏ. Trang QR đã đổi thành **một mã mỗi lúc** (phím ← →) để lần chạy lại không tái hiện lỗi này.
+
+Các dòng đã ghi trong DB (163) được giữ làm bằng chứng của lần chạy đầu, chưa xóa.
