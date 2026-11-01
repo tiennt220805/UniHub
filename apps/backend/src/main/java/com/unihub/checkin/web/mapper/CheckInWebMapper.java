@@ -4,12 +4,14 @@ import com.unihub.checkin.application.command.ScanSubmission;
 import com.unihub.checkin.application.command.SyncScanBatchCommand;
 import com.unihub.checkin.application.result.ScanResult;
 import com.unihub.checkin.application.result.SyncScanBatchResult;
+import com.unihub.checkin.application.result.VerificationKeyResult;
 import com.unihub.checkin.web.dto.CheckInScanOutcome;
 import com.unihub.checkin.web.dto.DeviceVerdict;
 import com.unihub.checkin.web.dto.ScanEvent;
 import com.unihub.checkin.web.dto.ScanSyncResult;
 import com.unihub.checkin.web.dto.SyncScanBatchRequest;
 import com.unihub.checkin.web.dto.SyncScanBatchResponse;
+import com.unihub.checkin.web.dto.VerificationKeyResponse;
 import com.unihub.shared.security.Actor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -57,6 +59,10 @@ public final class CheckInWebMapper {
     public static SyncScanBatchResponse toResponse(SyncScanBatchResult result) {
         return new SyncScanBatchResponse(
                 result.results().stream().map(CheckInWebMapper::toResult).toList());
+    }
+
+    public static VerificationKeyResponse toResponse(VerificationKeyResult key) {
+        return new VerificationKeyResponse(key.kty(), key.crv(), key.x(), key.y());
     }
 
     private static ScanSyncResult toResult(ScanResult result) {

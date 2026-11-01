@@ -9,13 +9,15 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Describes, in the generated OpenAPI spec, how {@code ScanEvent.ticketCode} depends on {@code
- * deviceVerdict}, which the contract states with JSON Schema {@code if/then/else}
- * (packages/api-contract/schemas/checkin.yaml, Phase 5 checklist D50): a {@code VERIFIED} scan
- * carries a string of 1 to 64 characters, a {@code REJECTED_SIGNATURE} one carries anything and the
- * server ignores it. Bean Validation cannot emit that, and the property is a {@code JsonNode} in
- * Java (any JSON value must bind), so this also stops it from being described as an object. The
- * rule itself is enforced by the web mapper; contract-diff then proves this equals the contract's.
+ * Describes, in the generated OpenAPI spec, what annotations cannot say. First, how {@code
+ * ScanEvent.ticketCode} depends on {@code deviceVerdict}, which the contract states with JSON
+ * Schema {@code if/then/else} (packages/api-contract/schemas/checkin.yaml, Phase 5 checklist D50):
+ * a {@code VERIFIED} scan carries a string of 1 to 64 characters, a {@code REJECTED_SIGNATURE} one
+ * carries anything and the server ignores it. Bean Validation cannot emit that, and the property is
+ * a {@code JsonNode} in Java (any JSON value must bind), so this also stops it from being described
+ * as an object. The rule itself is enforced by the web mapper; contract-diff then proves this
+ * equals the contract's. Second, that {@code VerificationKeyResponse.kty} and {@code crv} are the
+ * constants {@code EC} and {@code P-256} (checkin.md §6).
  */
 @Configuration
 class CheckInOpenApiConfig {
@@ -43,6 +45,25 @@ class CheckInOpenApiConfig {
             scanEvent.setIf(whenVerified);
             scanEvent.setThen(thenSchema);
         };
+    }
+
+    @Bean
+    OpenApiCustomizer verificationKeyConstants() {
+        return openApi -> {
+            var key = openApi.getComponents().getSchemas().get("VerificationKeyResponse");
+            if (key == null) {
+                return;
+            }
+            key.addProperty("kty", constant("EC", "string"));
+            key.addProperty("crv", constant("P-256", "string"));
+        };
+    }
+
+    private static Schema<?> constant(Object value, String type) {
+        var schema = new JsonSchema();
+        schema.setTypes(Set.of(type));
+        schema.setConst(value);
+        return schema;
     }
 
     private static Schema<?> constant(Object value) {

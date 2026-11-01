@@ -6,14 +6,17 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.unihub.checkin.application.command.SyncScanBatchCommand;
+import com.unihub.checkin.application.port.in.GetVerificationKeyUseCase;
 import com.unihub.checkin.application.port.in.SyncScanBatchUseCase;
 import com.unihub.checkin.application.result.ScanResult;
 import com.unihub.checkin.application.result.SyncScanBatchResult;
+import com.unihub.checkin.application.result.VerificationKeyResult;
 import com.unihub.checkin.domain.model.DeviceVerdict;
 import com.unihub.checkin.domain.model.ScanId;
 import com.unihub.checkin.domain.model.ScanOutcome;
@@ -38,9 +41,10 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * Web slice for {@code syncScanBatch} (Phase 5 checklist task 3.5; D50, D53, D54): the batch
- * bounds, which scans fail the batch and which never do, the caller always from the token, and the
- * permission. The business behaviour is the use case's, tested apart.
+ * Web slice for {@code syncScanBatch} and {@code getVerificationKey} (Phase 5 checklist tasks 3.5,
+ * 4.1; D50, D53, D54): the batch bounds, which scans fail the batch and which never do, the caller
+ * always from the token, and the permission. The business behaviour is the use case's, tested
+ * apart.
  */
 @WebMvcTest(CheckInController.class)
 @Import(SecurityConfig.class)
@@ -53,6 +57,7 @@ class CheckInControllerWebTest {
     @Autowired private MockMvc mockMvc;
 
     @MockBean private SyncScanBatchUseCase syncScanBatch;
+    @MockBean private GetVerificationKeyUseCase verificationKey;
 
     @BeforeEach
     void echoOutcomes() {
@@ -334,5 +339,51 @@ class CheckInControllerWebTest {
                 .andExpect(jsonPath("$.results[0].id").value(id.toString()))
                 .andExpect(jsonPath("$.results[0].outcome").value("REJECTED_DUPLICATE"))
                 .andExpect(jsonPath("$.results[0].ticketCode").doesNotExist());
+    }
+
+    // ---------- the verification key (task 4.1, M-48) ----------
+
+    private static final String KEY_URL = "/api/v1/checkin/verification-key";
+
+    private org.springframework.test.web.servlet.ResultActions fetchKey(String token)
+            throws Exception {
+        var request = get(KEY_URL);
+        if (token != null) {
+            request.header("Authorization", token);
+        }
+        return mockMvc.perform(request);
+    }
+
+    @Test
+    @DisplayName("the key: CHECKIN_SCAN gets exactly kty, crv, x, y")
+    void verificationKey_hasExactlyTheFourPublicMembers() throws Exception {
+        when(verificationKey.current())
+                .thenReturn(new VerificationKeyResult("EC", "P-256", "X", "Y"));
+
+        fetchKey(staffToken())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.kty").value("EC"))
+                .andExpect(jsonPath("$.crv").value("P-256"))
+                .andExpect(jsonPath("$.x").value("X"))
+                .andExpect(jsonPath("$.y").value("Y"))
+                .andExpect(jsonPath("$.length()").value(4));
+    }
+
+    @Test
+    @DisplayName("the key: no token is 401 and the use case is never reached")
+    void verificationKey_noToken_is401() throws Exception {
+        fetchKey(null).andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(verificationKey);
+    }
+
+    @Test
+    @DisplayName("the key: a token without CHECKIN_SCAN is 403 and the use case is never reached")
+    void verificationKey_withoutPermission_is403() throws Exception {
+        fetchKey("Bearer " + TestJwts.valid(STAFF, "REGISTRATION_CREATE"))
+                .andExpect(status().isForbidden());
+        fetchKey("Bearer " + TestJwts.valid(STAFF)).andExpect(status().isForbidden());
+
+        verifyNoInteractions(verificationKey);
     }
 }
