@@ -6,6 +6,7 @@ import com.unihub.notification.application.port.out.NotificationChannel;
 import com.unihub.notification.application.port.out.NotificationDeliveryResult;
 import com.unihub.notification.application.port.out.NotificationDispatch;
 import com.unihub.notification.application.port.out.NotificationTemplates;
+import com.unihub.notification.application.port.out.TicketQrImages;
 import com.unihub.notification.domain.model.NotificationType;
 import com.unihub.notification.infrastructure.config.NotificationProperties;
 import com.unihub.shared.infrastructure.IntegrationTestSupport;
@@ -49,6 +50,7 @@ class EmailNotificationChannelIT extends IntegrationTestSupport {
 
     @Autowired private List<NotificationChannel> channels;
     @Autowired private NotificationTemplates templates;
+    @Autowired private TicketQrImages qrImages;
     @Autowired private NotificationProperties properties;
 
     private NotificationChannel email() {
@@ -133,7 +135,7 @@ class EmailNotificationChannelIT extends IntegrationTestSupport {
         mail.put("mail.smtp.timeout", String.valueOf(timeout.toMillis()));
         mail.put("mail.smtp.writetimeout", String.valueOf(timeout.toMillis()));
         sender.setJavaMailProperties(mail);
-        return new EmailNotificationChannel(sender, templates, properties);
+        return new EmailNotificationChannel(sender, templates, qrImages, properties);
     }
 
     private static int deadPort() {

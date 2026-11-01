@@ -11,6 +11,7 @@ import com.unihub.notification.application.port.out.NotificationTemplates;
 import com.unihub.notification.application.port.out.PendingNotification;
 import com.unihub.notification.application.port.out.Recipient;
 import com.unihub.notification.application.port.out.RecipientDirectory;
+import com.unihub.notification.application.port.out.RegistrationTickets;
 import com.unihub.notification.application.port.out.WorkshopDetails;
 import com.unihub.notification.application.port.out.WorkshopFacts;
 import com.unihub.notification.application.port.out.WorkshopRecipients;
@@ -57,6 +58,7 @@ class DispatchNotifications implements DispatchNotificationsUseCase {
     private final RecipientDirectory recipients;
     private final WorkshopDetails workshops;
     private final WorkshopRecipients registrations;
+    private final RegistrationTickets tickets;
     private final NotificationTemplates templates;
     private final NotificationDispatcher dispatcher;
     private final NotificationRows rows;
@@ -67,6 +69,7 @@ class DispatchNotifications implements DispatchNotificationsUseCase {
             RecipientDirectory recipients,
             WorkshopDetails workshops,
             WorkshopRecipients registrations,
+            RegistrationTickets tickets,
             NotificationTemplates templates,
             NotificationDispatcher dispatcher,
             NotificationRows rows,
@@ -75,6 +78,7 @@ class DispatchNotifications implements DispatchNotificationsUseCase {
         this.recipients = recipients;
         this.workshops = workshops;
         this.registrations = registrations;
+        this.tickets = tickets;
         this.templates = templates;
         this.dispatcher = dispatcher;
         this.rows = rows;
@@ -88,7 +92,14 @@ class DispatchNotifications implements DispatchNotificationsUseCase {
             String relatedEntityType,
             UUID relatedEntityId,
             Map<String, Object> context,
-            List<UUID> recipientIds) {}
+            List<UUID> recipientIds) {
+
+        /** The context can carry a ticket's QR payload, a credential: only its keys are shown. */
+        @Override
+        public String toString() {
+            return "Plan[type=" + type + ", recipients=" + recipientIds.size() + "]";
+        }
+    }
 
     @Override
     public void dispatch(DispatchNotificationsCommand command) {
@@ -141,6 +152,12 @@ class DispatchNotifications implements DispatchNotificationsUseCase {
         var workshop = workshopOrFail(fact.workshopId());
         var context = workshopContext(workshop);
         context.put("registrationRef", fact.registrationId().toString());
+        // The ticket was signed in the transaction that published this event, so it is there. A
+        // registration confirmed before Phase 5 has none and gets the confirmation without a QR
+        // (D55): that is not an error and not worth a retry.
+        tickets.qrPayloadOf(fact.registrationId())
+                .ifPresent(
+                        payload -> context.put(NotificationTemplates.TICKET_QR_PAYLOAD, payload));
         return new Plan(
                 NotificationType.REGISTRATION_CONFIRMED,
                 ENTITY_REGISTRATION,

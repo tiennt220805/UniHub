@@ -5,5 +5,5 @@
 <li>Địa điểm: {{location}}</li>
 <li>Mã đăng ký: {{registrationRef}}</li>
 </ul>
-<p><a href="{{myRegistrationsUrl}}">Xem các đăng ký của bạn</a></p>
+{{ticketBlock}}<p><a href="{{myRegistrationsUrl}}">Xem các đăng ký của bạn</a></p>
 <p>UniHub Workshop</p>

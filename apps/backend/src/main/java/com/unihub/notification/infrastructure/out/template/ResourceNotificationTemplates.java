@@ -40,6 +40,7 @@ class ResourceNotificationTemplates implements NotificationTemplates {
 
     private final ZoneId zone;
     private final String myRegistrationsUrl;
+    private final String registrationUrlPrefix;
     private final Map<String, String> cache = new HashMap<>();
 
     ResourceNotificationTemplates(
@@ -50,7 +51,10 @@ class ResourceNotificationTemplates implements NotificationTemplates {
                 webBaseUrl.endsWith("/")
                         ? webBaseUrl.substring(0, webBaseUrl.length() - 1)
                         : webBaseUrl;
-        this.myRegistrationsUrl = base + "/registrations";
+        // The Web Application's routes (apps/web routes.tsx): the list, and the e-ticket page of
+        // one.
+        this.myRegistrationsUrl = base + "/me/registrations";
+        this.registrationUrlPrefix = myRegistrationsUrl + "/";
     }
 
     @Override
@@ -61,11 +65,14 @@ class ResourceNotificationTemplates implements NotificationTemplates {
         if ("IN_APP".equals(channelCode)) {
             title = fitTitle(type, channelCode, values, title);
         }
+        var hasTicket = hasTicket(type, channelCode, context);
+        values.put("ticketBlock", ticketBlock(type, channelCode, "text", hasTicket, values));
         var text = fill(template(type, channelCode, "text"), values, false);
-        var html =
-                "EMAIL".equals(channelCode)
-                        ? fill(template(type, channelCode, "html"), values, true)
-                        : null;
+        String html = null;
+        if ("EMAIL".equals(channelCode)) {
+            values.put("ticketBlock", ticketBlock(type, channelCode, "html", hasTicket, values));
+            html = fill(template(type, channelCode, "html"), values, true);
+        }
         return new RenderedNotification(singleLine(title), text, html);
     }
 
@@ -82,7 +89,46 @@ class ResourceNotificationTemplates implements NotificationTemplates {
                     }
                 });
         values.put("myRegistrationsUrl", myRegistrationsUrl);
+        values.put("ticketQrCid", TICKET_QR_CONTENT_ID);
+        var registration = values.get("registrationRef");
+        if (registration != null) {
+            values.put("ticketUrl", registrationUrlPrefix + registration);
+        }
+        // The payload is a credential: it decides whether the e-ticket block is there and is never
+        // a value a template can print.
+        values.remove(TICKET_QR_PAYLOAD);
         return values;
+    }
+
+    // ---------- the e-ticket block (Phase 5 checklist D55) ----------
+
+    /** Only a confirmation email with a ticket in its context carries the e-ticket block. */
+    private static boolean hasTicket(
+            NotificationType type, String channelCode, Map<String, Object> context) {
+        return type == NotificationType.REGISTRATION_CONFIRMED
+                && "EMAIL".equals(channelCode)
+                && context.get(TICKET_QR_PAYLOAD) instanceof String payload
+                && !payload.isBlank();
+    }
+
+    /**
+     * The optional fragment, rendered apart and put in whole into the template ({@code
+     * {{ticketBlock}}}): empty when there is no ticket, so a confirmation without one is the very
+     * text it was before Phase 5. The surrounding line breaks are added here, so that the empty
+     * case leaves the template's own.
+     */
+    private String ticketBlock(
+            NotificationType type,
+            String channelCode,
+            String part,
+            boolean hasTicket,
+            Map<String, String> values) {
+        if (!hasTicket) {
+            return "";
+        }
+        var fragment =
+                fill(template(type, channelCode, "ticket." + part), values, "html".equals(part));
+        return "html".equals(part) ? fragment + "\n" : "\n" + fragment + "\n";
     }
 
     private static String fill(String template, Map<String, String> values, boolean escapeHtml) {
@@ -96,7 +142,11 @@ class ResourceNotificationTemplates implements NotificationTemplates {
                 throw new IllegalArgumentException(
                         "the template needs '" + matcher.group(1) + "' but the context has none");
             }
-            out.append(escapeHtml ? escape(value) : value);
+            // Only the one value this class renders (and escapes) itself goes in as it is: a
+            // context
+            // key of any other name, whatever it ends with, is text and is escaped like any other.
+            var raw = "ticketBlock".equals(matcher.group(1));
+            out.append(escapeHtml && !raw ? escape(value) : value);
             last = matcher.end();
         }
         return out.append(template, last, template.length()).toString();

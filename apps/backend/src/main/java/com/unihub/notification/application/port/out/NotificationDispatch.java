@@ -16,4 +16,23 @@ public record NotificationDispatch(
         UUID userId,
         String userEmail,
         NotificationType type,
-        Map<String, Object> templateContext) {}
+        Map<String, Object> templateContext) {
+
+    /**
+     * The context can carry a ticket's QR payload, which is a credential: the record's own {@code
+     * toString} would print it into whatever log line mentions the dispatch. Only the keys are
+     * shown.
+     */
+    @Override
+    public String toString() {
+        return "NotificationDispatch[notificationId="
+                + notificationId
+                + ", userId="
+                + userId
+                + ", type="
+                + type
+                + ", templateContext keys="
+                + templateContext.keySet()
+                + "]";
+    }
+}

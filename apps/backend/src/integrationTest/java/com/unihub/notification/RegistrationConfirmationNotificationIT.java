@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.unihub.registration.TicketITSupport;
+import com.unihub.registration.api.TicketVerificationKey;
 import com.unihub.shared.domain.id.WorkshopId;
 import com.unihub.shared.infrastructure.Mailpit;
 import com.unihub.shared.security.TestJwts;
@@ -48,6 +50,7 @@ class RegistrationConfirmationNotificationIT extends NotificationITSupport {
     }
 
     @Autowired private TestRestTemplate http;
+    @Autowired private TicketVerificationKey verificationKey;
 
     @BeforeEach
     void noRowsFromEarlierTests() {
@@ -111,13 +114,13 @@ class RegistrationConfirmationNotificationIT extends NotificationITSupport {
                 // 2026-12-01T09:00:00Z, shown in Asia/Ho_Chi_Minh
                 .contains("01/12/2026 16:00")
                 .contains(registration)
-                .contains("http://localhost:5173/registrations");
+                .contains("http://localhost:5173/me/registrations");
         assertThat(mail.html())
                 .as("the HTML part is escaped, never markup from a workshop name")
                 .contains("Intro to Kubernetes &lt;b&gt;live&lt;/b&gt;")
                 .doesNotContain("<b>live</b>")
                 .contains(registration)
-                .contains("http://localhost:5173/registrations");
+                .contains("http://localhost:5173/me/registrations");
         assertThat(notificationRows(student)).as("one row per channel").isEqualTo(2);
         awaitNoOutboxRowPending();
         assertThat(queuedMessages()).isZero();
@@ -152,6 +155,93 @@ class RegistrationConfirmationNotificationIT extends NotificationITSupport {
         assertThat(inbox.at("/items/0/status").asText()).isEqualTo("SENT");
         assertThat(inbox.at("/items/0/title").asText()).isEqualTo((String) row.get("title"));
         assertThat(inbox.at("/items/0/relatedEntityId").asText()).isEqualTo(registration);
+    }
+
+    @Test
+    @DisplayName(
+            "AC55.1: the confirmation email carries the e-ticket QR inline, and the QR is the stored"
+                    + " ticket, which the published key verifies")
+    void freeRegistration_emailCarriesTheTicketQr() throws Exception {
+        var student = student();
+        var workshop = aWorkshop("Intro to Kubernetes");
+
+        var registration = UUID.fromString(register(student, workshop).get("id").asText());
+
+        Awaitility.await()
+                .atMost(LONG_ENOUGH)
+                .untilAsserted(
+                        () -> assertThat(notificationRows(student, "EMAIL", "SENT")).isEqualTo(1));
+        var mail = Mailpit.to(emailOf(student)).getFirst();
+        var stored = TicketITSupport.storedTicket(jdbc, registration);
+
+        assertThat(mail.inline()).as("exactly one inline image").hasSize(1);
+        var image = mail.inline().getFirst();
+        assertThat(image.contentType()).startsWith("image/png");
+        assertThat(mail.html())
+                .as("the HTML refers to the very part that was attached")
+                .contains("src=\"cid:" + image.contentId() + "\"");
+        assertThat(TicketQrDecoder.decode(image.bytes()))
+                .as("the QR is the stored payload, exactly")
+                .isEqualTo(stored.qrPayload());
+        TicketITSupport.assertVerifies(stored, verificationKey.current(), workshop.value());
+        var ticketUrl = "http://localhost:5173/me/registrations/" + registration;
+        assertThat(mail.text()).contains(ticketUrl);
+        assertThat(mail.html()).contains("href=\"" + ticketUrl + "\"");
+
+        // the ticket is a credential: it is in no stored notification, no inbox answer, no text
+        assertThat(mail.text()).doesNotContain(stored.qrPayload());
+        assertThat(mail.html()).doesNotContain(stored.qrPayload());
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM notifications WHERE user_id = ? AND"
+                                        + " (title LIKE ? OR body LIKE ?)",
+                                Integer.class,
+                                student,
+                                "%" + stored.qrPayload() + "%",
+                                "%" + stored.qrPayload() + "%"))
+                .isZero();
+        assertThat(inbox(student).toString()).doesNotContain(stored.qrPayload());
+        assertThat(inbox(student).toString()).doesNotContain(stored.code());
+    }
+
+    @Test
+    @DisplayName(
+            "AC55.2: a registration confirmed before tickets existed is still confirmed, without an"
+                    + " image, and nothing is retried or parked")
+    void registrationWithoutATicket_isConfirmedWithoutTheImage() {
+        var student = student();
+        var workshop = aWorkshop("Confirmed before Phase 5");
+        var registration = registration(student, workshop, "CONFIRMED");
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT qr_payload FROM registrations WHERE id = ?",
+                                String.class,
+                                registration))
+                .as("fixture: a row with no ticket")
+                .isNull();
+
+        publishConfirmed(registration, workshop, student);
+
+        Awaitility.await()
+                .atMost(LONG_ENOUGH)
+                .untilAsserted(
+                        () -> {
+                            assertThat(notificationRows(student, "EMAIL", "SENT")).isEqualTo(1);
+                            assertThat(notificationRows(student, "IN_APP", "SENT")).isEqualTo(1);
+                        });
+        var mails = Mailpit.to(emailOf(student));
+        assertThat(mails).hasSize(1);
+        var mail = mails.getFirst();
+        assertThat(mail.inline()).isEmpty();
+        assertThat(mail.html())
+                .doesNotContain("<img")
+                .doesNotContain("cid:")
+                .contains("http://localhost:5173/me/registrations")
+                .doesNotContain("/me/registrations/" + registration);
+        assertThat(mail.text()).contains(registration.toString());
+        awaitNoOutboxRowPending();
+        assertThat(queuedMessages()).isZero();
+        assertThat(parkedMessages()).isZero();
     }
 
     @Test

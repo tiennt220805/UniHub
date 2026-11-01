@@ -13,6 +13,7 @@ import com.unihub.notification.application.port.out.NotificationTemplates;
 import com.unihub.notification.application.port.out.Recipient;
 import com.unihub.notification.application.port.out.RecipientDirectory;
 import com.unihub.notification.application.port.out.RegistrationRef;
+import com.unihub.notification.application.port.out.RegistrationTickets;
 import com.unihub.notification.application.port.out.RenderedNotification;
 import com.unihub.notification.application.port.out.WorkshopDetails;
 import com.unihub.notification.application.port.out.WorkshopFacts;
@@ -129,6 +130,7 @@ class DispatchNotificationsTest {
     private final Map<UUID, WorkshopFacts> workshopsById = new HashMap<>();
     private final Map<UUID, List<RegistrationRef>> holders = new HashMap<>();
     private final Map<UUID, RegistrationRef> registrationsById = new HashMap<>();
+    private final Map<UUID, String> qrPayloads = new HashMap<>();
 
     private DispatchNotifications useCase;
     private RecipientDirectory directory;
@@ -165,6 +167,7 @@ class DispatchNotificationsTest {
                         return Optional.ofNullable(registrationsById.get(registrationId));
                     }
                 };
+        RegistrationTickets tickets = id -> Optional.ofNullable(qrPayloads.get(id));
         NotificationTemplates templates =
                 (type, channel, context) ->
                         new RenderedNotification(
@@ -183,6 +186,7 @@ class DispatchNotificationsTest {
                         directory,
                         workshopDetails,
                         recipients,
+                        tickets,
                         templates,
                         new NotificationDispatcher(List.of(email, inApp)),
                         new NotificationRows(repository),
@@ -264,6 +268,54 @@ class DispatchNotificationsTest {
                 .containsEntry("recipientName", "Ann")
                 .containsEntry("workshopTitle", "Intro to K8s");
         assertThat(metrics.counts).containsEntry("EMAIL:SENT", 1).containsEntry("IN_APP:SENT", 1);
+    }
+
+    @Test
+    @DisplayName(
+            "a confirmation of a registration with a ticket hands the QR payload to the channels")
+    void confirmation_withATicket_carriesItsPayload() {
+        var ann = student("Ann");
+        var ref = registration(workshop(false), ann);
+        qrPayloads.put(ref.registrationId(), "header.payload.signature");
+
+        useCase.dispatch(confirmed(UUID.randomUUID(), ref));
+
+        assertThat(email.sent.getFirst().templateContext())
+                .containsEntry(NotificationTemplates.TICKET_QR_PAYLOAD, "header.payload.signature");
+    }
+
+    @Test
+    @DisplayName(
+            "a confirmation of a registration with no ticket is still sent, with no payload in it")
+    void confirmation_withoutATicket_isStillSent() {
+        var ann = student("Ann");
+        var ref = registration(workshop(false), ann);
+
+        useCase.dispatch(confirmed(UUID.randomUUID(), ref));
+
+        assertThat(repository.count("SENT")).isEqualTo(2);
+        assertThat(email.sent.getFirst().templateContext())
+                .doesNotContainKey(NotificationTemplates.TICKET_QR_PAYLOAD);
+    }
+
+    @Test
+    @DisplayName(
+            "the QR payload is a credential: it is in no stored notification and in no log text")
+    void theTicketIsNeverStoredOrPrinted() {
+        var ann = student("Ann");
+        var ref = registration(workshop(false), ann);
+        qrPayloads.put(ref.registrationId(), "secret.ticket.payload");
+
+        useCase.dispatch(confirmed(UUID.randomUUID(), ref));
+
+        for (var row : repository.rowsOf(ann, "IN_APP")) {
+            assertThat(row.data.title()).doesNotContain("secret.ticket.payload");
+            assertThat(row.data.body()).doesNotContain("secret.ticket.payload");
+        }
+        assertThat(email.sent.getFirst().toString())
+                .as("a dispatch printed into a log line shows its keys, not the ticket")
+                .doesNotContain("secret.ticket.payload")
+                .contains(NotificationTemplates.TICKET_QR_PAYLOAD);
     }
 
     @Test
@@ -607,6 +659,7 @@ class DispatchNotificationsTest {
                         directory,
                         workshopDetailsOf(),
                         holdersOf(),
+                        id -> Optional.empty(),
                         (t, c, x) -> new RenderedNotification("t", "b", null),
                         new NotificationDispatcher(List.of(email, inApp)),
                         new NotificationRows(repository),

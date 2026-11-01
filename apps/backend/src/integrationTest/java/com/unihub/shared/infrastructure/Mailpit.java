@@ -19,9 +19,18 @@ import java.util.List;
  */
 public final class Mailpit {
 
-    /** One caught message. */
+    /** An image the HTML refers to as {@code cid:}, with the bytes Mailpit kept of it. */
+    public record InlineImage(String contentId, String contentType, byte[] bytes) {}
+
+    /** One caught message. {@code inline} is empty for a message without inline parts. */
     public record Mail(
-            String id, String subject, String to, String from, String text, String html) {}
+            String id,
+            String subject,
+            String to,
+            String from,
+            String text,
+            String html,
+            List<InlineImage> inline) {}
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -77,9 +86,46 @@ public final class Mailpit {
                             full.path("To").path(0).path("Address").asText(),
                             full.path("From").path("Address").asText(),
                             full.path("Text").asText(),
-                            full.path("HTML").asText()));
+                            full.path("HTML").asText(),
+                            inlineImagesOf(full)));
         }
         return mails;
+    }
+
+    /** Only a message that has inline parts costs a request for them. */
+    private static List<InlineImage> inlineImagesOf(JsonNode message) {
+        var images = new ArrayList<InlineImage>();
+        for (var part : message.path("Inline")) {
+            images.add(
+                    new InlineImage(
+                            part.path("ContentID").asText(),
+                            part.path("ContentType").asText(),
+                            bytes(
+                                    "/api/v1/message/"
+                                            + message.path("ID").asText()
+                                            + "/part/"
+                                            + part.path("PartID").asText())));
+        }
+        return images;
+    }
+
+    private static byte[] bytes(String path) {
+        try {
+            var response =
+                    HTTP.send(
+                            HttpRequest.newBuilder(URI.create(base() + path)).GET().build(),
+                            HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() >= 300) {
+                throw new IllegalStateException(
+                        "Mailpit " + path + " answered " + response.statusCode());
+            }
+            return response.body();
+        } catch (IOException e) {
+            throw new IllegalStateException("Mailpit is unreachable", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while reading Mailpit", e);
+        }
     }
 
     public static void clear() {

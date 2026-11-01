@@ -134,6 +134,10 @@ dependencies {
     // Only the mail API is used; Boot's own mail auto-configuration is not (the sender is built from
     // unihub.notification.smtp.*, which fails the start when the host is blank).
     implementation("org.springframework.boot:spring-boot-starter-mail")
+    // ZXing's core only (Phase 5 checklist Q11/D55): Notification draws the e-ticket QR as a PNG for the
+    // confirmation email. Not in the Boot BOM, so pinned. `javase` is deliberately not used: the PNG is
+    // written with the JDK's ImageIO, and `javase` would add jcommander and jai-imageio-core.
+    implementation("com.google.zxing:core:3.5.3")
     // Micrometer's API only (version from the Boot BOM): LoggingAuditTrail counts the audit entries it
     // could not record (observability.md §4, unihub_audit_publish_failures_total). No registry and no
     // actuator yet; the counter attaches to the global registry when the observability stack lands.

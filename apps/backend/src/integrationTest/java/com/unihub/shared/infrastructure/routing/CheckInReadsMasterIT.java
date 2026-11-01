@@ -4,7 +4,9 @@ import static com.unihub.workshop.domain.model.WorkshopBuilder.aPublishedWorksho
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.unihub.registration.RegistrationFixtures;
+import com.unihub.registration.api.RegistrationTickets;
 import com.unihub.registration.api.TicketLookup;
+import com.unihub.shared.domain.id.RegistrationId;
 import com.unihub.workshop.api.WorkshopSummaries;
 import com.unihub.workshop.application.port.out.WorkshopRepository;
 import java.util.List;
@@ -29,6 +31,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 class CheckInReadsMasterIT extends CheckInReplicaITSupport {
 
     @Autowired private TicketLookup tickets;
+    @Autowired private RegistrationTickets registrationTickets;
     @Autowired private WorkshopSummaries workshopSummaries;
     @Autowired private WorkshopRepository workshops;
     @Autowired private JdbcTemplate jdbc;
@@ -55,6 +58,44 @@ class CheckInReadsMasterIT extends CheckInReplicaITSupport {
                                 "SELECT count(*) FROM " + table + " WHERE id = ?",
                                 Integer.class,
                                 id));
+    }
+
+    /**
+     * The confirmation email's QR (Phase 5 checklist 6.1, D55). This read is the one whose failure
+     * would be invisible: a Replica that has not yet seen the ticket gives "no ticket", which the
+     * consumer handles gracefully by sending the email without a QR and marking it SENT. So it is
+     * proved here, with the Replica really behind, that the payload is read from the Master.
+     */
+    @Test
+    @DisplayName(
+            "the QR payload of a ticket signed a moment ago is read while the Replica is behind")
+    void freshTicket_isReadFromTheMaster() throws Exception {
+        awaitReplicaCaughtUp();
+
+        withReplayPaused(
+                () -> {
+                    var student = fixtures.aStudent();
+                    var workshop = aPublishedWorkshop().withTitle("Just confirmed").build();
+                    new TransactionTemplate(transactions)
+                            .executeWithoutResult(s -> workshops.save(workshop));
+                    fixtures.track(workshop.id());
+                    var registrationId = UUID.randomUUID();
+                    jdbc.update(
+                            "INSERT INTO registrations (id, workshop_id, user_id, ticket_type,"
+                                    + " status, ticket_code, qr_payload) VALUES (?, ?, ?, 'FREE',"
+                                    + " 'CONFIRMED', ?, 'jws-signed-a-moment-ago')",
+                            registrationId,
+                            workshop.id().value(),
+                            student.value(),
+                            "T" + UUID.randomUUID().toString().replace("-", ""));
+
+                    assertThat(rowsOnReplica("registrations", registrationId))
+                            .as("control: the Replica has not seen the registration")
+                            .isZero();
+
+                    assertThat(registrationTickets.qrPayloadOf(RegistrationId.of(registrationId)))
+                            .contains("jws-signed-a-moment-ago");
+                });
     }
 
     @Test

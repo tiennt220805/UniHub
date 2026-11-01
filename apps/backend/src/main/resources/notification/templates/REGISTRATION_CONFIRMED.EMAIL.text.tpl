@@ -5,7 +5,7 @@ Xin chào {{recipientName}},
 Thời gian: {{startTime}} - {{endTime}}
 Địa điểm: {{location}}
 Mã đăng ký: {{registrationRef}}
-
+{{ticketBlock}}
 Xem các đăng ký của bạn: {{myRegistrationsUrl}}
 
 UniHub Workshop

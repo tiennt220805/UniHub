@@ -13,6 +13,8 @@ import com.unihub.payment.application.port.out.GatewayPaymentState;
 import com.unihub.payment.application.port.out.GatewayRefundState;
 import com.unihub.payment.application.result.ChargePaymentResult;
 import com.unihub.registration.ShortChainITSupport;
+import com.unihub.registration.TicketITSupport;
+import com.unihub.registration.api.TicketVerificationKey;
 import com.unihub.shared.domain.id.PaymentId;
 import com.unihub.shared.domain.id.UserId;
 import com.unihub.shared.infrastructure.Mailpit;
@@ -56,6 +58,7 @@ class PaidRegistrationNotificationIT extends ShortChainITSupport {
     }
 
     @Autowired private ReconcilePaymentUseCase reconcile;
+    @Autowired private TicketVerificationKey verificationKey;
 
     private final java.util.List<UUID> students = new java.util.ArrayList<>();
 
@@ -125,7 +128,7 @@ class PaidRegistrationNotificationIT extends ShortChainITSupport {
     @DisplayName(
             "a paid registration is confirmed by its payment, and then exactly one email and one"
                     + " in-app notification tell the student")
-    void paidRegistration_isConfirmedByEmailAndInApp() {
+    void paidRegistration_isConfirmedByEmailAndInApp() throws Exception {
         var paid = aPaidRegistration();
         students.add(paid.student().value());
 
@@ -145,6 +148,14 @@ class PaidRegistrationNotificationIT extends ShortChainITSupport {
         assertThat(mails.getFirst().text())
                 .contains(paid.registration().toString())
                 .contains("01/12/2026 16:00");
+        // AC55.1, paid: the payload the consumer drew was signed in the transaction that published
+        // ticket.confirmed, so it is the stored one and the published key verifies it
+        var stored = TicketITSupport.storedTicket(jdbc, paid.registration());
+        assertThat(mails.getFirst().inline()).hasSize(1);
+        var image = mails.getFirst().inline().getFirst();
+        assertThat(mails.getFirst().html()).contains("src=\"cid:" + image.contentId() + "\"");
+        assertThat(TicketQrDecoder.decode(image.bytes())).isEqualTo(stored.qrPayload());
+        TicketITSupport.assertVerifies(stored, verificationKey.current(), paid.workshop());
         assertThat(confirmationsPublished(paid.registration())).isEqualTo(1);
         awaitNoOutboxRowPending();
         assertThat(waiting("unihub.notification.queue")).isZero();

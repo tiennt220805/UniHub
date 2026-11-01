@@ -98,8 +98,8 @@ class NotificationTemplatesTest {
                 .contains("Phòng 101")
                 .contains("11111111-2222-3333-4444-555555555555")
                 .contains("Nguyễn Văn An")
-                .contains("https://unihub.example/registrations");
-        assertThat(email.html()).contains("href=\"https://unihub.example/registrations\"");
+                .contains("https://unihub.example/me/registrations");
+        assertThat(email.html()).contains("href=\"https://unihub.example/me/registrations\"");
     }
 
     @Test
@@ -206,8 +206,139 @@ class NotificationTemplatesTest {
                         .render(NotificationType.WORKSHOP_CANCELLED, "EMAIL", context("W"));
 
         assertThat(email.text())
-                .contains("https://unihub.example/registrations")
+                .contains("https://unihub.example/me/registrations")
                 .doesNotContain("//registrations");
+    }
+
+    // ---------- the e-ticket block (Phase 5 checklist D55, AC55.1, AC55.2) ----------
+
+    private static final String QR_PAYLOAD =
+            "eyJhbGciOiJFUzI1NiJ9.eyJ0aWNrZXRfY29kZSI6IlgifQ.c2lnbmF0dXJl";
+    private static final String TICKET_URL =
+            "https://unihub.example/me/registrations/11111111-2222-3333-4444-555555555555";
+
+    private static Map<String, Object> contextWithTicket() {
+        var context = context("Intro to Kubernetes");
+        context.put("ticketQrPayload", QR_PAYLOAD);
+        return context;
+    }
+
+    @Test
+    @DisplayName(
+            "a confirmation email with a ticket shows the QR inline and links to the e-ticket page")
+    void confirmation_withATicket_hasTheQrAndTheLink() {
+        var email =
+                templates.render(
+                        NotificationType.REGISTRATION_CONFIRMED, "EMAIL", contextWithTicket());
+
+        assertThat(email.html())
+                .contains("<img src=\"cid:ticket-qr\"")
+                .contains("href=\"" + TICKET_URL + "\"");
+        assertThat(email.text()).contains(TICKET_URL);
+    }
+
+    @Test
+    @DisplayName("the QR payload is a credential: it is in no part of the rendered email")
+    void theQrPayload_isNeverWrittenIntoTheContent() {
+        var email =
+                templates.render(
+                        NotificationType.REGISTRATION_CONFIRMED, "EMAIL", contextWithTicket());
+        var inApp =
+                templates.render(
+                        NotificationType.REGISTRATION_CONFIRMED, "IN_APP", contextWithTicket());
+
+        for (var part :
+                new String[] {
+                    email.title(), email.text(), email.html(), inApp.title(), inApp.text()
+                }) {
+            assertThat(part).doesNotContain(QR_PAYLOAD).doesNotContain("eyJ");
+        }
+    }
+
+    @Test
+    @DisplayName(
+            "a confirmation without a ticket has no image, no dangling cid, no ticket link, and the"
+                    + " list link is still there (AC55.2)")
+    void confirmation_withoutATicket_isTheSameEmailWithoutTheBlock() {
+        var email =
+                templates.render(
+                        NotificationType.REGISTRATION_CONFIRMED,
+                        "EMAIL",
+                        context("Intro to Kubernetes"));
+
+        assertThat(email.html())
+                .doesNotContain("<img")
+                .doesNotContain("cid:")
+                .doesNotContain(TICKET_URL)
+                .contains("href=\"https://unihub.example/me/registrations\"");
+        assertThat(email.text())
+                .doesNotContain(TICKET_URL)
+                .contains("https://unihub.example/me/registrations");
+    }
+
+    @Test
+    @DisplayName("a blank payload counts as no ticket")
+    void aBlankPayload_isNoTicket() {
+        var context = context("W");
+        context.put("ticketQrPayload", "  ");
+
+        var email = templates.render(NotificationType.REGISTRATION_CONFIRMED, "EMAIL", context);
+
+        assertThat(email.html()).doesNotContain("<img").doesNotContain("cid:");
+    }
+
+    @Test
+    @DisplayName(
+            "without a ticket the template leaves exactly the line breaks it had before Phase 5")
+    void withoutATicket_theTemplateLeavesNoGap() {
+        var email =
+                templates.render(NotificationType.REGISTRATION_CONFIRMED, "EMAIL", context("W"));
+
+        assertThat(email.text())
+                .contains("Mã đăng ký: 11111111-2222-3333-4444-555555555555\n\nXem");
+        assertThat(email.html()).contains("</ul>\n<p><a href=");
+    }
+
+    @Test
+    @DisplayName("the in-app notification and the other types never carry the block")
+    void otherTypesAndChannels_areUnchangedByATicket() {
+        var withTicket = context("W");
+        withTicket.put("ticketQrPayload", QR_PAYLOAD);
+        for (var type : NotificationType.values()) {
+            if (type != NotificationType.REGISTRATION_CONFIRMED) {
+                assertThat(templates.render(type, "EMAIL", withTicket))
+                        .as(type + " email")
+                        .isEqualTo(templates.render(type, "EMAIL", context("W")));
+            }
+            assertThat(templates.render(type, "IN_APP", withTicket))
+                    .as(type + " in-app")
+                    .isEqualTo(templates.render(type, "IN_APP", context("W")));
+        }
+    }
+
+    @Test
+    @DisplayName("a context key cannot smuggle markup in by being called ticketBlock")
+    void ticketBlock_cannotBeSetFromTheContext() {
+        var context = context("W");
+        context.put("ticketBlock", "<script>steal()</script>");
+
+        var email = templates.render(NotificationType.REGISTRATION_CONFIRMED, "EMAIL", context);
+
+        assertThat(email.html()).doesNotContain("<script>");
+        assertThat(email.text()).doesNotContain("steal()");
+    }
+
+    @Test
+    @DisplayName("the e-ticket link has no double slash when the base URL ends with one")
+    void ticketLink_trailingSlashIsIgnored() {
+        var email =
+                templates("https://unihub.example/", "UTC")
+                        .render(
+                                NotificationType.REGISTRATION_CONFIRMED,
+                                "EMAIL",
+                                contextWithTicket());
+
+        assertThat(email.html()).contains(TICKET_URL).doesNotContain("//me/");
     }
 
     @Test
