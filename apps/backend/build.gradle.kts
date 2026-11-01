@@ -138,6 +138,15 @@ dependencies {
     // confirmation email. Not in the Boot BOM, so pinned. `javase` is deliberately not used: the PNG is
     // written with the JDK's ImageIO, and `javase` would add jcommander and jai-imageio-core.
     implementation("com.google.zxing:core:3.5.3")
+    // Object storage for brochure PDFs (Phase 5 checklist Q1/Q16/D45/D60, workshop.md §4): AWS SDK v2's S3
+    // client and presigner, nothing else. One S3Client in every environment; only `endpointOverride`
+    // differs (MinIO locally and in tests, AWS in the PoC). Not in the Boot BOM, so the SDK's own BOM is
+    // pinned; 2.56.0 (2026-10-14) is the newest release that is more than two weeks old. The default
+    // Apache sync HTTP client and the default credentials chain come with `s3`; no Netty, no CRT.
+    implementation(platform("software.amazon.awssdk:bom:2.56.0"))
+    implementation("software.amazon.awssdk:s3")
+    // Only the timeouts of the sync HTTP client are configured (compile scope; `s3` brings it at runtime).
+    implementation("software.amazon.awssdk:apache-client")
     // Micrometer's API only (version from the Boot BOM): LoggingAuditTrail counts the audit entries it
     // could not record (observability.md §4, unihub_audit_publish_failures_total). No registry and no
     // actuator yet; the counter attaches to the global registry when the observability stack lands.

@@ -28,7 +28,7 @@ class WorkshopJpaEntity {
 
     private String description;
 
-    @Column(name = "ai_summary")
+    @Column(name = "ai_summary", updatable = false)
     private String aiSummary;
 
     @Column(name = "speaker_name", nullable = false)
@@ -60,7 +60,7 @@ class WorkshopJpaEntity {
 
     private BigDecimal price;
 
-    @Column(name = "brochure_s3_key")
+    @Column(name = "brochure_s3_key", updatable = false)
     private String brochureS3Key;
 
     @Column(nullable = false)

@@ -30,7 +30,7 @@ import org.springframework.amqp.core.Queue;
  * <p>Every implementation of {@link OutboxMessage} among the production classes is found, not just
  * those under {@code api.event} ({@code SeatHoldExpiryRequested} lives in {@code
  * registration.application.event}); its {@code ROUTING_KEY} is followed through the declared
- * bindings to a queue that has a {@code @RabbitListener}. The count is pinned, so a ninth message
+ * bindings to a queue that has a {@code @RabbitListener}. The count is pinned, so a tenth message
  * type cannot arrive without being added here, with the end-to-end test that shows its effect.
  *
  * <p>One route is longer than a binding: {@code hold.reserved} is bound to the delay queue, which
@@ -44,6 +44,7 @@ class OutboxRoutingCoverageTest {
 
     private static final String NOTIFICATION = "com.unihub.notification.";
     private static final String PAYMENT = "com.unihub.payment.";
+    private static final String WORKSHOP = "com.unihub.workshop.brochure.";
 
     static {
         END_TO_END.put(
@@ -77,6 +78,11 @@ class OutboxRoutingCoverageTest {
                 NOTIFICATION
                         + "PaidRegistrationNotificationIT"
                         + "#lateSuccess_isRefundedAndNothingIsSent");
+        END_TO_END.put(
+                "BrochureSummarizationRequested",
+                WORKSHOP
+                        + "BrochureRelayEndToEndIT"
+                        + "#summarizationRequest_reachesTheConsumerThroughTheRealRelay");
         END_TO_END.put(
                 "PaymentReconciliationRequested",
                 PAYMENT
@@ -183,8 +189,8 @@ class OutboxRoutingCoverageTest {
     }
 
     @Test
-    @DisplayName("AC42.1: there are exactly eight outbox message types, all known to this test")
-    void theEightMessageTypes() {
+    @DisplayName("AC42.1: there are exactly nine outbox message types, all known to this test")
+    void theNineMessageTypes() {
         var found =
                 outboxMessages(productionClasses()).stream()
                         .map(JavaClass::getSimpleName)
@@ -194,7 +200,7 @@ class OutboxRoutingCoverageTest {
                 .as(
                         "a new OutboxMessage needs a binding to a consumed queue, a line in"
                                 + " END_TO_END with the test that shows its effect, and the M-41 row")
-                .hasSize(8)
+                .hasSize(9)
                 .containsExactlyInAnyOrderElementsOf(END_TO_END.keySet());
     }
 
@@ -243,12 +249,14 @@ class OutboxRoutingCoverageTest {
     @Test
     @DisplayName("a key bound to a queue nobody listens on is reported (a consumer not built yet)")
     void aBoundQueueWithoutAListener_isReported() {
-        var summarization = routeOf(Topology.SUMMARIZATION_REQUESTED, listened());
+        // The audit consumer is Phase 6 (M-54); the summarization one was the example until Phase
+        // 5.
+        var audit = routeOf(Topology.AUDIT_CREATED, listened());
 
-        assertThat(summarization.consumed())
-                .as("unihub.summarization.queue has no listener before Phase 5")
+        assertThat(audit.consumed())
+                .as("unihub.audit.queue has no listener before Phase 6")
                 .isFalse();
-        assertThat(summarization.problem()).contains("none of which has a listener");
+        assertThat(audit.problem()).contains("none of which has a listener");
     }
 
     @Test

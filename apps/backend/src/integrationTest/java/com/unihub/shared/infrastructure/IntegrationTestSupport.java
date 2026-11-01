@@ -33,14 +33,17 @@ public abstract class IntegrationTestSupport {
 
     // minio/minio stopped being pullable (Docker Hub repository removed, 10/2025 — verified against
     // live Docker Hub/quay.io, not a sandbox/network issue). cgr.dev/chainguard/minio is a real
-    // MinIO
-    // build under a different registry/namespace; asCompatibleSubstituteFor is Testcontainers' own
-    // mechanism for exactly this case — it does not skip the container's actual
-    // startup/health-check,
-    // only MinIOContainer's constructor-time image-name assertion.
+    // MinIO build under a different registry/namespace; asCompatibleSubstituteFor is
+    // Testcontainers'
+    // own mechanism for exactly this case — it does not skip the container's actual
+    // startup/health-check, only MinIOContainer's constructor-time image-name assertion.
+    // Pinned by digest (RELEASE.2026-09-22T19-25-18Z, built 2026-09-30), the same one as
+    // docker-compose.yml: Chainguard's free images only carry `latest`, which a digest freezes.
     protected static final MinIOContainer MINIO =
             new MinIOContainer(
-                    DockerImageName.parse("cgr.dev/chainguard/minio:latest")
+                    DockerImageName.parse(
+                                    "cgr.dev/chainguard/minio@sha256:"
+                                            + "4692462f35d97d7e82c30371d82f057703c5d9489bcae726010594c812f2d285")
                             .asCompatibleSubstituteFor("minio/minio"));
 
     /**
@@ -108,6 +111,15 @@ public abstract class IntegrationTestSupport {
         // of the real network. A test's own @DynamicPropertySource (a dead address) still overrides
         // it.
         System.setProperty("unihub.notification.smtp.host", MAILPIT.getHost());
+
+        // Brochure storage (Phase 5 checklist 9.1, workshop.md §4): every context gets the
+        // singleton
+        // MinIO through the same S3 client the application uses, with the bucket created on start.
+        // A test that needs the bucket down uses a container of its own (ObjectStorageOutageIT).
+        System.setProperty("unihub.object-storage.endpoint", MINIO.getS3URL());
+        System.setProperty("unihub.object-storage.access-key", MINIO.getUserName());
+        System.setProperty("unihub.object-storage.secret-key", MINIO.getPassword());
+        System.setProperty("unihub.object-storage.create-bucket", "true");
         System.setProperty(
                 "unihub.notification.smtp.port", String.valueOf(MAILPIT.getMappedPort(1025)));
 

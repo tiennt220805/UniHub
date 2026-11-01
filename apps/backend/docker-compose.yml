@@ -83,6 +83,29 @@ services:
       - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
       - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
 
+  # Object storage for brochure PDFs (workshop.md §4: MinIO stands in for AWS S3 everywhere except the PoC
+  # deployment; only the endpoint differs). The bucket (`unihub-brochures`) is created by the backend at
+  # start-up when unihub.object-storage.create-bucket is true (local runs and tests set it; a deployed
+  # environment never does). The credentials are dev-only defaults, like Postgres and RabbitMQ above.
+  # Pinned by digest, not by tag: minio/minio is no longer published on Docker Hub, and the Chainguard
+  # build used by the integration tests (IntegrationTestSupport) only has a `latest` tag. Digest of
+  # RELEASE.2026-09-22T19-25-18Z, built 2026-09-30.
+  minio:
+    image: cgr.dev/chainguard/minio@sha256:4692462f35d97d7e82c30371d82f057703c5d9489bcae726010594c812f2d285
+    container_name: unihub-minio
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-unihub}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-unihub_dev_only}
+    ports:
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - unihub-minio-data:/data
+    # No healthcheck: this image has no shell, no curl and no `mc`. MinIO answers on :9000 within a second.
+
 volumes:
   unihub-postgres-data:
   unihub-redis-data:
+  unihub-minio-data:

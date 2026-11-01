@@ -36,6 +36,7 @@ class ConsumerRedeliveryCoverageTest {
             "com.unihub.registration.infrastructure.in.messaging.";
     private static final String PAYMENT = "com.unihub.payment.infrastructure.in.messaging.";
     private static final String NOTIFICATION = "com.unihub.notification.";
+    private static final String WORKSHOP = "com.unihub.workshop.brochure.";
 
     /** Queue → the tests that show its consumer idempotent under redelivery. */
     static final Map<String, Coverage> INVENTORY = new LinkedHashMap<>();
@@ -80,6 +81,15 @@ class ConsumerRedeliveryCoverageTest {
                         PAYMENT
                                 + "RefundConcurrentRedeliveryIT"
                                 + "#sameRefundJob_fromTwoThreads_usesOneIdempotencyKey"));
+        INVENTORY.put(
+                "unihub.summarization.queue",
+                new Coverage(
+                        WORKSHOP
+                                + "BrochureRedeliveryIT"
+                                + "#sequentialRedelivery_callsTheAiOncePerDelivery",
+                        WORKSHOP
+                                + "BrochureRedeliveryIT"
+                                + "#sameRequest_fromTwoThreads_endsWithOneSummary"));
         INVENTORY.put(
                 "unihub.notification.queue",
                 new Coverage(
