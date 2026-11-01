@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 
 import { NotificationList, useMyNotifications } from '@/features/notifications'
 import { Button } from '@/shared/ui/button'
@@ -25,7 +25,22 @@ export function NotificationsPage() {
   return (
     <main className="mx-auto max-w-3xl space-y-4 p-6">
       <h1 className="text-2xl font-semibold text-foreground">Thông báo</h1>
-      <NotificationList query={notifications} />
+      <NotificationList
+        query={notifications}
+        renderActions={(notification) =>
+          // Only a confirmation points at a page of its own (the e-ticket); a cancelled or moved
+          // workshop has nothing to open that the notification does not already say.
+          notification.type === 'REGISTRATION_CONFIRMED' &&
+          notification.relatedEntityType === 'REGISTRATION' ? (
+            <Link
+              to={`/me/registrations/${notification.relatedEntityId}`}
+              className="text-sm text-primary underline"
+            >
+              Xem vé
+            </Link>
+          ) : null
+        }
+      />
       {totalPages > 1 && (
         <nav aria-label="Phân trang" className="flex items-center gap-3">
           <Button variant="outline" size="sm" disabled={page === 0} onClick={() => goTo(page - 1)}>

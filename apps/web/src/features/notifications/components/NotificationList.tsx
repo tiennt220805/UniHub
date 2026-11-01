@@ -1,16 +1,22 @@
 import type { UseQueryResult } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 
 import type { AppError } from '@/shared/api/errors'
 import { formatDateTime } from '@/shared/lib/format'
-import type { NotificationListResponse } from '../api/requests'
+import type { Notification, NotificationListResponse } from '../api/requests'
 
 type Props = {
   query: UseQueryResult<NotificationListResponse, AppError>
+  /**
+   * Per-item link, supplied by the route: where a registration or a workshop lives is routing, and
+   * the stored `body` is text, so a URL inside it would not be clickable.
+   */
+  renderActions?: (notification: Notification) => ReactNode
 }
 
 // `title` and `body` are the wording rendered when the notification was created and are shown as
 // they are, as text (contract: schemas/notification.yaml#/Notification). There is no read state.
-export function NotificationList({ query }: Props) {
+export function NotificationList({ query, renderActions }: Props) {
   if (query.isPending) return <p>Đang tải…</p>
   if (query.isError) {
     const { error } = query
@@ -38,6 +44,7 @@ export function NotificationList({ query }: Props) {
             </time>
           </div>
           <p className="whitespace-pre-line text-sm text-muted-foreground">{notification.body}</p>
+          {renderActions?.(notification)}
         </li>
       ))}
     </ul>

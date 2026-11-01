@@ -13,8 +13,8 @@ function pageFrom(params: URLSearchParams): number {
   return Number.isInteger(page) && page >= 0 ? page : 0
 }
 
-// The signed-in user's own registrations (listMyRegistrations is scoped to the caller). Showing the
-// QR e-ticket of a confirmed one is Phase 5 (checklist 4, M-42).
+// The signed-in user's own registrations (listMyRegistrations is scoped to the caller). Every row
+// links to its own page, which shows the QR e-ticket of a confirmed one (D56) or why there is none.
 export function MyRegistrationsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const page = pageFrom(searchParams)
@@ -29,13 +29,18 @@ export function MyRegistrationsPage() {
       <MyRegistrationList
         query={registrations}
         renderWorkshop={(workshopId) => <WorkshopName workshopId={workshopId} />}
-        renderActions={(registration) =>
-          registration.status === 'RESERVED' && registration.ticketType === 'PAID' ? (
-            <Link to={`/me/checkout/${registration.id}`} className="text-sm text-primary underline">
-              Thanh toán
+        renderActions={(registration) => (
+          <>
+            <Link to={`/me/registrations/${registration.id}`} className="text-sm text-primary underline">
+              {registration.status === 'CONFIRMED' ? 'Xem vé' : 'Chi tiết'}
             </Link>
-          ) : null
-        }
+            {registration.status === 'RESERVED' && registration.ticketType === 'PAID' && (
+              <Link to={`/me/checkout/${registration.id}`} className="text-sm text-primary underline">
+                Thanh toán
+              </Link>
+            )}
+          </>
+        )}
       />
       {totalPages > 1 && (
         <nav aria-label="Phân trang" className="flex items-center gap-3">

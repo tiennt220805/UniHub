@@ -59,6 +59,31 @@ describe('NotificationsPage', () => {
     expect(document.querySelector('main img, main b')).toBeNull()
   })
 
+  it('links a confirmation to the e-ticket page of its registration, old rows included, and nothing else', async () => {
+    server.use(
+      http.get('/api/v1/notifications', () =>
+        HttpResponse.json(
+          aNotificationPage([
+            aNotification({ id: 'n3', type: 'WORKSHOP_CANCELLED', relatedEntityType: 'WORKSHOP', relatedEntityId: 'w-1' }),
+            aNotification({ id: 'n2', type: 'WORKSHOP_RESCHEDULED', relatedEntityType: 'WORKSHOP', relatedEntityId: 'w-1' }),
+            aNotification({ id: 'n1', type: 'REGISTRATION_CONFIRMED', relatedEntityId: 'reg-1' }),
+            // A row stored before Phase 5: same type, wording that never mentioned a ticket.
+            aNotification({ id: 'n0', type: 'REGISTRATION_CONFIRMED', relatedEntityId: 'reg-0', body: 'Đã xác nhận.' }),
+          ]),
+        ),
+      ),
+    )
+    signInAs()
+
+    renderRoute('/me/notifications')
+
+    const rows = await screen.findAllByRole('listitem')
+    expect(within(rows[0]).queryByRole('link')).not.toBeInTheDocument()
+    expect(within(rows[1]).queryByRole('link')).not.toBeInTheDocument()
+    expect(within(rows[2]).getByRole('link', { name: 'Xem vé' })).toHaveAttribute('href', '/me/registrations/reg-1')
+    expect(within(rows[3]).getByRole('link', { name: 'Xem vé' })).toHaveAttribute('href', '/me/registrations/reg-0')
+  })
+
   it('says so when there is nothing yet', async () => {
     server.use(http.get('/api/v1/notifications', () => HttpResponse.json(aNotificationPage([]))))
     signInAs()

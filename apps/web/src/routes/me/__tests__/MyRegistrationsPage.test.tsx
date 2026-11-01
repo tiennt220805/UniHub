@@ -68,6 +68,31 @@ describe('MyRegistrationsPage', () => {
     expect(pay[0]).toHaveAttribute('href', '/me/checkout/held')
   })
 
+  it("links every row to its own registration page: 'Xem vé' when confirmed, 'Chi tiết' otherwise", async () => {
+    serveWorkshops()
+    server.use(
+      http.get('/api/v1/registrations', () =>
+        HttpResponse.json(
+          aRegistrationPage([
+            aRegistrationSummary({ id: 'ok', status: 'CONFIRMED' }),
+            aRegistrationSummary({ id: 'held', ticketType: 'PAID', status: 'RESERVED' }),
+            aRegistrationSummary({ id: 'gone', status: 'CANCELLED' }),
+            aRegistrationSummary({ id: 'late', status: 'EXPIRED' }),
+          ]),
+        ),
+      ),
+    )
+    signInAs()
+
+    renderRoute('/me/registrations')
+
+    const rows = await screen.findAllByRole('listitem')
+    expect(within(rows[0]).getByRole('link', { name: 'Xem vé' })).toHaveAttribute('href', '/me/registrations/ok')
+    expect(within(rows[1]).getByRole('link', { name: 'Chi tiết' })).toHaveAttribute('href', '/me/registrations/held')
+    expect(within(rows[2]).getByRole('link', { name: 'Chi tiết' })).toHaveAttribute('href', '/me/registrations/gone')
+    expect(within(rows[3]).getByRole('link', { name: 'Chi tiết' })).toHaveAttribute('href', '/me/registrations/late')
+  })
+
   it('says so when there is nothing yet', async () => {
     server.use(http.get('/api/v1/registrations', () => HttpResponse.json(aRegistrationPage([]))))
     signInAs()

@@ -6,6 +6,7 @@ import { SignInPage } from '@/routes/auth/SignInPage'
 import { CheckoutPage } from '@/routes/me/CheckoutPage'
 import { MyRegistrationsPage } from '@/routes/me/MyRegistrationsPage'
 import { NotificationsPage } from '@/routes/me/NotificationsPage'
+import { RegistrationTicketPage } from '@/routes/me/RegistrationTicketPage'
 import { WorkshopCatalogPage } from '@/routes/public/WorkshopCatalogPage'
 import { WorkshopDetailPage } from '@/routes/public/WorkshopDetailPage'
 import { AppLayout } from './AppLayout'
@@ -26,6 +27,15 @@ export const routes: RouteObject[] = [
         element: (
           <RequireSession>
             <MyRegistrationsPage />
+          </RequireSession>
+        ),
+      },
+      {
+        // getRegistration declares no permission: the Backend answers 403 for someone else's registration.
+        path: '/me/registrations/:registrationId',
+        element: (
+          <RequireSession>
+            <RegistrationTicketPage />
           </RequireSession>
         ),
       },

@@ -9,4 +9,7 @@ export type {
 export { HoldCountdown } from './components/HoldCountdown'
 export { MyRegistrationList } from './components/MyRegistrationList'
 export { RegisterButton } from './components/RegisterButton'
+export { TicketQrCode } from './components/TicketQrCode'
+export { RegistrationTicketView } from './components/RegistrationTicketView'
 export { isRegistrationFinal, REGISTRATION_STATUS_LABEL } from './model/registration-status'
+export { ticketStateOf, type TicketState } from './model/ticket-state'
