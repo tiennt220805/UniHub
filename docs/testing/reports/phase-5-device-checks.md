@@ -2,7 +2,10 @@
 
 > The Check-in Client's automated tests (Jest) run on Node. They cannot show that the app starts under Hermes, that the camera reads a QR, that SecureStore keeps a value across a restart or that a phone reaches the backend. Those four are checked by hand, once, on the owner's iPhone in Expo Go, and written down here. **A Phase 5 sign-off must say which rows are filled; an empty row is a gap, not a pass** (Phase 5 checklist 8.0, 8.3, 8.5, 8.6; `checkin.md` §6; `mobile-coding-standards.md` §4).
 
-Set-up: `apps/mobile/README.md`. Fill in the date, the person, the Expo Go version, the iPhone model and iOS version.
+Set-up: `apps/mobile/README.md`. Two things that bite:
+
+- **Tickets die when the backend restarts without a fixed key.** `bootRun` with a key made on the spot (`scripts/generate-ticket-key.sh` without `--write`) signs with that key only until it stops; a restart with a new key makes every earlier ticket fail on the phone, correctly. Register the student for the workshop **after** the last restart, then scan.
+- **The phone's token lasts 30 minutes, and that is not a limit on scanning:** a session whose token has expired stays signed in on the device (also after the app is closed), keeps scanning, and ends only when a sync is refused with `401` — every scan is kept (`checkin.md` §7). Fill in the date, the person, the Expo Go version, the iPhone model and iOS version.
 
 | Field | Value |
 |---|---|
