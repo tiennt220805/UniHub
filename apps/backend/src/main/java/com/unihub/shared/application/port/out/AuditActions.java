@@ -23,5 +23,7 @@ public final class AuditActions {
     public static final String PAYMENT_REFUND_REQUIRED = "PAYMENT_REFUND_REQUIRED";
     public static final String PAYMENT_REFUNDED = "PAYMENT_REFUNDED";
 
+    public static final String CHECKIN_SCANS_SYNCED = "CHECKIN_SCANS_SYNCED";
+
     private AuditActions() {}
 }

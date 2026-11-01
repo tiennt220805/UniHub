@@ -11,5 +11,8 @@ public final class AuditTargets {
 
     public static final String PAYMENT = "PAYMENT";
 
+    /** A sync batch has no row of its own: the entry carries a fresh id. */
+    public static final String CHECK_IN_BATCH = "CHECK_IN_BATCH";
+
     private AuditTargets() {}
 }
