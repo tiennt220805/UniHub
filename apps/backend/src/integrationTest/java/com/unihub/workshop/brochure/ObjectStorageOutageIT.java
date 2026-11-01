@@ -9,9 +9,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 
+import com.github.dockerjava.api.model.Bind;
 import com.github.dockerjava.api.model.ExposedPort;
 import com.github.dockerjava.api.model.PortBinding;
 import com.github.dockerjava.api.model.Ports;
+import com.github.dockerjava.api.model.Volume;
 import com.unihub.checkin.CheckInFixtures;
 import com.unihub.payment.application.port.out.ConfirmOutcome;
 import com.unihub.payment.application.port.out.PaymentGateway;
@@ -67,6 +69,7 @@ import org.testcontainers.utility.DockerImageName;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class ObjectStorageOutageIT extends BrochureHttpSupport {
     private static final int MINIO_PORT = freePort();
+    private static final String VOLUME = "unihub-it-minio-" + UUID.randomUUID();
     private static final Duration BOUND = Duration.ofSeconds(20);
     private static final Duration PROBE_BOUND = Duration.ofSeconds(5);
 
@@ -82,6 +85,12 @@ class ObjectStorageOutageIT extends BrochureHttpSupport {
                     .withCreateContainerCmdModifier(
                             cmd ->
                                     cmd.getHostConfig()
+                                            // A named volume, not the container's overlay layer:
+                                            // after a
+                                            // stop and a start MinIO renames inside /data, and on
+                                            // the
+                                            // overlay that fails with "Rename across devices".
+                                            .withBinds(new Bind(VOLUME, new Volume("/data")))
                                             .withPortBindings(
                                                     new PortBinding(
                                                             Ports.Binding.bindPort(MINIO_PORT),
@@ -122,6 +131,11 @@ class ObjectStorageOutageIT extends BrochureHttpSupport {
     @AfterAll
     static void stopOwn() {
         OWN.stop();
+        try {
+            DockerClientFactory.instance().client().removeVolumeCmd(VOLUME).exec();
+        } catch (RuntimeException alreadyGone) {
+            // nothing left to remove
+        }
     }
 
     @MockBean private PaymentGateway gateway;
@@ -146,21 +160,36 @@ class ObjectStorageOutageIT extends BrochureHttpSupport {
     void bringTheBucketBack() {
         ensureUp();
         // every confirmation also fans out notifications, through the live relay
-        await().atMost(Duration.ofSeconds(60))
-                .during(Duration.ofSeconds(1))
-                .until(
-                        () -> {
-                            var deleted = 0;
-                            for (var user : students) {
-                                deleted +=
-                                        jdbc.update(
-                                                "DELETE FROM notifications WHERE user_id = ?",
-                                                user);
-                            }
-                            return queueDepth(Topology.HOLD_DELAY_QUEUE) == 0
-                                    && queueDepth("unihub.seat-hold-expiry.queue") == 0
-                                    && deleted == 0;
-                        });
+        try {
+            await().atMost(Duration.ofSeconds(60))
+                    .during(Duration.ofSeconds(1))
+                    .until(
+                            () -> {
+                                var deleted = 0;
+                                for (var user : students) {
+                                    deleted +=
+                                            jdbc.update(
+                                                    "DELETE FROM notifications WHERE user_id = ?",
+                                                    user);
+                                }
+                                return queueDepth(Topology.HOLD_DELAY_QUEUE) == 0
+                                        && queueDepth("unihub.seat-hold-expiry.queue") == 0
+                                        && deleted == 0;
+                            });
+        } catch (RuntimeException e) {
+            throw new IllegalStateException(
+                    "cleanup never went quiet: delayQueue="
+                            + queueDepth(Topology.HOLD_DELAY_QUEUE)
+                            + " expiryQueue="
+                            + queueDepth("unihub.seat-hold-expiry.queue")
+                            + " notificationQueue="
+                            + queueDepth("unihub.notification.queue")
+                            + " pending outbox="
+                            + jdbc.queryForObject(
+                                    "SELECT count(*) FROM event_publications WHERE status='PENDING'",
+                                    Integer.class),
+                    e);
+        }
         students.clear();
         checkIn.cleanUp();
         registrations.cleanUp();
