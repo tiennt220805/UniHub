@@ -26,7 +26,7 @@ A Check-in Staff account: the `dev` profile seeds students only. For local use i
 below is only an example; the hash is bcrypt):
 
 ```sh
-HASH=$(htpasswd -nbBC 10 "" 'DevPass-12345' | cut -d: -f2 | sed 's/^\$2y/$2a/')
+HASH=$(htpasswd -nbBC 10 "" '<a password>' | cut -d: -f2 | sed 's/^\$2y/$2a/')
 docker exec unihub-postgres psql -U unihub -d unihub -c "
   insert into users (email, password_hash, full_name) values ('staff1@dev.unihub.local', '$HASH', 'Dev Check-in Staff 1');
   insert into user_roles (user_id, role_id) select u.id, r.id from users u, roles r

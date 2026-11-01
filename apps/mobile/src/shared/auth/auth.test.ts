@@ -4,6 +4,7 @@ import { fakeAuthApi, httpError, offline, staffLogin } from '@/testing/fake-api'
 import { verifyTicket } from '@/shared/ticket'
 
 import { getOrCreateDeviceId, isValidDeviceId } from './device-id'
+import { createSessionStore } from './session-store'
 import { endSession, restoreSession, signIn } from './session'
 import { loadVerificationKey, refreshVerificationKey } from './verification-key'
 
@@ -108,7 +109,7 @@ describe('signing in', () => {
 
     expect(result).toMatchObject({ kind: 'SIGNED_IN', hasKey: true })
     expect(tokensSeen).toEqual([null, 'opaque-token'])
-    const restored = await restoreSession(store, NOW + 1000)
+    const restored = await restoreSession(store)
     expect(restored).toMatchObject({ accessToken: 'opaque-token', expiresAt: NOW + 1_800_000 })
     expect(await loadVerificationKey(store)).toEqual({ x: response.x, y: response.y })
   })
@@ -190,18 +191,55 @@ describe('signing in', () => {
     expect(without).toMatchObject({ kind: 'SIGNED_IN', hasKey: false })
   })
 
-  it('an expired stored session is no session; ending one leaves the key and the device id', async () => {
+  it('a session whose token has expired is still the stored session: scanning goes on offline', async () => {
+    const store = memorySecretStore()
+    const { apiFor } = fakeAuthApi({ login: staffLogin({ expiresIn: 60 }), key: keyResponse() })
+    await signIn({ apiFor, secrets: store, now: () => NOW }, 'a', 'b', false)
+
+    const restored = await restoreSession(store)
+
+    expect(restored).toMatchObject({ accessToken: 'opaque-token', expiresAt: NOW + 60_000 })
+    expect(restored!.expiresAt).toBeLessThan(NOW + 3_600_000)
+  })
+
+  it('after a restart past the token’s expiry the person is still signed in with the key, and can scan', async () => {
+    const store = memorySecretStore()
+    const response = keyResponse()
+    const { apiFor } = fakeAuthApi({ login: staffLogin({ expiresIn: 60 }), key: response })
+    await signIn({ apiFor, secrets: store, now: () => NOW }, 'a', 'b', false)
+
+    // A new process, two hours later: nothing but the keystore carries over.
+    const restarted = createSessionStore({
+      secrets: store,
+      apiFor,
+      now: () => NOW + 2 * 3_600_000,
+      newId: () => 'device',
+    })
+    await restarted.bootstrap()
+
+    expect(restarted.get().session?.user.id).toBe(staffLogin().user.id)
+    expect(restarted.get().key).toEqual({ x: response.x, y: response.y })
+    expect(restarted.get().expired).toBe(false)
+  })
+
+  it('an unreadable stored session is no session and is removed', async () => {
+    const store = memorySecretStore()
+    await store.set('unihub.session', '{"accessToken": 1}')
+
+    expect(await restoreSession(store)).toBeNull()
+    expect(store.entries.has('unihub.session')).toBe(false)
+  })
+
+  it('ending a session leaves the key and the device id', async () => {
     const store = memorySecretStore()
     const response = keyResponse()
     const { apiFor } = fakeAuthApi({ login: staffLogin({ expiresIn: 60 }), key: response })
     await signIn({ apiFor, secrets: store, now: () => NOW }, 'a', 'b', false)
     const deviceId = await getOrCreateDeviceId(store, () => 'device-uuid')
 
-    expect(await restoreSession(store, NOW + 61_000)).toBeNull()
-    await signIn({ apiFor, secrets: store, now: () => NOW }, 'a', 'b', false)
     await endSession(store)
 
-    expect(await restoreSession(store, NOW + 1000)).toBeNull()
+    expect(await restoreSession(store)).toBeNull()
     expect(await loadVerificationKey(store)).toEqual({ x: response.x, y: response.y })
     expect(await getOrCreateDeviceId(store, () => 'a-different-id')).toBe(deviceId)
   })

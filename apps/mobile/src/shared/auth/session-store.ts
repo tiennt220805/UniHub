@@ -41,7 +41,7 @@ export function createSessionStore({ secrets, apiFor, now, newId }: Deps) {
 
     async bootstrap(): Promise<void> {
       const [session, key, deviceId] = await Promise.all([
-        restoreSession(secrets, now()),
+        restoreSession(secrets),
         loadVerificationKey(secrets),
         getOrCreateDeviceId(secrets, newId),
       ])

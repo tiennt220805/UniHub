@@ -63,7 +63,14 @@ export async function signIn(
   return { kind: 'SIGNED_IN', session, hasKey: refreshed.outcome === 'UPDATED' || cachedKey }
 }
 
-export async function restoreSession(secrets: SecretStore, now: number): Promise<Session | null> {
+/**
+ * The stored session, **whether or not its token has expired.** The token lives 30 minutes and there
+ * is no refresh (`auth-and-identity.md` §4), but scanning is offline and must go on through an event
+ * longer than that, including after the app was closed and opened again. Expiry only means the Backend
+ * API will refuse the next sync with a `401`; that is what ends the session, and it keeps every scan
+ * (`checkin.md` §7).
+ */
+export async function restoreSession(secrets: SecretStore): Promise<Session | null> {
   const stored = await secrets.get(SESSION_STORAGE)
   if (stored === null) return null
   try {
@@ -71,7 +78,6 @@ export async function restoreSession(secrets: SecretStore, now: number): Promise
     if (
       typeof session.accessToken === 'string' &&
       typeof session.expiresAt === 'number' &&
-      session.expiresAt > now &&
       typeof session.user?.id === 'string' &&
       Array.isArray(session.permissions)
     ) {

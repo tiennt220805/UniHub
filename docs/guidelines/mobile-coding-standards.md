@@ -21,7 +21,7 @@
 
 | Concern | Choice | Why |
 |---|---|---|
-| Framework | Expo SDK 58 (`expo` 58.0.10), React Native 0.88.0-rc.4 (what the SDK pins), TypeScript strict | Runs in Expo Go on the owner's iPhone; no native build in Phase 5 |
+| Framework | Expo SDK 58 (`expo` 58.0.14), React Native 0.88.0, TypeScript strict | Runs in Expo Go on the owner's iPhone; no native build in Phase 5 |
 | Routing | Expo Router (files under `app/`) | The standard for the SDK |
 | Local database | `expo-sqlite` + Drizzle ORM, hand-written forward-only migrations (`src/shared/db/migrate.ts`, `PRAGMA user_version`) | The durable queue must survive a restart (`architecture.md` §5.3) |
 | Secrets | `expo-secure-store` | Hardware-backed keystore |
@@ -30,7 +30,7 @@
 | State | Zustand (the session), React state for the rest; TanStack Query is installed for server reads and unused until a read needs it | Same stack as the Web |
 | Tests | Jest + `jest-expo` + React Native Testing Library; durable-queue tests on a real SQLite **file** via `better-sqlite3` | D57, D58 |
 
-`.npmrc` sets `legacy-peer-deps`: the SDK pins a prerelease of React Native, which satisfies no plain semver peer range.
+`expo` is pinned to **58.0.14**, not the first two-weeks-old 58.x (58.0.10): that one still pinned a React Native release candidate (0.88.0-rc.4), while Expo Go from the App Store runs the stable native runtime; 58.0.11 onward pin 0.88.0 (stable since 2026-10-15). `.npmrc` sets `legacy-peer-deps`: the SDK's packages declare optional peers (`react-dom`, `react-native-web`, `@expo/dom-webview` …) a native-only app does not install, and without the flag npm resolves the tree in a way that leaves `babel-preset-expo` out. `npx expo-doctor` passes 20/20.
 
 ## 2. Layout and dependency rule
 
