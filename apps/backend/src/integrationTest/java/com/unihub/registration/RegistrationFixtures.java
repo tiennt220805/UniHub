@@ -170,6 +170,22 @@ public final class RegistrationFixtures {
     }
 
     public void cleanUp() {
+        // Check-in rows first, in two passes: an attendance points at a scan that may have been
+        // made by another fixture user, and a scan points at a registration.
+        users.forEach(
+                user ->
+                        jdbc.update(
+                                "DELETE FROM attendances WHERE registration_id IN"
+                                        + " (SELECT id FROM registrations WHERE user_id = ?)",
+                                user));
+        users.forEach(
+                user ->
+                        jdbc.update(
+                                "DELETE FROM check_in_scans WHERE scanned_by = ? OR"
+                                        + " registration_id IN"
+                                        + " (SELECT id FROM registrations WHERE user_id = ?)",
+                                user,
+                                user));
         users.forEach(
                 user -> {
                     // A payment's outbox rows are found through the registration, which still
