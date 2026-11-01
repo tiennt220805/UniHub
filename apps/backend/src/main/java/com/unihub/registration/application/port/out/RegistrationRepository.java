@@ -5,6 +5,7 @@ import com.unihub.registration.domain.model.RegistrationStatus;
 import com.unihub.shared.domain.id.RegistrationId;
 import com.unihub.shared.domain.id.UserId;
 import com.unihub.shared.domain.id.WorkshopId;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,6 +28,12 @@ public interface RegistrationRepository {
      * the use case that calls it.
      */
     List<Registration> findHoldingSeats(WorkshopId workshopId);
+
+    /**
+     * The registrations that hold one of these ticket codes, in any status. A code with no
+     * registration yields nothing. Read at the Master by the use case that calls it.
+     */
+    List<Registration> findByTicketCodes(Collection<String> ticketCodes);
 
     /** Whether the student holds a {@code RESERVED} or {@code CONFIRMED} registration here. */
     boolean existsActive(WorkshopId workshopId, UserId userId);

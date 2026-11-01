@@ -263,7 +263,7 @@ Every key format, tuning parameter, and idempotency scope in this document, in o
 
 **Internal reads for Check-in and Notification (Phase 5 checklist D47, D51, D46, D55):** `registration.api` gains four read interfaces, each returning only what its caller needs and never an entity:
 - `TicketVerificationKey` — the current **public** JWK of the ticket key (`kty`, `crv`, `x`, `y`), for Check-in's `GET /api/v1/checkin/verification-key`. The private key never crosses the module boundary.
-- `TicketLookup` — bulk resolution `ticket_code` → `registrationId`, `status`, `workshopId`, at the Master, for sync reconciliation (`checkin.md` §7).
+- `TicketLookup` — bulk resolution `ticket_code` → `registrationId`, `status`, `workshopId`, at the Master, for sync reconciliation (`checkin.md` §7). **As built (Phase 5 checklist 3.2, 2026-11-01):** `TicketLookup.findByCodes(Collection<String>)` returns `Map<code, TicketRegistration(registrationId, workshopId, confirmed)>`; a code nobody holds, and a registration confirmed before Phase 5 (no code), are absent. `@Transactional(readOnly = true) @ReadFromPrimary`, one query per batch; `CheckInReadsMasterIT` pauses the Replica to prove it.
 - A per-workshop count of `CONFIRMED` and `RESERVED` registrations, at the Replica, for the report (`checkin.md` §10).
 - The ticket (`ticket_code`, `qr_payload`) of a registration, at the Master, for the confirmation email's QR (`notification.md` §4).
 

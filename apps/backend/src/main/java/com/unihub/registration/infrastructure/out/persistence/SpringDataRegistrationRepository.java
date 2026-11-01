@@ -1,6 +1,7 @@
 package com.unihub.registration.infrastructure.out.persistence;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
@@ -22,6 +23,8 @@ interface SpringDataRegistrationRepository extends JpaRepository<RegistrationJpa
                     + "where r.workshopId = :workshopId and r.status in ('RESERVED', 'CONFIRMED') "
                     + "order by r.createdAt, r.id")
     List<RegistrationJpaEntity> findHoldingSeats(@Param("workshopId") UUID workshopId);
+
+    List<RegistrationJpaEntity> findByTicketCodeIn(Collection<String> ticketCodes);
 
     @Query(
             "select count(r) > 0 from RegistrationJpaEntity r "
