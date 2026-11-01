@@ -68,40 +68,59 @@ import org.testcontainers.utility.DockerImageName;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class ObjectStorageOutageIT extends BrochureHttpSupport {
-    private static final int MINIO_PORT = freePort();
-    private static final String VOLUME = "unihub-it-minio-" + UUID.randomUUID();
     private static final Duration BOUND = Duration.ofSeconds(20);
     private static final Duration PROBE_BOUND = Duration.ofSeconds(5);
+    private static final String VOLUME = "unihub-it-minio-" + UUID.randomUUID();
+
+    /** The bucket server and the fixed host port it was started on. */
+    private record Bucket(MinIOContainer container, int port) {}
 
     // Its own bucket server on a fixed host port, so that a stopped and restarted container is
     // found
-    // at the same address by a client that was configured once.
-    private static final MinIOContainer OWN =
-            new MinIOContainer(
-                            DockerImageName.parse(
-                                            "cgr.dev/chainguard/minio@sha256:"
-                                                    + "4692462f35d97d7e82c30371d82f057703c5d9489bcae726010594c812f2d285")
-                                    .asCompatibleSubstituteFor("minio/minio"))
-                    .withCreateContainerCmdModifier(
-                            cmd ->
-                                    cmd.getHostConfig()
-                                            // A named volume, not the container's overlay layer:
-                                            // after a
-                                            // stop and a start MinIO renames inside /data, and on
-                                            // the
-                                            // overlay that fails with "Rename across devices".
-                                            .withBinds(new Bind(VOLUME, new Volume("/data")))
-                                            .withPortBindings(
-                                                    new PortBinding(
-                                                            Ports.Binding.bindPort(MINIO_PORT),
-                                                            new ExposedPort(9000)),
-                                                    // the console port stays an ordinary random one
-                                                    new PortBinding(
-                                                            Ports.Binding.empty(),
-                                                            new ExposedPort(9001))));
+    // at the same address by a client that was configured once. A port that was free a moment ago
+    // can be taken by another container before this one starts (seen in the full suite), so the
+    // start is tried again on a new port.
+    private static final Bucket BUCKET = startBucket();
+    private static final MinIOContainer OWN = BUCKET.container();
+    private static final int MINIO_PORT = BUCKET.port();
 
-    static {
-        OWN.start();
+    private static Bucket startBucket() {
+        RuntimeException last = null;
+        for (int attempt = 0; attempt < 5; attempt++) {
+            var port = freePort();
+            var container =
+                    new MinIOContainer(
+                                    DockerImageName.parse(
+                                                    "cgr.dev/chainguard/minio@sha256:"
+                                                            + "4692462f35d97d7e82c30371d82f057703c5d9489bcae726010594c812f2d285")
+                                            .asCompatibleSubstituteFor("minio/minio"))
+                            .withCreateContainerCmdModifier(
+                                    cmd ->
+                                            cmd.getHostConfig()
+                                                    // A named volume, not the container's overlay
+                                                    // layer: after a stop and a start MinIO renames
+                                                    // inside /data, and on the overlay that fails
+                                                    // with "Rename across devices".
+                                                    .withBinds(
+                                                            new Bind(VOLUME, new Volume("/data")))
+                                                    .withPortBindings(
+                                                            new PortBinding(
+                                                                    Ports.Binding.bindPort(port),
+                                                                    new ExposedPort(9000)),
+                                                            // the console port stays an ordinary
+                                                            // random one
+                                                            new PortBinding(
+                                                                    Ports.Binding.empty(),
+                                                                    new ExposedPort(9001))));
+            try {
+                container.start();
+                return new Bucket(container, port);
+            } catch (RuntimeException e) {
+                last = e;
+                container.stop();
+            }
+        }
+        throw new IllegalStateException("could not start a MinIO on a free port", last);
     }
 
     private static int freePort() {
