@@ -449,6 +449,8 @@ There is no global ordering (`architecture.md` §4.3). Every consumer re-checks 
 | **A** | Workshop, Registration, Payment, Check-in | Aggregate in `domain/model`, separate package-private `<Noun>JpaEntity`, mapper, repository adapter. These modules have races (`version`), state machines, or reconciliation rules worth a framework-free, unit-testable core. |
 | **B** | User, Notification | Transaction script: use case → `port/out` → adapter. The port returns records **declared next to the port** (e.g. `user.application.port.out.UserAccountRow`), never the use case's `result` types. No aggregate, no mapper. User's nightly sync is a batch upsert (use JDBC batching, not per-row aggregates); Notification writes a row and dispatches. |
 
+**Exception — Check-in (Phase 5 checklist 3.3).** Check-in is Tier A in its core and Tier B in its persistence. The reconciliation rules are a framework-free, unit-tested core in `domain/model` (`ReconciliationPolicy`), which is the reason Tier A exists, but `check_in_scans` and `attendances` have no `version` column and their concurrency control is a Postgres advisory lock per registration plus `ON CONFLICT` (`checkin.md` §7), so the adapters are JDBC (`JdbcCheckInScans`, `JdbcAttendances`) behind `port/out`, with no JPA entity and no `OptimisticConflictException`.
+
 A Tier B module that later grows a real invariant moves to Tier A. That move is a refactor inside the module and invisible to other modules.
 
 ### 9.2 Tier A persistence and optimistic locking
