@@ -11,6 +11,8 @@ public final class AuditActions {
     public static final String WORKSHOP_UPDATED = "WORKSHOP_UPDATED";
     public static final String WORKSHOP_RESCHEDULED = "WORKSHOP_RESCHEDULED";
     public static final String WORKSHOP_CANCELLED = "WORKSHOP_CANCELLED";
+    public static final String BROCHURE_UPLOAD_ISSUED = "BROCHURE_UPLOAD_ISSUED";
+    public static final String BROCHURE_UPLOAD_CONFIRMED = "BROCHURE_UPLOAD_CONFIRMED";
 
     public static final String REGISTRATION_CREATED = "REGISTRATION_CREATED";
     public static final String REGISTRATION_CONFIRMED = "REGISTRATION_CONFIRMED";

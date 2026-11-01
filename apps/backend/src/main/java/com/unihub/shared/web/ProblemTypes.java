@@ -23,5 +23,12 @@ public final class ProblemTypes {
     public static final URI IDEMPOTENCY_KEY_IN_USE = URI.create(PREFIX + "idempotency-key-in-use");
     public static final URI IDEMPOTENCY_KEY_REUSED = URI.create(PREFIX + "idempotency-key-reused");
 
+    /** workshop.md §7: the bucket cannot be reached; a retry of the same call is safe. */
+    public static final URI STORAGE_UNAVAILABLE = URI.create(PREFIX + "storage-unavailable");
+
+    /** workshop.md §7: confirming a brochure upload no URL was issued for, or that is confirmed. */
+    public static final URI BROCHURE_UPLOAD_NOT_ISSUED =
+            URI.create(PREFIX + "brochure-upload-not-issued");
+
     private ProblemTypes() {}
 }

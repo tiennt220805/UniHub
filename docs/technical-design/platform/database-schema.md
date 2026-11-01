@@ -186,6 +186,7 @@ Rationale for each column is narrated in `../modules/workshop.md`; this section 
 | `is_paid` | BOOLEAN | NOT NULL, DEFAULT `false` | |
 | `price` | NUMERIC(12,2) | NULL, CHECK `chk_workshop_price` (`(is_paid = false AND price IS NULL) OR (is_paid = true AND price IS NOT NULL AND price > 0)`) | `price IS NOT NULL` is explicit: `NULL > 0` is unknown, which a CHECK treats as passing, so without it a paid workshop with no price would be accepted. Added by `V1_1__workshop_paid_price_not_null.sql`. |
 | `brochure_s3_key` | VARCHAR(512) | NULL | Object storage pointer (`../modules/workshop.md`) — the PDF itself lives in S3, never in Postgres. |
+| `pending_brochure_key` | VARCHAR(512) | NULL | The key of the last presigned upload URL issued, until `confirmBrochureUpload` finds the object and moves it into `brochure_s3_key` (`V7`, §10.4). Never exposed by the API. |
 | `status` | VARCHAR(20) | NOT NULL, DEFAULT `'DRAFT'`, CHECK IN (`DRAFT`, `PUBLISHED`, `CANCELLED`, `COMPLETED`) | Reschedule is an update to `start_time`/`end_time` on a `PUBLISHED` row, not a status value — it's an event (notified via `event_publications`/`audit_events`), not a persistent state. |
 | `version` | INT | NOT NULL, DEFAULT 0 | Optimistic-concurrency marker (§6.1, `distributed-coordination.md` §2). Shared by seat claims **and** organizer edits (decision below). A seat claim is `UPDATE workshops SET seats_taken = seats_taken + 1, version = version + 1 WHERE id = ? AND version = :expected AND seats_taken < capacity`; zero rows → re-read to tell a lost version race (retry) from a full workshop (sold out) (`../modules/registration.md` §2). |
 | `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
@@ -1012,6 +1013,27 @@ ON CONFLICT (role_id, permission_id) DO NOTHING;
 | `Organizer` gains `REPORT_VIEW` | Has no endpoint guarded by `REPORT_VIEW` | Report endpoints accept Organizers | Safe; a token issued before `V6` lacks the code until its holder logs in again (≤ 30 minutes, `auth-and-identity.md` §4), as with `V4` |
 
 `V6` is forward-only.
+
+### 10.4 Migration `V7` — specification (Phase 5; to be applied as `V7__workshop_pending_brochure_key.sql`)
+
+Specified here first, per the rule above (Phase 5 checklist 9.2). **Why it exists:** `confirmBrochureUpload` carries no request body, and `brochure_s3_key` is deliberately not written when the URL is issued (`workshop.md` §5, §7: the column is only ever set after `HeadObject` found the object). The server therefore has to remember *which key it issued* between the two calls, and no document said where. The owner delegated the choice on 2026-11-01 ("hỏi advisor rồi quyết định cho tôi"); the options were this column, a Redis key with a 10-minute TTL (rejected: the brochure flow would depend on Redis, which no document asks for, and Redis is not the authority for brochure state), and the key in the confirm request body (rejected: it changes the published contract and loses the `409` "never issued or already confirmed").
+
+```sql
+ALTER TABLE workshops ADD COLUMN pending_brochure_key VARCHAR(512);
+```
+
+| Aspect | Rule |
+|---|---|
+| Written | On issuance of a presigned URL, by a plain `UPDATE` that leaves `version` alone; a new issuance **replaces** it (the object of the replaced key is an orphan, the same accepted waste as a replaced brochure, `workshop.md` §5) |
+| Read and cleared | On confirmation: `UPDATE … SET brochure_s3_key = :pending, pending_brochure_key = NULL WHERE id = :id AND pending_brochure_key = :pending` — one row or none. Zero rows is a `409`, and **no** outbox row is written, so two concurrent confirms produce one summarization request and one paid AI call |
+| Kept | When `HeadObject` cannot reach the bucket (`503`): nothing is persisted, the pending key stays, and the same confirm succeeds once storage is back. Also kept when the object is not found (`404`): the browser may still be uploading |
+| Not mapped by JPA | Written and read only by `WorkshopBrochures` (plain statements); an organizer's edit cannot overwrite it |
+
+| Change | Old pod (before `V7`) | New pod | Verdict |
+|---|---|---|---|
+| `workshops.pending_brochure_key` nullable column | Never reads or writes it; inserts and updates name their columns | Reads and writes it | Safe: adding a nullable column changes no existing statement (`architecture.md` §6.2) |
+
+`V7` is forward-only.
 
 ---
 

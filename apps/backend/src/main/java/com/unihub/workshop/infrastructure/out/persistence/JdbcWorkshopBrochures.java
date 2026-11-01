@@ -40,4 +40,35 @@ class JdbcWorkshopBrochures implements WorkshopBrochures {
                         brochureKey)
                 == 1;
     }
+
+    @Override
+    public void issue(WorkshopId workshopId, String pendingKey) {
+        jdbc.update(
+                "UPDATE workshops SET pending_brochure_key = ?, updated_at = now() WHERE id = ?",
+                pendingKey,
+                workshopId.value());
+    }
+
+    @Override
+    public Optional<String> pendingKey(WorkshopId workshopId) {
+        return jdbc
+                .query(
+                        "SELECT pending_brochure_key FROM workshops WHERE id = ?",
+                        (rs, row) -> rs.getString(1),
+                        workshopId.value())
+                .stream()
+                .filter(key -> key != null)
+                .findFirst();
+    }
+
+    @Override
+    public boolean confirm(WorkshopId workshopId, String pendingKey) {
+        return jdbc.update(
+                        "UPDATE workshops SET brochure_s3_key = ?, pending_brochure_key = NULL, "
+                                + "updated_at = now() WHERE id = ? AND pending_brochure_key = ?",
+                        pendingKey,
+                        workshopId.value(),
+                        pendingKey)
+                == 1;
+    }
 }

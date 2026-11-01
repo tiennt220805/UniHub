@@ -14,7 +14,6 @@ import com.unihub.workshop.application.port.out.BrochureStorage.StoredObject;
 import com.unihub.workshop.application.port.out.SummarizationClient;
 import com.unihub.workshop.application.port.out.SummarizationClient.SummarizationUnavailableException;
 import com.unihub.workshop.application.port.out.SummarizationClient.SummaryOutcome;
-import com.unihub.workshop.application.port.out.WorkshopBrochures;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -39,7 +38,7 @@ class SummarizeBrochureTest {
     private static final long TEN_MB = 10L * 1024 * 1024;
 
     private final FakeBucket bucket = new FakeBucket();
-    private final FakeBrochures brochures = new FakeBrochures();
+    private final InMemoryWorkshopBrochures brochures = new InMemoryWorkshopBrochures();
     private final FakeAi ai = new FakeAi();
     private final InMemoryWorkshopCache cache = new InMemoryWorkshopCache();
     private final SummarizeBrochure useCase = new SummarizeBrochure(brochures, bucket, ai, cache);
@@ -373,25 +372,6 @@ class SummarizeBrochureTest {
             events.add("delete");
             deleted.add(key);
             objects.remove(key);
-        }
-    }
-
-    private static final class FakeBrochures implements WorkshopBrochures {
-        final Map<WorkshopId, String> keys = new HashMap<>();
-        final Map<WorkshopId, String> summaries = new HashMap<>();
-
-        @Override
-        public Optional<String> currentKey(WorkshopId workshopId) {
-            return Optional.ofNullable(keys.get(workshopId));
-        }
-
-        @Override
-        public boolean recordSummary(WorkshopId workshopId, String brochureKey, String summary) {
-            if (!brochureKey.equals(keys.get(workshopId))) {
-                return false;
-            }
-            summaries.put(workshopId, summary);
-            return true;
         }
     }
 

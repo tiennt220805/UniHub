@@ -400,13 +400,12 @@ workshopBrochureUploadUrl:
       PDF bytes travel directly from the Organizer's browser to S3/MinIO —
       never through the Backend API (`workshop.md`'s PDF Upload & Access
       Pattern ADR).
+      Either permission satisfies the check: WORKSHOP_CREATE covers uploading
+      during the same authoring session a DRAFT was just created in;
+      WORKSHOP_EDIT covers replacing the brochure on a workshop created
+      earlier (`workshop.md` §7).
     tags: [Workshop]
     x-required-permission: [WORKSHOP_CREATE, WORKSHOP_EDIT]
-    x-required-permission-note: >-
-      Either permission satisfies this check — WORKSHOP_CREATE covers
-      uploading during the same authoring session a DRAFT was just created
-      in; WORKSHOP_EDIT covers replacing the brochure on a workshop created
-      earlier (`workshop.md` §7).
     parameters:
       - $ref: '#/WorkshopIdParam'
       - $ref: '../common/headers.yaml#/CorrelationIdRequest'
@@ -423,7 +422,11 @@ workshopBrochureUploadUrl:
                 enum: [application/pdf]
     responses:
       '200':
-        description: Presigned PUT URL issued.
+        description: >-
+          Presigned PUT URL issued. The URL authorizes exactly one `PUT` of a PDF (it is signed for
+          `Content-Type: application/pdf`) to one fresh key, for ten minutes. The server remembers
+          that key (`workshop.md` §7, database-schema `V7`); issuing again replaces it. No call is
+          made to the bucket, so this works while object storage is down.
         headers:
           X-Correlation-Id:
             $ref: '../common/headers.yaml#/CorrelationIdResponse'
@@ -431,6 +434,12 @@ workshopBrochureUploadUrl:
           application/json:
             schema:
               $ref: '../schemas/workshop.yaml#/BrochureUploadUrlResponse'
+      '400':
+        description: '`contentType` is missing or is not `application/pdf`.'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
       '401':
         description: Missing or invalid token.
         content:
@@ -445,6 +454,12 @@ workshopBrochureUploadUrl:
               $ref: '../common/error.yaml'
       '404':
         description: No workshop with this id.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '409':
+        description: Workshop is already CANCELLED or COMPLETED.
         content:
           application/problem+json:
             schema:
@@ -493,14 +508,32 @@ workshopBrochureUploadConfirm:
       '404':
         description: >-
           No workshop with this id, or `HeadObject` found nothing at the
-          issued key — nothing persisted, Organizer can retry the flow
-          (`workshop.md` §7).
+          issued key (the browser has not uploaded yet) — nothing persisted,
+          the issued key is kept, the Organizer can retry (`workshop.md` §7).
         content:
           application/problem+json:
             schema:
               $ref: '../common/error.yaml'
       '409':
-        description: A presigned URL was never issued for this workshop, or has already been confirmed.
+        description: >-
+          Nothing to confirm (problem `type` `urn:unihub:problem:brochure-upload-not-issued`): no
+          upload URL was issued for this workshop, it was already confirmed (also what the loser of
+          two concurrent confirmations gets; exactly one summarization request is ever written per
+          issued key), or the workshop is CANCELLED/COMPLETED.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '503':
+        description: >-
+          Object storage could not be reached (problem `type` `urn:unihub:problem:storage-unavailable`,
+          `../../../docs/technical-design/modules/workshop.md` §7, §10; Phase 5 checklist D60). Nothing
+          was persisted and the issued key is kept, so the **same** call succeeds once storage is back.
+          Only this endpoint can answer it: an object-storage outage never touches registration,
+          payment or check-in (INV-19).
+        headers:
+          Retry-After:
+            $ref: '../common/headers.yaml#/RetryAfter'
         content:
           application/problem+json:
             schema:
