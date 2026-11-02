@@ -22,6 +22,9 @@
 #                          without a private EC P-256 JWK), but generateOpenApiDocs never signs a ticket, so a
 #                          key generated for this run is enough. Never committed, never a real key: when unset,
 #                          scripts/generate-ticket-key.sh makes a throwaway one (Node, already needed below).
+#   MANAGEMENT_SERVER_PORT  forced to -1 below (Actuator's management server off): the run only reads /v3/api-docs on
+#                          the API port, and a fixed management port (8081) would fail the boot on any machine that
+#                          already uses it, Expo's Metro bundler included. Not overridable on purpose.
 #   CONTRACT_DIFF_DIR      where intermediate specs are written (default: a fresh mktemp dir, kept on exit).
 set -euo pipefail
 
@@ -64,6 +67,7 @@ UNIHUB_SECURITY_JWT_SECRET="${UNIHUB_SECURITY_JWT_SECRET:-contract-diff-placehol
 UNIHUB_REDIS_ADDRESS="${UNIHUB_REDIS_ADDRESS:-redis://127.0.0.1:1}" \
 UNIHUB_NOTIFICATION_SMTP_HOST="${UNIHUB_NOTIFICATION_SMTP_HOST:-127.0.0.1}" \
 UNIHUB_TICKET_SIGNING_KEY="$TICKET_KEY" \
+MANAGEMENT_SERVER_PORT=-1 \
   ./gradlew generateOpenApiDocs --no-daemon
 cp build/openapi.json "$TMP/generated.json"
 

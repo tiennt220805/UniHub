@@ -20,8 +20,8 @@
 # password anywhere in the repository (AC63.2), and compose cannot require one from the environment without
 # refusing the whole file for everyone who does not run Grafana. So: anyone who opens http://127.0.0.1:3000 is an
 # anonymous Viewer (Grafana 13 supports no other anonymous role), which is all the provisioned dashboards and
-# alert rules need; the admin account is Grafana's own built-in one, which makes you change its password at the
-# first login. Like every port in this file, Grafana is bound to 127.0.0.1: never publish it on another interface.
+# alert rules need; the admin account is Grafana's own built-in one (admin/admin, with a prompt to change the password at
+# the first login that can be skipped: change it if the port is ever reachable by anyone else). Like every port in this file, Grafana is bound to 127.0.0.1: never publish it on another interface.
 #
 # Usage: `docker compose up -d` works with zero setup (every var below has a dev-only default). To
 # override, copy env.example to .env (git-ignored, never committed — see apps/backend/.gitignore) and set
@@ -166,6 +166,9 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_USERS_ALLOW_SIGN_UP: "false"
+      # Grafana 13 otherwise downloads plugin updates (it tried Tempo 13.2.4 -> 13.4.1) at every start: the
+      # datasource then answers "plugin not registered" until that finishes, and an offline run never does.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
     ports:
