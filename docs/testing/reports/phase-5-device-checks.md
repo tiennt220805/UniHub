@@ -240,3 +240,8 @@ Các dòng đã ghi trong DB (163) được giữ làm bằng chứng của lầ
 ### Quyết định của chủ dự án
 
 2026-11-01, Nguyễn Thành Tiến: các mục 8.0, 8.3, 8.5, 8.6 được tick theo báo cáo "đã đạt" trên iPhone, **không chạy lại** và **không bổ sung bằng chứng** cho các hàng ghi "Không có bằng chứng" hoặc "Chỉ có lời báo" ở bảng trên. Các khoảng trống đó được chuyển sang `phase-5.md` §5 (Known Gaps) khi ký, không bị xóa khỏi tài liệu này.
+
+### Quyết định của chủ dự án về S2 (2026-11-02)
+
+2026-11-02, Nguyễn Thành Tiến yêu cầu M-44 và M-52 hết `Drafted` (phương án (a) trong `phase-5-offline-checkin.md`, Evidence Mục 11). Hiểu đúng quyết định này: **owner chấp nhận lời báo "đã đạt" của chính mình ngày 2026-11-01 làm bằng chứng cho S2** (tắt app rồi mở lại không mất scan). **Không có bản ghi độc lập nào** (không quay màn hình, DB không phân biệt được app đã khởi động lại), không chạy lại, và Claude không quan sát lần chạy này. Mức bằng chứng của M-44 vì vậy là **lời xác nhận của owner**, yếu hơn một bản ghi; `test-plan.md` §1 yêu cầu "một lần kiểm tra có ghi lại" và lời xác nhận này là bản ghi duy nhất. Điều đó phải được nói thẳng ở `phase-5.md` §5 và §6 khi ký, không được viết thành "có ghi hình/nhật ký".
+
