@@ -172,4 +172,4 @@ public abstract class ReplicaIntegrationTestSupport extends IntegrationTestSuppo
 | Container lifecycle | Singleton per JVM run via a `static { ... }` initializer in a shared base class (`@Container` fields would restart per class — measured, §2); `.withReuse(true)` opt-in for local dev only; the replica is a lazily-started singleton in `ReplicaIntegrationTestSupport`, never reused | §2 |
 | Gradle task | `./gradlew integrationTest` | §3 |
 | CI job | `integration-test`, gated by `unit-test`, gates `contract-diff` | §3 |
-| INV coverage pattern | See `test-strategy.md` §2 for the full list; §4 here shows 4 representative rows | §4 |
+| INV coverage pattern | See `test-strategy.md` §2 for the full list; §4 here shows 7 representative rows (INV-03, INV-06, INV-10 write and relay halves, INV-11, INV-12 server half, INV-19) | §4 |
