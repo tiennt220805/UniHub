@@ -151,6 +151,15 @@ dependencies {
     // could not record (observability.md §4, unihub_audit_publish_failures_total). No registry and no
     // actuator yet; the counter attaches to the global registry when the observability stack lands.
     implementation("io.micrometer:micrometer-core")
+    // Observability (Phase 6 checklist 1.1, observability.md §2, §8). Actuator on its own management port
+    // (D64: `health` and `prometheus` only), the Prometheus registry that exports every meter, and Micrometer
+    // Tracing bridged to OpenTelemetry with the OTLP exporter (HTTP/protobuf, the default OkHttp sender: Boot
+    // 3.3.5 manages OpenTelemetry 1.37.0, which has no JDK sender, D80). No versions here: the Boot BOM
+    // manages all four, and moving one on its own would split Micrometer from its tracing bridge.
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("io.micrometer:micrometer-registry-prometheus")
+    implementation("io.micrometer:micrometer-tracing-bridge-otel")
+    implementation("io.opentelemetry:opentelemetry-exporter-otlp")
     // Redis client (distributed-coordination.md §1: Redisson, single-server mode). Pinned on the 3.x line that
     // matches Boot 3.3 (4.x targets newer Boot/Netty). Plain `redisson`, not the Spring Boot starter: the
     // client is configured from unihub.redis.* in RedisConfig. The address is required (Phase 3 checklist
@@ -226,6 +235,9 @@ dependencies {
     // spring.flyway.enabled autoconfig — INV-15, migration never runs from inside the application
     // itself, test context included). Same version as the Gradle plugin (buildscript{} block above) for
     // one less number to reconcile locally; deployment-and-cicd.md §4's K8s Job is a separate concern.
+    // In-memory span exporter for the tracing ITs (Phase 6 D75, M-56). Version from the OpenTelemetry BOM
+    // the Boot BOM imports.
+    integrationTestImplementation("io.opentelemetry:opentelemetry-sdk-testing")
     integrationTestImplementation("org.flywaydb:flyway-core:13.8.0")
     integrationTestImplementation("org.flywaydb:flyway-database-postgresql:13.8.0")
 }

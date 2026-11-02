@@ -52,8 +52,9 @@ properties:
     allOf:
       - $ref: './headers.yaml#/CorrelationIdValue'
     description: >-
-      Echoes the request's `X-Correlation-Id` (`../../../docs/technical-design/platform/observability.md`
-      §1) — the value to hand an operator when reporting this error. Always
-      present, even when the client never supplied one, since the server
-      generates one for every request. A 32-hex-character OpenTelemetry trace
+      The same value as the response's `X-Correlation-Id` header
+      (`../../../docs/technical-design/platform/observability.md` §1) — the
+      value to hand an operator when reporting this error. Always present,
+      since the server generates one for every request; a value a client sends
+      in the request header is ignored. A 32-hex-character OpenTelemetry trace
       ID, not a UUID.

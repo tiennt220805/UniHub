@@ -8,8 +8,6 @@ import com.unihub.user.web.dto.LoginRequest;
 import com.unihub.user.web.dto.LoginResponse;
 import com.unihub.user.web.mapper.UserWebMapper;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -40,20 +38,11 @@ class AuthController {
         this.login = login;
     }
 
-    // 429 + Retry-After and X-Correlation-Id are documented only, as on the workshop endpoints: no
-    // rate limiter (INV-17, Phase 7) or correlation-ID filter exists yet.
+    // 429 + Retry-After and the X-Correlation-Id response header are documented only, as on the
+    // workshop endpoints: no rate limiter (INV-17, Phase 7) or correlation-ID filter exists yet.
     @Operation(
             operationId = "login",
-            tags = {"User"},
-            parameters =
-                    @Parameter(
-                            name = "X-Correlation-Id",
-                            in = ParameterIn.HEADER,
-                            required = false,
-                            schema =
-                                    @Schema(
-                                            types = {"string"},
-                                            pattern = CORRELATION_ID_PATTERN)))
+            tags = {"User"})
     @SecurityRequirements
     @ApiResponse(
             responseCode = "200",

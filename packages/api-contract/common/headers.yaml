@@ -22,27 +22,16 @@ IdempotencyKey:
     format: uuid
   example: 6c1f7e2a-0b3d-4a9e-9b1a-2f6e6b8c9d10
 
-CorrelationIdRequest:
-  name: X-Correlation-Id
-  in: header
-  required: false
-  description: >-
-    Optional client-supplied correlation id (`../../../docs/technical-design/platform/observability.md`
-    §1) — propagated through distributed tracing and echoed back on both
-    success and error responses under the same header name. If the caller
-    omits it, the server generates one and returns it via the
-    `CorrelationIdResponse` header. The value is an OpenTelemetry trace ID
-    (32 lowercase hex characters, per `observability.md`'s Correlation ID
-    Identity ADR), not a UUID.
-  schema:
-    $ref: '#/CorrelationIdValue'
-
 CorrelationIdResponse:
   description: >-
     The correlation id that traced this request end to end
     (`../../../docs/technical-design/platform/observability.md` §1) — the value to search for in logs
     or traces, and the same value carried in `error.yaml`'s `correlationId`
-    field on a non-2xx response.
+    field on a non-2xx response. It is always the request's trace ID, generated
+    by the server for every request. A client cannot choose it: an
+    `X-Correlation-Id` header sent on the request is ignored, not rejected
+    (Phase 6 checklist D65). A client that wants its own trace to continue into
+    the server's sends a W3C `traceparent` header instead.
   schema:
     $ref: '#/CorrelationIdValue'
 
@@ -50,9 +39,8 @@ CorrelationIdValue:
   description: >-
     An OpenTelemetry / W3C trace ID: 32 lowercase hexadecimal characters
     (`../../../docs/technical-design/platform/observability.md` §1 — the trace ID *is* the correlation
-    id; no separate UUID is minted). Declared once here so the request header,
-    the response header and `error.yaml`'s `correlationId` field can never
-    drift apart.
+    id; no separate UUID is minted). Declared once here so the response header
+    and `error.yaml`'s `correlationId` field can never drift apart.
   type: string
   pattern: '^[0-9a-f]{32}$'
   example: 4bf92f3577b34da6a3ce929d0e0e4736

@@ -49,6 +49,61 @@ spring:
       simple:
         default-requeue-rejected: false
 
+# Actuator (observability.md §5, §8; Phase 6 checklist D64). It runs on its own management port, never on the
+# API port, so no Ingress route can reach /actuator/**: only `health` and `prometheus` are exposed, and the
+# management chain permits both without a token (ManagementSecurityConfig). Tests set the port to 0.
+#
+# The auto-configured `db`, `rabbit` and `mail` indicators are off because the project writes its own:
+# `db` must see the Master only (the Replica is a routing target, INV-03), `redis` does not exist in Boot
+# for a plain Redisson client, `rabbit` must answer inside a hard timeout and report DEGRADED instead of
+# DOWN, and `mail` would open an SMTP connection on every probe. `readiness` therefore asks only the
+# Master; `dependencies` is informational and never a probe (Readiness Composition ADR), so a Redis or
+# RabbitMQ outage shows there as DEGRADED with HTTP 200 and never takes a pod out of rotation.
+#
+# Tracing: Micrometer Tracing bridged to OpenTelemetry. The trace ID is the correlation ID (D65), so it
+# must exist for every request, sampled or not; sampling only decides what is exported. The OTLP endpoint is
+# never set here: management.otlp.tracing.endpoint (MANAGEMENT_OTLP_TRACING_ENDPOINT) comes from the
+# environment, and without it Boot 3.3 builds no exporter, so nothing tries to send a trace.
+management:
+  server:
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+      # Names and statuses of the components, never their details: the port is internal, but a probe
+      # reading "readiness" should still see which part is down.
+      show-components: always
+      status:
+        order: DOWN,OUT_OF_SERVICE,DEGRADED,UP,UNKNOWN
+        http-mapping:
+          DEGRADED: 200
+      group:
+        readiness:
+          include: readinessState,db
+        dependencies:
+          include: redis,rabbit
+          show-details: always
+  health:
+    db:
+      enabled: false
+    rabbit:
+      enabled: false
+    mail:
+      enabled: false
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+  tracing:
+    sampling:
+      probability: 0.10
+
 # packages/api-contract is OpenAPI 3.1; springdoc 2.6.0 defaults to 3.0.x. Pinned so the spec
 # `generateOpenApiDocs` produces (contract-testing.md §2) is the same dialect as the hand-written one —
 # otherwise `openAPI: 3.1.0 vs 3.0.1` alone fails contract-diff.

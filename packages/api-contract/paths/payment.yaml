@@ -53,7 +53,6 @@ payments:
     x-idempotent: true
     parameters:
       - $ref: '../common/headers.yaml#/IdempotencyKey'
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     requestBody:
       required: true
       content:
@@ -173,7 +172,6 @@ paymentById:
     tags: [Payment]
     parameters:
       - $ref: '#/PaymentIdParam'
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     responses:
       '200':
         description: Current payment status.
@@ -243,7 +241,6 @@ paymentGatewayWebhook:
         description: HMAC signature over the raw request body, verified against a shared webhook-signing secret before any other processing.
         schema:
           type: string
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     requestBody:
       required: true
       description: The Payment Gateway's raw event payload — schema owned by the gateway (Stripe, sandbox mode), not by this API.

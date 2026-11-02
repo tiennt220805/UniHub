@@ -7,8 +7,6 @@ import com.unihub.notification.web.mapper.NotificationWebMapper;
 import com.unihub.shared.web.ApiProblems;
 import com.unihub.shared.web.CurrentActor;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -42,17 +40,7 @@ class NotificationController {
 
     @Operation(
             operationId = "listMyNotifications",
-            tags = {"Notification"},
-            parameters = {
-                @Parameter(
-                        name = "X-Correlation-Id",
-                        in = ParameterIn.HEADER,
-                        required = false,
-                        schema =
-                                @Schema(
-                                        types = {"string"},
-                                        pattern = CORRELATION_ID_PATTERN))
-            })
+            tags = {"Notification"})
     @ApiResponse(
             responseCode = "200",
             headers =

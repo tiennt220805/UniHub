@@ -84,21 +84,12 @@ class WorkshopController {
     // GlobalProblemHandler.
     //  - 429 + Retry-After: documented only — no rate limiter exists (distributed-coordination.md
     // §3).
-    //  - X-Correlation-Id (request param and 200 header): documented only — no correlation-ID
-    // filter
-    //    exists, so the server neither reads nor echoes it.
+    //  - X-Correlation-Id (200 header): documented only until the correlation-ID filter exists
+    //    (Phase 6 task 3.1). There is no request parameter: a header sent by the client is ignored
+    //    (D65).
     @Operation(
             operationId = "listWorkshops",
-            tags = {"Workshop"},
-            parameters =
-                    @Parameter(
-                            name = "X-Correlation-Id",
-                            in = ParameterIn.HEADER,
-                            required = false,
-                            schema =
-                                    @Schema(
-                                            types = {"string"},
-                                            pattern = CORRELATION_ID_PATTERN)))
+            tags = {"Workshop"})
     @ApiResponse(
             responseCode = "200",
             headers =
@@ -144,7 +135,7 @@ class WorkshopController {
 
     // Public like the list (contract: security: []), but the bearer token is optional input: a
     // caller holding WORKSHOP_CREATE/WORKSHOP_EDIT may see a DRAFT, anyone else gets 404 for it.
-    // 429 and X-Correlation-Id are documented only, as on the list endpoint.
+    // 429 and the X-Correlation-Id response header are documented only, as on the list endpoint.
     @Operation(
             operationId = "getWorkshop",
             tags = {"Workshop"},
@@ -156,15 +147,7 @@ class WorkshopController {
                         schema =
                                 @Schema(
                                         types = {"string"},
-                                        format = "uuid")),
-                @Parameter(
-                        name = "X-Correlation-Id",
-                        in = ParameterIn.HEADER,
-                        required = false,
-                        schema =
-                                @Schema(
-                                        types = {"string"},
-                                        pattern = CORRELATION_ID_PATTERN))
+                                        format = "uuid"))
             })
     @ApiResponse(
             responseCode = "200",
@@ -202,16 +185,7 @@ class WorkshopController {
                                     @ExtensionProperty(
                                             name = "x-required-permission",
                                             value = Permissions.WORKSHOP_CREATE)),
-            tags = {"Workshop"},
-            parameters =
-                    @Parameter(
-                            name = "X-Correlation-Id",
-                            in = ParameterIn.HEADER,
-                            required = false,
-                            schema =
-                                    @Schema(
-                                            types = {"string"},
-                                            pattern = CORRELATION_ID_PATTERN)))
+            tags = {"Workshop"})
     @ApiResponse(
             responseCode = "201",
             headers =
@@ -259,15 +233,7 @@ class WorkshopController {
                         schema =
                                 @Schema(
                                         types = {"string"},
-                                        format = "uuid")),
-                @Parameter(
-                        name = "X-Correlation-Id",
-                        in = ParameterIn.HEADER,
-                        required = false,
-                        schema =
-                                @Schema(
-                                        types = {"string"},
-                                        pattern = CORRELATION_ID_PATTERN))
+                                        format = "uuid"))
             })
     @ApiResponse(
             responseCode = "200",
@@ -319,15 +285,7 @@ class WorkshopController {
                         schema =
                                 @Schema(
                                         types = {"string"},
-                                        format = "uuid")),
-                @Parameter(
-                        name = "X-Correlation-Id",
-                        in = ParameterIn.HEADER,
-                        required = false,
-                        schema =
-                                @Schema(
-                                        types = {"string"},
-                                        pattern = CORRELATION_ID_PATTERN))
+                                        format = "uuid"))
             })
     @ApiResponse(
             responseCode = "200",
@@ -372,15 +330,7 @@ class WorkshopController {
                         schema =
                                 @Schema(
                                         types = {"string"},
-                                        format = "uuid")),
-                @Parameter(
-                        name = "X-Correlation-Id",
-                        in = ParameterIn.HEADER,
-                        required = false,
-                        schema =
-                                @Schema(
-                                        types = {"string"},
-                                        pattern = CORRELATION_ID_PATTERN))
+                                        format = "uuid"))
             })
     @ApiResponse(
             responseCode = "200",

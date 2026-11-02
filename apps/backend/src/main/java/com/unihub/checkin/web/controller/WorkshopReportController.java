@@ -10,8 +10,6 @@ import com.unihub.shared.domain.id.WorkshopId;
 import com.unihub.shared.security.Permissions;
 import com.unihub.shared.web.ApiProblems;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.extensions.Extension;
 import io.swagger.v3.oas.annotations.extensions.ExtensionProperty;
 import io.swagger.v3.oas.annotations.headers.Header;
@@ -58,17 +56,7 @@ class WorkshopReportController {
                                     @ExtensionProperty(
                                             name = "x-required-permission",
                                             value = Permissions.REPORT_VIEW)),
-            tags = {"Check-in"},
-            parameters = {
-                @Parameter(
-                        name = "X-Correlation-Id",
-                        in = ParameterIn.HEADER,
-                        required = false,
-                        schema =
-                                @Schema(
-                                        types = {"string"},
-                                        pattern = CORRELATION_ID_PATTERN))
-            })
+            tags = {"Check-in"})
     @ApiResponse(
             responseCode = "200",
             headers =
@@ -100,17 +88,7 @@ class WorkshopReportController {
                                     @ExtensionProperty(
                                             name = "x-required-permission",
                                             value = Permissions.REPORT_VIEW)),
-            tags = {"Check-in"},
-            parameters = {
-                @Parameter(
-                        name = "X-Correlation-Id",
-                        in = ParameterIn.HEADER,
-                        required = false,
-                        schema =
-                                @Schema(
-                                        types = {"string"},
-                                        pattern = CORRELATION_ID_PATTERN))
-            })
+            tags = {"Check-in"})
     @ApiResponse(
             responseCode = "200",
             headers =

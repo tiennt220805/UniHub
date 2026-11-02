@@ -67,8 +67,6 @@ login:
       Flagged for a human decision, not silently built.
     tags: [User]
     security: []
-    parameters:
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     requestBody:
       required: true
       content:
@@ -132,7 +130,6 @@ syncRuns:
           $ref: '../schemas/user.yaml#/LegacySyncRunStatus'
       - $ref: '../common/pagination.yaml#/PageParam'
       - $ref: '../common/pagination.yaml#/SizeParam'
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     responses:
       '200':
         description: Sync run history.
@@ -164,7 +161,6 @@ syncRunById:
     x-required-permission: STUDENT_SYNC_VIEW
     parameters:
       - $ref: '#/SyncRunIdParam'
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     responses:
       '200':
         description: Sync run detail.
@@ -219,7 +215,6 @@ syncErrors:
           type: boolean
       - $ref: '../common/pagination.yaml#/PageParam'
       - $ref: '../common/pagination.yaml#/SizeParam'
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     responses:
       '200':
         description: Quarantined records.
@@ -257,7 +252,6 @@ syncErrorById:
     x-required-permission: STUDENT_SYNC_RESOLVE
     parameters:
       - $ref: '#/SyncErrorIdParam'
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     requestBody:
       required: true
       content:

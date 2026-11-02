@@ -47,7 +47,6 @@ registrations:
     x-idempotent: true
     parameters:
       - $ref: '../common/headers.yaml#/IdempotencyKey'
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     requestBody:
       required: true
       content:
@@ -162,7 +161,6 @@ registrations:
           $ref: '../schemas/registration.yaml#/RegistrationStatus'
       - $ref: '../common/pagination.yaml#/PageParam'
       - $ref: '../common/pagination.yaml#/SizeParam'
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     responses:
       '200':
         description: The caller's registrations.
@@ -202,7 +200,6 @@ registrationById:
     tags: [Registration]
     parameters:
       - $ref: '#/RegistrationIdParam'
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     responses:
       '200':
         description: Full registration detail.
@@ -262,7 +259,6 @@ registrationCancel:
     tags: [Registration]
     parameters:
       - $ref: '#/RegistrationIdParam'
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     responses:
       '200':
         description: Registration is now CANCELLED, seat released.
@@ -331,7 +327,6 @@ workshopRegistrations:
           $ref: '../schemas/registration.yaml#/RegistrationStatus'
       - $ref: '../common/pagination.yaml#/PageParam'
       - $ref: '../common/pagination.yaml#/SizeParam'
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     responses:
       '200':
         description: Registrations for the given workshop.

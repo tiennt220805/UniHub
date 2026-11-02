@@ -12,8 +12,6 @@ verificationKey:
       revocation.
     tags: [Check-in]
     x-required-permission: CHECKIN_SCAN
-    parameters:
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     responses:
       '200':
         description: The current active ECDSA public key.
@@ -91,8 +89,6 @@ sync:
       Gateway is down (`checkin.md` §8; INV-05).
     tags: [Check-in]
     x-required-permission: CHECKIN_SCAN
-    parameters:
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     requestBody:
       required: true
       content:
@@ -158,7 +154,6 @@ workshopAttendances:
       - $ref: '../paths/registration.yaml#/RegistrationWorkshopIdParam'
       - $ref: '../common/pagination.yaml#/PageParam'
       - $ref: '../common/pagination.yaml#/SizeParam'
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     responses:
       '200':
         description: Attendances for the given workshop.
@@ -217,7 +212,6 @@ workshopReport:
     x-required-permission: REPORT_VIEW
     parameters:
       - $ref: '../paths/registration.yaml#/RegistrationWorkshopIdParam'
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     responses:
       '200':
         description: The report of the given workshop.

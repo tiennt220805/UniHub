@@ -46,17 +46,7 @@ class PaymentWebhookController {
                                     @ExtensionProperty(
                                             name = "x-auth-model",
                                             value = "gateway-webhook-signature")),
-            tags = {"Payment"},
-            parameters = {
-                @Parameter(
-                        name = "X-Correlation-Id",
-                        in = ParameterIn.HEADER,
-                        required = false,
-                        schema =
-                                @Schema(
-                                        types = {"string"},
-                                        pattern = CORRELATION_ID_PATTERN))
-            })
+            tags = {"Payment"})
     @SecurityRequirements
     @ApiResponse(
             responseCode = "200",

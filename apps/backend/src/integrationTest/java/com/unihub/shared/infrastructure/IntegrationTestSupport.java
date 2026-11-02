@@ -128,6 +128,13 @@ public abstract class IntegrationTestSupport {
         // @DynamicPropertySource or command-line argument still overrides it.
         System.setProperty("unihub.ticket.signing-key", TicketTestKeys.newPrivateJwk());
 
+        // Actuator listens on its own management port, 8081 in application.yml (Phase 6 checklist
+        // D64).
+        // Spring caches one context per test configuration and every one binds its own Tomcat, so a
+        // fixed port would fail the second context with "port in use". 0 picks a free port; a test
+        // reads it with @LocalManagementPort.
+        System.setProperty("management.server.port", "0");
+
         System.setProperty("spring.rabbitmq.host", RABBITMQ.getHost());
         System.setProperty("spring.rabbitmq.port", String.valueOf(RABBITMQ.getAmqpPort()));
         System.setProperty("spring.rabbitmq.username", RABBITMQ.getAdminUsername());

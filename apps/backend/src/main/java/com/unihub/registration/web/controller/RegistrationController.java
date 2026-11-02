@@ -98,17 +98,7 @@ class RegistrationController {
                                         value = "true",
                                         parseValue = true))
             },
-            tags = {"Registration"},
-            parameters = {
-                @Parameter(
-                        name = "X-Correlation-Id",
-                        in = ParameterIn.HEADER,
-                        required = false,
-                        schema =
-                                @Schema(
-                                        types = {"string"},
-                                        pattern = CORRELATION_ID_PATTERN))
-            })
+            tags = {"Registration"})
     @ApiResponse(
             responseCode = "201",
             headers =
@@ -197,17 +187,7 @@ class RegistrationController {
     // authenticated caller may ask, and only the registration's owner is answered.
     @Operation(
             operationId = "listMyRegistrations",
-            tags = {"Registration"},
-            parameters = {
-                @Parameter(
-                        name = "X-Correlation-Id",
-                        in = ParameterIn.HEADER,
-                        required = false,
-                        schema =
-                                @Schema(
-                                        types = {"string"},
-                                        pattern = CORRELATION_ID_PATTERN))
-            })
+            tags = {"Registration"})
     @ApiResponse(
             responseCode = "200",
             headers =
@@ -244,15 +224,7 @@ class RegistrationController {
                         schema =
                                 @Schema(
                                         types = {"string"},
-                                        format = "uuid")),
-                @Parameter(
-                        name = "X-Correlation-Id",
-                        in = ParameterIn.HEADER,
-                        required = false,
-                        schema =
-                                @Schema(
-                                        types = {"string"},
-                                        pattern = CORRELATION_ID_PATTERN))
+                                        format = "uuid"))
             })
     @ApiResponse(
             responseCode = "200",

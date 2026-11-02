@@ -389,7 +389,7 @@ type CreateRegistrationHeaders = operations['createRegistration']['parameters'][
   caller holding `WORKSHOP_CREATE`/`WORKSHOP_EDIT` (`paths/workshop.yaml#/workshopById`).
 - The callbacks live in `shared/api/http-client-config.ts` (`configureHttpClient`, re-exported by `http-client.ts`). `app/` imports them from there, because the lint rule of §2 (rule 6) lets only `features/<name>/api/` import `http-client.ts` itself.
 - The client does not generate `X-Correlation-Id`; the server always returns one, and errors carry
-  it in the body (`common/headers.yaml#/CorrelationIdRequest`, `common/error.yaml`).
+  it in the body (`common/headers.yaml#/CorrelationIdResponse`, `common/error.yaml`).
 - The client is for the Backend API only. The brochure upload `PUT`s directly to the presigned
   S3/MinIO URL with plain `fetch` and **no** `Authorization` header, from
   `features/workshops/api/` (`technical-design/modules/workshop.md` §7). Before requesting the URL,

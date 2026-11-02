@@ -84,17 +84,7 @@ class PaymentController {
                                         value = "true",
                                         parseValue = true))
             },
-            tags = {"Payment"},
-            parameters = {
-                @Parameter(
-                        name = "X-Correlation-Id",
-                        in = ParameterIn.HEADER,
-                        required = false,
-                        schema =
-                                @Schema(
-                                        types = {"string"},
-                                        pattern = CORRELATION_ID_PATTERN))
-            })
+            tags = {"Payment"})
     @ApiResponse(
             responseCode = "201",
             headers =
@@ -180,15 +170,7 @@ class PaymentController {
                         schema =
                                 @Schema(
                                         types = {"string"},
-                                        format = "uuid")),
-                @Parameter(
-                        name = "X-Correlation-Id",
-                        in = ParameterIn.HEADER,
-                        required = false,
-                        schema =
-                                @Schema(
-                                        types = {"string"},
-                                        pattern = CORRELATION_ID_PATTERN))
+                                        format = "uuid"))
             })
     @ApiResponse(
             responseCode = "200",

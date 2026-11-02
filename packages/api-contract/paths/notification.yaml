@@ -41,7 +41,6 @@ notifications:
           $ref: '../schemas/notification.yaml#/NotificationDeliveryStatus'
       - $ref: '../common/pagination.yaml#/PageParam'
       - $ref: '../common/pagination.yaml#/SizeParam'
-      - $ref: '../common/headers.yaml#/CorrelationIdRequest'
     responses:
       '200':
         description: The caller's in-app notifications, newest first.
