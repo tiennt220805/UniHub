@@ -578,12 +578,18 @@ public record AuditEntry(Actor actor, String action, String targetType, UUID tar
                          Instant occurredAt, Map<String, Object> metadata) { ... }
 ```
 
-The Phase 6 adapter (`shared.infrastructure.out.messaging.RabbitAuditTrail`) must:
+The Phase 6 adapter (`shared.infrastructure.out.messaging.RabbitAuditTrail`, decided 2026-11-02, Phase 6 checklist D68) must:
 
 1. If a transaction synchronization is active, publish in `afterCommit` — never audit an operation that rolled back. Otherwise publish immediately. Calling `registerSynchronization` without an active synchronization throws, so this check is required.
 2. Publish directly to `unihub.system.audit.created` — **not** through the outbox (`messaging.md` §3).
 3. Catch every exception, log at `WARN`, and increment a failure counter so the gap surfaces as an alert (fail-open but not silent, `architecture.md` §5.5).
 4. Map the actor exactly as `audit_events` stores it (`database-schema.md` §8.3): `UserActor` → `actor_type = 'USER'`, `actor_user_id = userId`; `SystemActor` → `actor_type = 'SYSTEM'`, `actor_user_id = NULL`, and `process` written to `metadata.process`.
+5. **Never touch the broker on the calling thread.** The after-commit step only hands the entry to a bounded executor (1 thread, 10,000 entries); a full queue drops the entry and counts `reason="dropped"`. Snapshot the MDC `correlationId` and the observation context when `record()` is called and restore them on the executor thread, or the message leaves without either (`observability.md` §1, §8).
+6. Publish through **its own** `CachingConnectionFactory` with publisher confirms; 5 s confirm, connection and RPC timeouts. Count `nack`, `timeout` and `error` separately on `unihub_audit_publish_failures_total{reason}`, and **register every `reason` at 0 at startup** (a series born above 0 is invisible to `increase()`). No meter of the same name may be registered without the tag.
+7. Set a fresh UUID as the AMQP `message-id` of each entry — the consumer deduplicates on it (`messaging.md` §3).
+8. At shutdown, drain the queue for up to 5 s and count what is left as `dropped`.
+
+**Consumer (Phase 6 checklist D69):** the listener on `unihub.audit.queue` lives in `shared.infrastructure.in.messaging` — Audit Event is a Technical Pattern Entity owned by `shared` (§13), like the scheduler and listener advice already there. It inserts `ON CONFLICT (source_message_id) DO NOTHING` and has an entry in `ConsumerRedeliveryCoverageTest`. `LoggingAuditTrail` is **replaced**, not kept alongside, together with the `AsyncAppender` of the `unihub.audit` logger; `AuditPublishingAbsentTest` is replaced in the same commit.
 
 **As built (Phase 2 checklist 1.4, 2026-10-19):** `AuditTrail`, `AuditEntry`, `AuditActions` and `AuditTargets` are in `shared.application.port.out`; the adapter is `shared.infrastructure.out.audit.LoggingAuditTrail`. It writes one JSON line per entry (`actorType`, `actorUserId` for a user, `action`, `targetType`, `targetId`, `occurredAt`, `metadata` — with `process` for a `SYSTEM` actor) on the logger `unihub.audit`. `logback-spring.xml` routes that logger, and only it, through an `AsyncAppender` with `neverBlock=true`, so a slow sink never slows the business operation; a full queue drops the line, and **dropped lines are not counted** — a known gap closed in Phase 6. An entry that cannot be formatted or written increments the Micrometer counter `unihub.audit.publish.failures` (`unihub_audit_publish_failures_total`, `observability.md` §4) on the global registry, a no-op until a registry exists. `AuditActions`/`AuditTargets` hold only the values some use case records; each new use case adds its own.
 

@@ -410,8 +410,9 @@ Cross-cutting, not business data (§6.1) — no module "owns" these the way it o
 | `metadata` | JSONB | NULL | e.g. old/new permission set for a role change. |
 | `occurred_at` | TIMESTAMPTZ | NOT NULL | When the operation actually happened, module-side. |
 | `recorded_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | When this row was durably written — may lag `occurred_at` (§5.5: "eventual, not instant"). |
+| `source_message_id` | UUID | NULL, UNIQUE (`uq_audit_events_source_message`) | *(Migration `V8`, Phase 6 checklist D69.)* The AMQP `message-id` the publisher gave this entry; the consumer inserts `ON CONFLICT (source_message_id) DO NOTHING`, so a redelivered message never writes a second row (`messaging.md` §3). Nullable only so the column could be added to an existing table; every row written from Phase 6 on has it. |
 
-**Indexes:** `(target_type, target_id)`, `(occurred_at)`.
+**Indexes:** `(target_type, target_id)`, `(occurred_at)`, unique `(source_message_id)` (`V8`).
 
 **Why `actor_type` rather than a seeded "system" user:** `architecture.md` §5.5 requires every operation in the five audited categories to be recorded, including those no person performs. Attributing them to a real person (e.g. the student whose hold expired) would make the audit trail false. A fake `users` row would need an invented `email` (UNIQUE, NOT NULL, §2.1), would appear in user listings and reports, and would be one role assignment away from being a usable privileged account. An explicit `SYSTEM` actor states the truth and has no such attack surface. **Trade-off:** readers of this table join `users` with a `LEFT JOIN` and handle `actor_user_id IS NULL`.
 
@@ -1034,6 +1035,23 @@ ALTER TABLE workshops ADD COLUMN pending_brochure_key VARCHAR(512);
 | `workshops.pending_brochure_key` nullable column | Never reads or writes it; inserts and updates name their columns | Reads and writes it | Safe: adding a nullable column changes no existing statement (`architecture.md` §6.2) |
 
 `V7` is forward-only.
+
+### 10.5 Migration `V8` — specification (Phase 6; to be applied as `V8__audit_events_source_message_id.sql`)
+
+Specified here first (Phase 6 checklist D69, Mục 2.1). **Why it exists:** the audit consumer must be idempotent under redelivery (`CLAUDE.md`; `messaging.md` §3), and nothing in `audit_events` tied a row to the message that produced it.
+
+```sql
+ALTER TABLE audit_events ADD COLUMN source_message_id UUID;
+CREATE UNIQUE INDEX uq_audit_events_source_message ON audit_events (source_message_id);
+```
+
+The index is built without `CONCURRENTLY` (Flyway runs the migration in a transaction): acceptable because nothing has written `audit_events` before Phase 6, so the table is empty on every environment and the lock is momentary. A unique index allows any number of `NULL`s.
+
+| Change | Old pod (before `V8`) | New pod | Verdict |
+|---|---|---|---|
+| `audit_events.source_message_id` nullable + unique index | Never writes `audit_events` (nothing consumed `unihub.audit.queue` before Phase 6) | Writes it on every insert | Safe: adding a nullable column changes no existing statement (`architecture.md` §6.2) |
+
+`V8` is forward-only.
 
 ---
 

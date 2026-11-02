@@ -8,7 +8,7 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 
 | # | Mục | Loại |
 |---|---|---|
-| A1 | P1: alert bù cho Redis/RabbitMQ degraded; chưa có rule hay metric, thuộc `observability.md` §4/§6 | D |
+| A1 | P1: alert bù cho Redis/RabbitMQ degraded — **đã định nghĩa 2026-11-02** (Phase 6 D77: `unihub_dependency_up` từ probe nền, rule `== 0` 1m Critical, `observability.md` §4/§6); xây ở Phase 6, đạt khi chạy trên deploy Phase 7 | D |
 | A2 | P2: ingress-nginx được inject, hoặc PeerAuthentication exception hẹp | V |
 | A3 | P3: native Job-termination chạy thật trên Istio 1.24.x + K8s/Minikube (và có phải bật thủ công không); ảnh hưởng cả deploy PERMISSIVE hiện tại | V |
 | A4 | P4: dựng stack Prometheus/Grafana/Tempo rồi inject hoặc scoped exception (manifest chưa tồn tại) | V/D |
@@ -19,7 +19,7 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 |---|---|---|
 | B1 | 1c: health-check điều khiển fallback Replica-unreachable → Master (hướng đã duyệt, cơ chế chưa có; `overlays/dev` 0 replica giải quyết theo) | D |
 | B2 | INV-07 với Redis outage dài hơn retry chain (~5m35s): hold-expiry bị đưa vào parking lot | Q |
-| B3 | Rule alert cho audit-publish failure (metric `unihub_audit_publish_failures_total` đã định nghĩa 2026-10-14, `observability.md` §4; rule + test INV-14 vẫn ở Phase 6) | D |
+| B3 | Rule alert cho audit-publish failure — **rule đã định nghĩa 2026-11-02** (`observability.md` §6, Phase 6 D77); bằng chứng là `AuditAlertIT` (Phase 6 D72), chưa viết | D |
 | B5 | Cách backend lấy `ipAddress` phía sau Ingress (ảnh hưởng limiter, load test, S-16) | Q |
 
 ## C. Tham số load-test (`non-functional/performance-load.md`)

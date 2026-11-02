@@ -180,6 +180,7 @@ Every claim, algorithm, and key-management decision for the auth JWT, in one pla
 | Auth signing secret storage | Kubernetes `Secret`, env-injected | `architecture.md` §5.4 — never in source/config |
 | Web session storage | `sessionStorage`; permissions from `LoginResponse`; cleared on `401`/sign-out; expiry checked at start-up | §7 |
 | Auth revocation levers | Secret rotation (global, all tokens, complete once the rolling restart finishes) or user suspension (blocks new logins only, enforced by an explicit `status = 'ACTIVE'` check at login) | `architecture.md` §5.2 — no instant single-token revocation by design |
+| Management port (Phase 6 checklist D64) | Actuator on its own port **8081** with its own security chain: `health` and `prometheus` permitted without a token, nothing else exposed; the JWT chain on the API port is unchanged and serves no `/actuator/**`. Never routed by the Ingress (`observability.md` §5) |
 
 ---
 
