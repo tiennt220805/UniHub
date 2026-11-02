@@ -80,8 +80,8 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 
 | # | Mục | Quyết định | Ngày |
 |---|---|---|---|
-| B4 | Response status khi S3 unreachable | `503` problem `storage-unavailable` ở `confirmBrochureUpload` (Phase 5 checklist D60; `workshop.md` §8, `resilience-testing.md` §2.6) | 2026-10-30 |
-| D4 | Mobile test runner; CI job cho test mobile | Jest + `jest-expo` + React Native Testing Library; job CI `mobile` độc lập (typecheck, lint, Jest), không build EAS trong CI (Phase 5 checklist D57) | 2026-10-30 |
+| B4 | Response status khi S3 unreachable | `503` problem `storage-unavailable` ở `confirmBrochureUpload` (Phase 5 checklist D60; `workshop.md` §8, `resilience-testing.md` §2.6); built and asserted by `ObjectStorageOutageIT` (M-51, `Passing`, 2026-11-02) | 2026-10-30 |
+| D4 | Mobile test runner; CI job cho test mobile | Jest + `jest-expo` + React Native Testing Library; job CI `mobile` độc lập (typecheck, lint, Jest), không build EAS trong CI (Phase 5 checklist D57); job đã chạy xanh trên `5c22341` | 2026-10-30 |
 | D1 | Required status checks trên `main` | Yêu cầu cả năm check: `lint`, `unit-test`, `integration-test`, `contract-diff`, `secret-scan-gitleaks` (`technical-design/platform/deployment-and-cicd.md` §5) | 2026-09-24 |
 | E2 | `minimumNumberOfCalls` của breaker | 10, override được trong test; hiệu chỉnh lại ở Phase 8 (`payment.md` §2; Phase 2 checklist D12) | 2026-10-14 |
 | E6 (một phần) | Phase sở hữu test chữ ký webhook S-17 | Phase 2, dòng `test-matrix.md` M-79 (Phase 2 checklist D13) | 2026-10-14 |

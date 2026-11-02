@@ -155,7 +155,7 @@ Manual (or a dedicated pipeline), never per-push; it is a deployment smoke test,
 - **Fault isolation is proven by a concurrent probe, never by reading state alone** — `proposal.md` §12's Fault Isolation row is satisfied only if unrelated flows are shown succeeding *during* the fault.
 - **Each dependency's specified direction is asserted** — fail-closed (Redis registration writes), fail-open (rate limiter, audit), skip (job lock), isolate (S3, Payment Gateway) — never a generic "still up".
 - **At-least-once is respected** — no scenario asserts an absence of duplicate messages; only the absence of duplicate effects (INV-11) and of lost committed events (INV-10).
-- **Nothing is asserted that the corpus doesn't state** — open behavior (Replica unreachable, S3-unreachable status code, audit alert signal) is recorded as TODO, not filled in.
+- **Nothing is asserted that the corpus doesn't state** — open behavior (Replica unreachable, audit alert signal; the S3-unreachable status code is no longer open: `503` problem `storage-unavailable`, built and asserted in §2.6) is recorded as TODO, not filled in.
 - **Full topology is required only where stated** — scenarios 7, 1b and 2b; every other scenario runs on local Testcontainers.
 
 ---
