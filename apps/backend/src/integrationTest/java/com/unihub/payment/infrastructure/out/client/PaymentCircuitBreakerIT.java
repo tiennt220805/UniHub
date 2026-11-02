@@ -390,8 +390,8 @@ class PaymentCircuitBreakerIT extends IntegrationTestSupport {
      * scan, none of them reaches the gateway or moves the circuit.
      *
      * <p>The latency bound is absolute, like the other bounds of this class: resilience-testing.md
-     * §2.1 still has its TODO for a multiplier over a fault-free baseline, which has no source in
-     * the corpus, and none is invented here.
+     * §2.1 leaves the multiplier over a fault-free baseline open, because the corpus gives it no
+     * source, and none is invented here.
      */
     @Test
     @DisplayName(
