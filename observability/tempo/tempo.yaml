@@ -1,0 +1,30 @@
+# Tempo in monolithic mode for the docker-compose stack (Phase 6 checklist D63, observability.md §2, §8): one
+# process, local disk, 24 hours of retention. A trace backend of this size is a developer convenience and the
+# Phase 7 proof-of-concept; nothing here is sized for load. The backend sends traces to OTLP/HTTP on 4318
+# (MANAGEMENT_OTLP_TRACING_ENDPOINT=http://localhost:4318/v1/traces); Grafana reads them from 3200.
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    block_retention: 24h
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks

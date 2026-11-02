@@ -1,0 +1,25 @@
+# Prometheus scrape configuration for the docker-compose stack ONLY (Phase 6 checklist D63, observability.md §8).
+# In Kubernetes (Phase 7) the same targets are found by service discovery instead, so this file is deliberately
+# named for the one place it is valid: it names the developer's machine and a compose service, neither of which
+# exists in a cluster.
+#
+# The backend runs on the host (`./gradlew bootRun`), not in a container, so it is reached through
+# host.docker.internal (compose maps it to the host gateway on Linux too). Its management port is 8081
+# (management.server.port in application.yml, D64); if you run the backend on another management port, change it
+# here. Only /actuator/prometheus is scraped: the management port exposes nothing else of use to Prometheus.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: unihub-backend
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8081']
+
+  # The broker's own rabbitmq_prometheus plugin (enabled in the rabbitmq:3.13.7-management image). Per-queue
+  # series (queue depth, including unihub.parking-lot) need prometheus.return_per_object_metrics, set in
+  # observability/rabbitmq/prometheus.conf and mounted by docker-compose.yml.
+  - job_name: rabbitmq
+    static_configs:
+      - targets: ['rabbitmq:15692']

@@ -1,0 +1,12 @@
+# Dashboards are files in observability/grafana/dashboards/, mounted at /var/lib/grafana/dashboards
+# (Phase 6 checklist D63, D78). Provisioned dashboards cannot be saved from the UI: change the JSON.
+apiVersion: 1
+
+providers:
+  - name: unihub
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

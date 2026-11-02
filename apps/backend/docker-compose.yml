@@ -14,6 +14,15 @@
 # consumer_timeout, 30 minutes on this one, bounds a notification fan-out — Phase 4 checklist D36, D39),
 # plus Mailpit (an SMTP catcher, a test double, never a production component). No `latest` tag anywhere.
 #
+# The observability stack (Prometheus, Grafana, Tempo; Phase 6 checklist D63) is also here. Their configuration
+# is not: it lives in observability/ at the repository root (scrape config, datasources, dashboards, alert rules,
+# Tempo) and is mounted read-only, because Phase 7 builds its ConfigMaps from the same files. Grafana has no
+# password anywhere in the repository (AC63.2), and compose cannot require one from the environment without
+# refusing the whole file for everyone who does not run Grafana. So: anyone who opens http://127.0.0.1:3000 is an
+# anonymous Viewer (Grafana 13 supports no other anonymous role), which is all the provisioned dashboards and
+# alert rules need; the admin account is Grafana's own built-in one, which makes you change its password at the
+# first login. Like every port in this file, Grafana is bound to 127.0.0.1: never publish it on another interface.
+#
 # Usage: `docker compose up -d` works with zero setup (every var below has a dev-only default). To
 # override, copy env.example to .env (git-ignored, never committed — see apps/backend/.gitignore) and set
 # your own local-only values; .env is picked up by `docker compose` automatically. The defaults here are
@@ -65,6 +74,12 @@ services:
     ports:
       - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
       - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+      # rabbitmq_prometheus is already enabled in this image; Prometheus reads it inside the compose network
+      # (rabbitmq:15692). Published for a human with curl as well.
+      - "127.0.0.1:${RABBITMQ_PROMETHEUS_PORT:-15692}:15692"
+    volumes:
+      # Per-queue series (queue depth by name) for the dashboards and the parking-lot alert.
+      - ../../observability/rabbitmq/prometheus.conf:/etc/rabbitmq/conf.d/20-prometheus.conf:ro
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s
@@ -105,7 +120,66 @@ services:
       - unihub-minio-data:/data
     # No healthcheck: this image has no shell, no curl and no `mc`. MinIO answers on :9000 within a second.
 
+  # Metrics (observability.md §4, §6, §8). Scrapes the backend on the host (host.docker.internal:8081, the
+  # management port) and the broker. Versions: v3.15.0 (2026-09-25) is the newest release more than two weeks old
+  # when it was chosen (v3.15.1 is dated 2026-10-21). 2 days of retention: a developer tool, not a record.
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    container_name: unihub-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=2d
+    # host.docker.internal resolves on Docker Desktop; on Linux this line makes it resolve too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ../../observability/prometheus/prometheus.compose.yml:/etc/prometheus/prometheus.yml:ro
+      - unihub-prometheus-data:/prometheus
+
+  # Traces, OTLP over HTTP (4318, what the backend's exporter speaks) and the query API (3200, read by Grafana).
+  # Monolithic mode, local disk. 2.10.8 (2026-08-13): the 3.x line moves ingestion onto a Kafka-compatible
+  # broker, which a one-process developer stack has no use for. Tempo is only reached when
+  # MANAGEMENT_OTLP_TRACING_ENDPOINT is set on the backend (env.example); without it the backend exports nothing.
+  tempo:
+    image: grafana/tempo:2.10.8
+    container_name: unihub-tempo
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    ports:
+      - "127.0.0.1:${TEMPO_OTLP_HTTP_PORT:-4318}:4318"
+      - "127.0.0.1:${TEMPO_PORT:-3200}:3200"
+    volumes:
+      - ../../observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - unihub-tempo-data:/var/tempo
+
+  # Dashboards and alert rules, all provisioned from observability/ (nothing is saved in the container, and the
+  # provisioned dashboards cannot be edited in the UI). 13.2.4 (2026-10-13) is the newest 13.2 patch release more
+  # than two weeks old (13.2.5 is dated 2026-10-27). Anonymous Viewer only, on 127.0.0.1: see the header.
+  grafana:
+    image: grafana/grafana:13.2.4
+    container_name: unihub-grafana
+    restart: unless-stopped
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ../../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - tempo
+
 volumes:
   unihub-postgres-data:
   unihub-redis-data:
   unihub-minio-data:
+  unihub-prometheus-data:
+  unihub-tempo-data:

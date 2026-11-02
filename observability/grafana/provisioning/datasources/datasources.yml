@@ -1,0 +1,20 @@
+# Provisioned datasources (Phase 6 checklist 1.4, D63). The URLs are compose service names; the Phase 7
+# ConfigMap overrides them with the cluster's service names. Fixed UIDs so dashboards, alert rules and the
+# Prometheus-to-Tempo exemplar link (task 6.3) refer to a datasource by a name that never changes.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: false
