@@ -149,6 +149,10 @@ class OutboxRoutingCoverageTest {
                             .map(
                                     q ->
                                             q == null
+                                                            || !Topology.EXCHANGE.equals(
+                                                                    q.getArguments()
+                                                                            .get(
+                                                                                    "x-dead-letter-exchange"))
                                                     ? null
                                                     : q.getArguments()
                                                             .get("x-dead-letter-routing-key"))

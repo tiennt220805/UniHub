@@ -55,6 +55,14 @@ public final class Topology {
     public static final String AUDIT_CREATED = "unihub.system.audit.created";
 
     public static final String HOLD_DELAY_QUEUE = "unihub.registration.hold-delay.queue";
+    public static final String AUDIT_QUEUE = "unihub.audit.queue";
+
+    /**
+     * Length bound of {@link #AUDIT_QUEUE}, the only business queue that has one (messaging.md §3,
+     * Phase 6 checklist D70). The production value of {@code unihub.audit.queue-max-length}; a test
+     * shrinks it to reach the overflow in a few messages.
+     */
+    public static final int AUDIT_QUEUE_MAX_LENGTH = 100_000;
 
     /**
      * A queue with a consumer, and the fixed key its retry stages dead-letter back with. That key
@@ -114,7 +122,7 @@ public final class Topology {
                             "unihub.reconciliation.queue",
                             List.of(RECONCILIATION_REQUESTED),
                             RECONCILIATION_REQUESTED),
-                    new ConsumedQueue("unihub.audit.queue", List.of(AUDIT_CREATED), AUDIT_CREATED));
+                    new ConsumedQueue(AUDIT_QUEUE, List.of(AUDIT_CREATED), AUDIT_CREATED));
 
     private Topology() {}
 
@@ -145,13 +153,24 @@ public final class Topology {
      * already holds the queues means declaring new ones.
      */
     public static Declarables declarables(Duration holdWindow, List<Duration> retryDelays) {
+        return declarables(holdWindow, retryDelays, AUDIT_QUEUE_MAX_LENGTH);
+    }
+
+    /**
+     * As {@link #declarables(Duration, List)}, with the length bound of the audit queue. When it is
+     * full the broker refuses the publish (the publisher counts it as a nack) and dead-letters both
+     * the refused message and a message returning from the audit retry chain to the parking lot,
+     * which alerts: no overflow is lost silently (messaging.md §3).
+     */
+    public static Declarables declarables(
+            Duration holdWindow, List<Duration> retryDelays, int auditQueueMaxLength) {
         var all = new ArrayList<Declarable>();
         var exchange = new TopicExchange(EXCHANGE, true, false);
         all.add(exchange);
         all.add(QueueBuilder.durable(PARKING_LOT).build());
 
         for (var consumed : CONSUMED_QUEUES) {
-            var queue = QueueBuilder.durable(consumed.name()).build();
+            var queue = businessQueue(consumed.name(), auditQueueMaxLength);
             all.add(queue);
             for (var key : consumed.bindingKeys()) {
                 all.add(BindingBuilder.bind(queue).to(exchange).with(key));
@@ -172,6 +191,23 @@ public final class Topology {
         all.add(holdDelay);
         all.add(BindingBuilder.bind(holdDelay).to(exchange).with(HOLD_RESERVED));
         return new Declarables(all);
+    }
+
+    /**
+     * A business queue has no arguments, so a failure can only leave it through the application
+     * republish. The audit queue is the exception: bounded, with the parking lot as dead-letter
+     * target through the default exchange ({@code ""}), which routes by queue name.
+     */
+    private static Queue businessQueue(String name, int auditQueueMaxLength) {
+        var builder = QueueBuilder.durable(name);
+        if (AUDIT_QUEUE.equals(name)) {
+            builder.maxLength(auditQueueMaxLength)
+                    // Spring AMQP 3.1's Overflow enum has no reject-publish-dlx yet.
+                    .withArgument("x-overflow", "reject-publish-dlx")
+                    .deadLetterExchange("")
+                    .deadLetterRoutingKey(PARKING_LOT);
+        }
+        return builder.build();
     }
 
     /**

@@ -28,8 +28,10 @@ class RabbitMessagingConfig {
     @Bean
     Declarables unihubTopology(
             @Value("${unihub.registration.seat-hold:PT15M}") Duration seatHold,
+            @Value("${unihub.audit.queue-max-length:" + Topology.AUDIT_QUEUE_MAX_LENGTH + "}")
+                    int auditQueueMaxLength,
             MessagingProperties messaging) {
-        return Topology.declarables(seatHold, messaging.retryDelays());
+        return Topology.declarables(seatHold, messaging.retryDelays(), auditQueueMaxLength);
     }
 
     /**

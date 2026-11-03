@@ -141,10 +141,35 @@ class TopologyTest {
                         "unihub.payment-refund-execution.queue",
                         "unihub.seat-hold-expiry.queue",
                         "unihub.summarization.queue",
-                        "unihub.reconciliation.queue",
-                        "unihub.audit.queue")) {
+                        "unihub.reconciliation.queue")) {
             assertThat(queues().get(name).getArguments()).as(name).isEmpty();
         }
+    }
+
+    @Test
+    @DisplayName(
+            "the audit queue is the one business queue with a bound; overflow goes to the parking"
+                    + " lot")
+    void auditQueueIsBounded() {
+        assertThat(queues().get("unihub.audit.queue").getArguments())
+                .containsEntry("x-max-length", 100_000)
+                .containsEntry("x-overflow", "reject-publish-dlx")
+                .containsEntry("x-dead-letter-exchange", "")
+                .containsEntry("x-dead-letter-routing-key", "unihub.parking-lot")
+                .hasSize(4);
+    }
+
+    @Test
+    @DisplayName("the audit queue length bound comes from configuration, not from a constant")
+    void auditQueueBoundIsConfigurable() {
+        var small = Topology.declarables(Topology.HOLD_WINDOW, Topology.RETRY_DELAYS, 5);
+        var audit =
+                Topology.queuesOf(small).stream()
+                        .filter(q -> q.getName().equals("unihub.audit.queue"))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertThat(audit.getArguments()).containsEntry("x-max-length", 5);
     }
 
     @Test
