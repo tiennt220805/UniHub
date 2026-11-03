@@ -1,10 +1,13 @@
 package com.unihub.shared.infrastructure;
 
 import com.unihub.registration.infrastructure.out.crypto.TicketTestKeys;
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import java.io.IOException;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MinIOContainer;
@@ -13,6 +16,27 @@ import org.testcontainers.rabbitmq.RabbitMQContainer;
 import org.testcontainers.utility.DockerImageName;
 
 public abstract class IntegrationTestSupport {
+
+    /**
+     * Boot attaches every Prometheus registry to {@code Metrics.globalRegistry} and never detaches
+     * it when its context closes. A context that exports to Prometheus (the extra application
+     * instances of {@code MultiInstanceHarness}, which are not {@code @SpringBootTest}s and so do
+     * not get its "no export" setting, and the classes that ask for
+     * {@code @AutoConfigureObservability}) therefore leaves a registry behind that outlives its
+     * context. Its counters stay in the global composite, and the next test that increments a
+     * global meter ({@code Metrics.counter}, which every module's metrics use) makes the registry
+     * sample an exemplar, which reaches into the closed context for a tracer and fails. It became
+     * visible when the number of cached contexts passed Spring's limit of 32 and the oldest began
+     * to be closed mid-run (Phase 6 checklist 2.6, 2.7).
+     */
+    @AfterAll
+    static void detachPrometheusRegistries() {
+        for (var registry : new java.util.ArrayList<>(Metrics.globalRegistry.getRegistries())) {
+            if (registry instanceof PrometheusMeterRegistry) {
+                Metrics.removeRegistry(registry);
+            }
+        }
+    }
 
     protected static final PostgreSQLContainer POSTGRES =
             new PostgreSQLContainer("postgres:16-alpine").withReuse(true);

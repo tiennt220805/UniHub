@@ -230,6 +230,10 @@ public final class RegistrationFixtures {
                                         + " AND aggregate_id = ?",
                                 id));
         workshops.forEach(id -> jdbc.update("DELETE FROM workshops WHERE id = ?", id));
+        // A context with the audit consumer running writes audit_events rows for the operations
+        // the test performed, and they reference the user (Phase 6 checklist 2.4).
+        users.forEach(
+                user -> jdbc.update("DELETE FROM audit_events WHERE actor_user_id = ?", user));
         users.forEach(user -> jdbc.update("DELETE FROM users WHERE id = ?", user));
         users.clear();
         workshops.clear();

@@ -1,30 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Spring Boot's default logging, plus one extra route: the "unihub.audit" logger (LoggingAuditTrail,
-  backend-coding-standards.md §12) writes through a non-blocking asynchronous appender, so a slow log
-  sink can never slow or fail the business operation being audited.
-
-  neverBlock=true: when the queue is full an audit line is dropped rather than waiting. That is the
-  fail-open choice (architecture.md §5.5). Dropped lines are not counted; the gap is closed in
-  Phase 6, when RabbitAuditTrail replaces this adapter.
+  Spring Boot's default logging. Audit no longer has a route of its own: RabbitAuditTrail publishes to the
+  broker from a bounded executor (backend-coding-standards.md §12, Phase 6 checklist D68) and every lost entry
+  is counted in unihub_audit_publish_failures_total, which replaces the Phase 2 "unihub.audit" logger and its
+  non-blocking AsyncAppender.
 -->
 <configuration>
     <include resource="org/springframework/boot/logging/logback/base.xml"/>
-
-    <appender name="AUDIT_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} AUDIT %msg%n</pattern>
-        </encoder>
-    </appender>
-
-    <appender name="AUDIT_ASYNC" class="ch.qos.logback.classic.AsyncAppender">
-        <queueSize>1024</queueSize>
-        <discardingThreshold>0</discardingThreshold>
-        <neverBlock>true</neverBlock>
-        <appender-ref ref="AUDIT_CONSOLE"/>
-    </appender>
-
-    <logger name="unihub.audit" level="INFO" additivity="false">
-        <appender-ref ref="AUDIT_ASYNC"/>
-    </logger>
 </configuration>

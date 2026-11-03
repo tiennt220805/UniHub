@@ -37,6 +37,7 @@ class ConsumerRedeliveryCoverageTest {
     private static final String PAYMENT = "com.unihub.payment.infrastructure.in.messaging.";
     private static final String NOTIFICATION = "com.unihub.notification.";
     private static final String WORKSHOP = "com.unihub.workshop.brochure.";
+    private static final String SHARED = "com.unihub.shared.infrastructure.in.messaging.";
 
     /** Queue → the tests that show its consumer idempotent under redelivery. */
     static final Map<String, Coverage> INVENTORY = new LinkedHashMap<>();
@@ -95,6 +96,11 @@ class ConsumerRedeliveryCoverageTest {
                 new Coverage(
                         NOTIFICATION + "NotificationRedeliveryIT#sequentialRedelivery_sendsOnce",
                         NOTIFICATION + "NotificationRedeliveryIT#concurrentRedelivery_sendsOnce"));
+        INVENTORY.put(
+                "unihub.audit.queue",
+                new Coverage(
+                        SHARED + "AuditRedeliveryIT#sequentialRedelivery_writesOneRow",
+                        SHARED + "AuditRedeliveryIT#concurrentRedelivery_writesOneRow"));
     }
 
     private static final Path INTEGRATION_TEST_SOURCES = Path.of("src/integrationTest/java");

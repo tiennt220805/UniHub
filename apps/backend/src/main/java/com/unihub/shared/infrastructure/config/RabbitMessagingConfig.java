@@ -19,7 +19,7 @@ import org.springframework.context.annotation.Configuration;
  * connection itself is opened lazily by Spring AMQP, so declaring all this needs no broker at boot.
  */
 @Configuration
-@EnableConfigurationProperties(MessagingProperties.class)
+@EnableConfigurationProperties({MessagingProperties.class, AuditProperties.class})
 class RabbitMessagingConfig {
 
     /**
@@ -28,10 +28,9 @@ class RabbitMessagingConfig {
     @Bean
     Declarables unihubTopology(
             @Value("${unihub.registration.seat-hold:PT15M}") Duration seatHold,
-            @Value("${unihub.audit.queue-max-length:" + Topology.AUDIT_QUEUE_MAX_LENGTH + "}")
-                    int auditQueueMaxLength,
-            MessagingProperties messaging) {
-        return Topology.declarables(seatHold, messaging.retryDelays(), auditQueueMaxLength);
+            MessagingProperties messaging,
+            AuditProperties audit) {
+        return Topology.declarables(seatHold, messaging.retryDelays(), audit.queueMaxLength());
     }
 
     /**

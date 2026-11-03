@@ -3,15 +3,12 @@ package com.unihub.payment.application.usecase;
 import static com.unihub.workshop.domain.model.WorkshopBuilder.aPaidWorkshop;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.unihub.payment.application.command.ChargePaymentCommand;
@@ -32,17 +29,20 @@ import com.unihub.registration.application.command.ReserveSeatCommand;
 import com.unihub.registration.application.port.in.ConfirmRegistrationUseCase;
 import com.unihub.registration.application.port.in.ReserveSeatUseCase;
 import com.unihub.registration.application.result.ReserveSeatResult;
+import com.unihub.shared.application.port.out.AuditTrail;
 import com.unihub.shared.application.port.out.IdempotencyStore;
 import com.unihub.shared.domain.id.PaymentId;
 import com.unihub.shared.domain.id.RegistrationId;
 import com.unihub.shared.domain.id.UserId;
 import com.unihub.shared.infrastructure.IntegrationTestSupport;
+import com.unihub.shared.infrastructure.RecordedAudit;
+import com.unihub.shared.infrastructure.out.messaging.RabbitAuditTrail;
 import com.unihub.shared.security.Actor;
 import com.unihub.shared.security.TestJwts;
 import com.unihub.shared.web.RequestFingerprint;
 import com.unihub.workshop.application.port.out.WorkshopRepository;
-import io.micrometer.core.instrument.Metrics;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -51,27 +51,29 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Every money-moving change leaves exactly one audit line, and none of it can hurt the change
- * (Phase 2 checklist D6, AC6.1-AC6.3; payment.md §8; INV-14). The real {@code LoggingAuditTrail} on
- * real Postgres, with a list appender on the {@code unihub.audit} logger to read what it wrote.
+ * Every money-moving change leaves exactly one audit entry, and none of it can hurt the change
+ * (Phase 2 checklist D6, AC6.1-AC6.3; payment.md §8; INV-14). The real {@code RabbitAuditTrail} on
+ * real Postgres, with {@link RecordedAudit} standing in for the broker to read what it published
+ * (Phase 6 checklist 2.5; that an entry reaches {@code audit_events} is {@code AuditTrailIT}).
  *
  * <p>Three properties, each on the committed state: an entry exists exactly when its transaction
  * committed (a rolled-back change leaves none), the actor is the student for their own charge and a
  * named process for anything the system does by itself, and a broken audit pipeline neither fails
- * nor rolls back the payment.
+ * nor rolls back the payment, and is counted.
  */
 @SpringBootTest
+@Import(RecordedAudit.Config.class)
 class PaymentAuditIT extends IntegrationTestSupport {
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -92,12 +94,13 @@ class PaymentAuditIT extends IntegrationTestSupport {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private TransactionTemplate tx;
 
+    @Autowired private RecordedAudit audit;
+    @Autowired private AuditTrail auditTrail;
+    @Autowired private MeterRegistry meters;
+
     @MockBean private PaymentGateway gateway;
     @SpyBean private IdempotencyStore idempotency;
 
-    private final Logger auditLogger = (Logger) LoggerFactory.getLogger("unihub.audit");
-    private final ListAppender<ILoggingEvent> lines = new ListAppender<>();
-    private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
     private RegistrationFixtures fixtures;
 
     @BeforeEach
@@ -106,17 +109,14 @@ class PaymentAuditIT extends IntegrationTestSupport {
         reset(gateway, idempotency);
         when(gateway.create(any(), any(), any(), any()))
                 .thenAnswer(call -> "pi_" + UUID.randomUUID());
-        Metrics.addRegistry(meters);
-        lines.start();
-        auditLogger.addAppender(lines);
-        auditLogger.setLevel(Level.INFO);
-        // The seat reservation below writes its own line; the tests look at what follows.
+        audit.failWith(null);
+        forgetWhatWasAudited();
+        // The seat reservation below audits too; the tests look at what follows.
     }
 
     @AfterEach
     void cleanUp() {
-        auditLogger.detachAppender(lines);
-        Metrics.removeRegistry(meters);
+        audit.failWith(null);
         reset(gateway, idempotency);
         fixtures.cleanUp();
     }
@@ -144,7 +144,7 @@ class PaymentAuditIT extends IntegrationTestSupport {
                                         UUID.randomUUID().toString(),
                                         RequestFingerprint.of(
                                                 JSON, Map.of("workshopId", id.value()))));
-        lines.list.clear(); // the reservation's own REGISTRATION_CREATED line is not under test
+        forgetWhatWasAudited(); // the reservation's own REGISTRATION_CREATED is not under test
         return new Reserved(student, reserved.id());
     }
 
@@ -167,18 +167,15 @@ class PaymentAuditIT extends IntegrationTestSupport {
         return PaymentId.of(((ChargePaymentResult.Processed) result).paymentId());
     }
 
-    /** The audit lines written so far, parsed. */
+    /** Waits for the trail to publish what it was handed, then drops it. */
+    private void forgetWhatWasAudited() {
+        audit.settle(auditTrail);
+        audit.clear();
+    }
+
+    /** The audit entries published so far, once the trail has published everything handed to it. */
     private List<JsonNode> written() {
-        return lines.list.stream()
-                .map(
-                        event -> {
-                            try {
-                                return JSON.readTree(event.getFormattedMessage());
-                            } catch (Exception e) {
-                                throw new IllegalStateException(e);
-                            }
-                        })
-                .toList();
+        return audit.settle(auditTrail);
     }
 
     private List<String> actions() {
@@ -186,7 +183,8 @@ class PaymentAuditIT extends IntegrationTestSupport {
     }
 
     private double auditFailures() {
-        var counter = meters.find("unihub.audit.publish.failures").counter();
+        var counter =
+                meters.find(RabbitAuditTrail.FAILURE_COUNTER).tag("reason", "error").counter();
         return counter == null ? 0 : counter.count();
     }
 
@@ -267,7 +265,7 @@ class PaymentAuditIT extends IntegrationTestSupport {
         when(gateway.confirm(any(), any()))
                 .thenThrow(new GatewayOutcomeUnknownException("timed out", null));
         var paymentId = paymentIdOf(chargePayment.charge(command(r)));
-        lines.list.clear();
+        forgetWhatWasAudited();
         when(gateway.retrieve(any())).thenReturn(GatewayPaymentState.SUCCEEDED);
 
         reconcile.reconcile(new ReconcilePaymentCommand(paymentId));
@@ -285,7 +283,7 @@ class PaymentAuditIT extends IntegrationTestSupport {
         var r = aReservedStudent();
         when(gateway.confirm(any(), any())).thenReturn(new ConfirmOutcome.Succeeded());
         var paymentId = paymentIdOf(chargePayment.charge(command(r)));
-        lines.list.clear();
+        forgetWhatWasAudited();
 
         confirmRegistration.confirm(new ConfirmRegistrationCommand(paymentId, r.registration()));
         confirmRegistration.confirm(new ConfirmRegistrationCommand(paymentId, r.registration()));
@@ -306,39 +304,24 @@ class PaymentAuditIT extends IntegrationTestSupport {
     void brokenAuditPipeline_neverHurtsThePayment() {
         var r = aReservedStudent();
         when(gateway.confirm(any(), any())).thenReturn(new ConfirmOutcome.Succeeded());
-        auditLogger.detachAppender(lines);
-        var broken =
-                new ListAppender<ILoggingEvent>() {
-                    {
-                        start();
-                    }
+        var before = auditFailures();
+        audit.failWith(new IllegalStateException("broker gone"));
 
-                    @Override
-                    protected void append(ILoggingEvent event) {
-                        throw new IllegalStateException("disk full");
-                    }
+        var result = chargePayment.charge(command(r));
 
-                    @Override
-                    public synchronized void doAppend(ILoggingEvent event) {
-                        throw new IllegalStateException("disk full");
-                    }
-                };
-        auditLogger.addAppender(broken);
-        try {
-            var result = chargePayment.charge(command(r));
-
-            assertThat(((ChargePaymentResult.Processed) result).status())
-                    .isEqualTo(ChargePaymentResult.Status.SUCCEEDED);
-        } finally {
-            auditLogger.detachAppender(broken); // never leave a broken appender for the next test
-        }
-
+        assertThat(((ChargePaymentResult.Processed) result).status())
+                .isEqualTo(ChargePaymentResult.Status.SUCCEEDED);
         assertThat(fixtures.paymentStatuses(r.registration().value()))
-                .as("the payment is committed whatever happened to its audit lines")
+                .as("the payment is committed whatever happened to its audit entries")
                 .containsExactly("SUCCEEDED");
         assertThat(fixtures.paymentOutboxRows(r.registration().value())).isEqualTo(1);
-        assertThat(auditFailures())
-                .as("INITIATED and SUCCEEDED both failed to be written, and both were counted")
-                .isEqualTo(2);
+        await().atMost(Duration.ofSeconds(10))
+                .untilAsserted(
+                        () ->
+                                assertThat(auditFailures() - before)
+                                        .as(
+                                                "INITIATED and SUCCEEDED both failed to be"
+                                                        + " published, and both were counted")
+                                        .isEqualTo(2));
     }
 }

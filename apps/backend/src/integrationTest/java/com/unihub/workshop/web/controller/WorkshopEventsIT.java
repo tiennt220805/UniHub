@@ -4,13 +4,12 @@ import static com.unihub.workshop.domain.model.WorkshopBuilder.aCancelledWorksho
 import static com.unihub.workshop.domain.model.WorkshopBuilder.aPublishedWorkshop;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.unihub.shared.application.port.in.RelayPendingEventsUseCase;
+import com.unihub.shared.application.port.out.AuditTrail;
 import com.unihub.shared.infrastructure.IntegrationTestSupport;
+import com.unihub.shared.infrastructure.RecordedAudit;
 import com.unihub.shared.security.TestJwts;
 import com.unihub.workshop.domain.model.Workshop;
 import com.unihub.workshop.infrastructure.out.persistence.WorkshopRows;
@@ -22,12 +21,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -40,10 +39,11 @@ import org.springframework.test.context.DynamicPropertySource;
 
 /**
  * Phase 2 §1.4: what cancelling and rescheduling a workshop leave behind besides the new state — an
- * outbox row for Notification (INV-10) and an audit line — over HTTP, on real PostgreSQL and
+ * outbox row for Notification (INV-10) and an audit entry — over HTTP, on real PostgreSQL and
  * RabbitMQ. Both exist exactly when the change committed.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(RecordedAudit.Config.class)
 class WorkshopEventsIT extends IntegrationTestSupport {
 
     private static final UUID USER = UUID.randomUUID();
@@ -73,23 +73,22 @@ class WorkshopEventsIT extends IntegrationTestSupport {
     @Autowired private RelayPendingEventsUseCase relay;
     @Autowired private RabbitTemplate template;
     @Autowired private RabbitAdmin admin;
+    @Autowired private RecordedAudit audit;
+    @Autowired private AuditTrail auditTrail;
 
     private final List<UUID> created = new ArrayList<>();
-    private final ListAppender<ILoggingEvent> auditLines = new ListAppender<>();
-    private final Logger auditLogger = (Logger) LoggerFactory.getLogger("unihub.audit");
 
     @BeforeEach
     void setUp() {
         // The default HttpURLConnection-based factory cannot send PATCH.
         http.getRestTemplate().setRequestFactory(new JdkClientHttpRequestFactory());
         jdbc.update("DELETE FROM event_publications");
-        auditLines.start();
-        auditLogger.addAppender(auditLines);
+        audit.settle(auditTrail);
+        audit.clear();
     }
 
     @AfterEach
     void cleanUp() {
-        auditLogger.detachAppender(auditLines);
         created.forEach(id -> jdbc.update("DELETE FROM workshops WHERE id = ?", id));
         jdbc.update("DELETE FROM event_publications");
     }
@@ -126,12 +125,9 @@ class WorkshopEventsIT extends IntegrationTestSupport {
                         + " payload::text AS payload, status FROM event_publications");
     }
 
-    private List<JsonNode> auditActions() throws Exception {
-        var parsed = new ArrayList<JsonNode>();
-        for (var line : auditLines.list) {
-            parsed.add(JSON.readTree(line.getFormattedMessage()));
-        }
-        return parsed;
+    /** What was audited so far, once the trail has published everything it was handed. */
+    private List<JsonNode> auditActions() {
+        return audit.settle(auditTrail);
     }
 
     // ---------- the outbox ----------
@@ -281,6 +277,6 @@ class WorkshopEventsIT extends IntegrationTestSupport {
 
         send(HttpMethod.POST, BASE + "/" + id + "/cancel", editor(), null);
 
-        assertThat(auditLines.list).isEmpty();
+        assertThat(auditActions()).isEmpty();
     }
 }

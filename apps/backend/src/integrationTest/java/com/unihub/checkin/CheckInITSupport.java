@@ -75,6 +75,7 @@ public abstract class CheckInITSupport extends IntegrationTestSupport {
         loginUsers.forEach(
                 id -> {
                     jdbc.update("DELETE FROM user_roles WHERE user_id = ?", id);
+                    jdbc.update("DELETE FROM audit_events WHERE actor_user_id = ?", id);
                     jdbc.update("DELETE FROM users WHERE id = ?", id);
                 });
     }

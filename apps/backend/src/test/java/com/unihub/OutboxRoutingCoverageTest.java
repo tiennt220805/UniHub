@@ -253,12 +253,12 @@ class OutboxRoutingCoverageTest {
     @Test
     @DisplayName("a key bound to a queue nobody listens on is reported (a consumer not built yet)")
     void aBoundQueueWithoutAListener_isReported() {
-        // The audit consumer is Phase 6 (M-54); the summarization one was the example until Phase
-        // 5.
-        var audit = routeOf(Topology.AUDIT_CREATED, listened());
+        // The audit consumer exists since Phase 6 (M-54); a listener set without it stands for the
+        // days before, so the check on a bound-but-unlistened queue still has an example.
+        var audit = routeOf(Topology.AUDIT_CREATED, new TreeSet<>());
 
         assertThat(audit.consumed())
-                .as("unihub.audit.queue has no listener before Phase 6")
+                .as("unihub.audit.queue with no listener is not consumed")
                 .isFalse();
         assertThat(audit.problem()).contains("none of which has a listener");
     }
