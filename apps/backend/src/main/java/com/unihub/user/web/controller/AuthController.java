@@ -38,8 +38,8 @@ class AuthController {
         this.login = login;
     }
 
-    // 429 + Retry-After and the X-Correlation-Id response header are documented only, as on the
-    // workshop endpoints: no rate limiter (INV-17, Phase 7) or correlation-ID filter exists yet.
+    // 429 + Retry-After is documented only, as on the workshop endpoints: no rate limiter (INV-17,
+    // Phase 7) exists yet. X-Correlation-Id is written by CorrelationIdFilter.
     @Operation(
             operationId = "login",
             tags = {"User"})

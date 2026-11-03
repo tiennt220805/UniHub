@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -41,8 +42,11 @@ import org.springframework.web.bind.annotation.RestController;
  * MVC's own request errors, Spring Security's filters, or an unexpected exception. contract-diff
  * proves the <em>declared</em> shapes match the contract (contract-testing.md §1); this proves the
  * bodies actually sent do. Success responses are checked to be plain JSON, never problem+json.
+ * Every response, failure or success, carries {@code X-Correlation-Id}, and every problem body the
+ * same value as {@code correlationId} (M-17, Phase 6 checklist 3.5).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureObservability
 @Import(ProblemShapeIT.FailingProbe.class)
 class ProblemShapeIT extends IntegrationTestSupport {
 
@@ -170,6 +174,13 @@ class ProblemShapeIT extends IntegrationTestSupport {
         }
         assertThat(body.has("trace")).as("no stack trace").isFalse();
         assertThat(body.has("exception")).as("no exception class").isFalse();
+        // M-17 (Phase 6 checklist 3.5): correlationId is on every problem body, and it is the very
+        // value of the response header, whichever layer wrote the body.
+        var header = response.getHeaders().getFirst("X-Correlation-Id");
+        assertThat(header).as("X-Correlation-Id on a %d", status).matches("[0-9a-f]{32}");
+        assertThat(body.path("correlationId").asText())
+                .as("correlationId on a %d", status)
+                .isEqualTo(header);
         return body;
     }
 
@@ -179,6 +190,9 @@ class ProblemShapeIT extends IntegrationTestSupport {
         assertThat(contentType).isNotNull();
         assertThat(contentType.isCompatibleWith(MediaType.APPLICATION_JSON)).isTrue();
         assertThat(contentType.isCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)).isFalse();
+        assertThat(response.getHeaders().getFirst("X-Correlation-Id"))
+                .as("X-Correlation-Id on a success")
+                .matches("[0-9a-f]{32}");
     }
 
     // ---------- success ----------

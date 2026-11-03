@@ -201,8 +201,16 @@ class LoginIT extends IntegrationTestSupport {
             assertThat(refusal.status()).isEqualTo(401);
             assertThat(refusal.contentType()).startsWith(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         }
-        assertThat(unknownEmail.body()).isEqualTo(wrongPassword.body());
-        assertThat(noPasswordYet.body()).isEqualTo(wrongPassword.body());
+        // The correlationId is the request's own trace id, so it differs between the three by
+        // design; everything else must be the same bytes.
+        assertThat(withoutCorrelationId(unknownEmail.body()))
+                .isEqualTo(withoutCorrelationId(wrongPassword.body()));
+        assertThat(withoutCorrelationId(noPasswordYet.body()))
+                .isEqualTo(withoutCorrelationId(wrongPassword.body()));
+    }
+
+    private static String withoutCorrelationId(String problem) {
+        return problem.replaceAll(",\\s*\"correlationId\"\\s*:\\s*\"[0-9a-f]{32}\"", "");
     }
 
     @Test

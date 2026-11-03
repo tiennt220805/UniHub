@@ -27,7 +27,7 @@ class EventRelaySchedulerTest {
     @Test
     @DisplayName("runs one cycle with the configured batch size under the job lock")
     void run_runsUnderTheLock() {
-        new EventRelayScheduler(lock, relay, properties).run();
+        new EventRelayScheduler(lock, relay, properties, JobCycle.untraced()).run();
 
         assertThat(batches).containsExactly(200);
         assertThat(lock.tryAcquire(EventRelayScheduler.LOCK_KEY, Duration.ofSeconds(30)))
@@ -41,7 +41,7 @@ class EventRelaySchedulerTest {
         try (var held =
                 lock.tryAcquire(EventRelayScheduler.LOCK_KEY, Duration.ofSeconds(30))
                         .orElseThrow()) {
-            new EventRelayScheduler(lock, relay, properties).run();
+            new EventRelayScheduler(lock, relay, properties, JobCycle.untraced()).run();
         }
 
         assertThat(batches).isEmpty();
@@ -56,7 +56,8 @@ class EventRelaySchedulerTest {
                         batchSize -> {
                             throw new IllegalStateException("db down");
                         },
-                        properties);
+                        properties,
+                        JobCycle.untraced());
 
         assertThatCode(failing::run).doesNotThrowAnyException();
 

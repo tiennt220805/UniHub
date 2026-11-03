@@ -12,7 +12,6 @@ import com.unihub.registration.domain.exception.SeatLockUnavailableException;
 import com.unihub.shared.domain.id.WorkshopId;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import java.net.ServerSocket;
 import java.time.Duration;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -66,11 +65,7 @@ class SeatHoldExpiryRedisOutageIT extends ShortChainITSupport {
     }
 
     private static int freePort() {
-        try (var socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
+        return com.unihub.shared.infrastructure.FixedPorts.free();
     }
 
     @AfterAll

@@ -35,16 +35,25 @@ class EventRelayScheduler {
     private final JobLock jobLock;
     private final RelayPendingEventsUseCase relay;
     private final OutboxRelayProperties properties;
+    private final JobCycle cycles;
 
     EventRelayScheduler(
-            JobLock jobLock, RelayPendingEventsUseCase relay, OutboxRelayProperties properties) {
+            JobLock jobLock,
+            RelayPendingEventsUseCase relay,
+            OutboxRelayProperties properties,
+            JobCycle cycles) {
         this.jobLock = jobLock;
         this.relay = relay;
         this.properties = properties;
+        this.cycles = cycles;
     }
 
     @Scheduled(fixedDelayString = "${unihub.jobs.outbox-relay.interval}")
     public void run() {
+        cycles.run("outbox-relay", this::cycle);
+    }
+
+    private void cycle() {
         var lock = jobLock.tryAcquire(LOCK_KEY, LEASE);
         if (lock.isEmpty()) {
             LOG.debug("Outbox relay skipped: job lock {} is held", LOCK_KEY);

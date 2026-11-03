@@ -2,6 +2,7 @@ package com.unihub.payment.infrastructure.in.scheduling;
 
 import com.unihub.payment.application.port.in.RequestPaymentReconciliationsUseCase;
 import com.unihub.shared.application.port.out.JobLock;
+import com.unihub.shared.infrastructure.in.scheduling.JobCycle;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,16 +36,23 @@ class PaymentReconciliationScheduler {
 
     private final JobLock jobLock;
     private final RequestPaymentReconciliationsUseCase sweep;
+    private final JobCycle cycles;
 
-    PaymentReconciliationScheduler(JobLock jobLock, RequestPaymentReconciliationsUseCase sweep) {
+    PaymentReconciliationScheduler(
+            JobLock jobLock, RequestPaymentReconciliationsUseCase sweep, JobCycle cycles) {
         this.jobLock = jobLock;
         this.sweep = sweep;
+        this.cycles = cycles;
     }
 
     @Scheduled(
             fixedDelayString = "${unihub.jobs.payment-reconciliation.interval}",
             initialDelayString = "${unihub.jobs.payment-reconciliation.interval}")
     public void sweep() {
+        cycles.run("payment-reconciliation", this::cycle);
+    }
+
+    private void cycle() {
         var lock = jobLock.tryAcquire(LOCK_KEY, LEASE);
         if (lock.isEmpty()) {
             LOG.debug("Payment reconciliation skipped: job lock {} is held", LOCK_KEY);

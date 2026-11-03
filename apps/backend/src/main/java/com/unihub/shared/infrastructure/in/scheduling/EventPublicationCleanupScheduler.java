@@ -35,20 +35,27 @@ class EventPublicationCleanupScheduler {
     private final JobLock jobLock;
     private final PurgeEventPublicationsUseCase purge;
     private final EventPublicationCleanupProperties properties;
+    private final JobCycle cycles;
 
     EventPublicationCleanupScheduler(
             JobLock jobLock,
             PurgeEventPublicationsUseCase purge,
-            EventPublicationCleanupProperties properties) {
+            EventPublicationCleanupProperties properties,
+            JobCycle cycles) {
         this.jobLock = jobLock;
         this.purge = purge;
         this.properties = properties;
+        this.cycles = cycles;
     }
 
     @Scheduled(
             fixedDelayString = "${unihub.jobs.event-publication-cleanup.interval}",
             initialDelayString = "${unihub.jobs.event-publication-cleanup.interval}")
     public void sweep() {
+        cycles.run("event-publication-cleanup", this::cycle);
+    }
+
+    private void cycle() {
         var lock = jobLock.tryAcquire(LOCK_KEY, LEASE);
         if (lock.isEmpty()) {
             LOG.debug("Event publication cleanup skipped: job lock {} is held", LOCK_KEY);

@@ -49,6 +49,14 @@ spring:
       simple:
         default-requeue-rejected: false
 
+# Every log line carries the correlation id, the trace id and the span id (observability.md §1, Phase 6
+# checklist D67). They are the same value for the id and the trace; both are printed so that a line can be
+# searched by either name. The id is set by CorrelationIdFilter on a request, by the listener advice on a
+# message and by JobCycle on a scheduled cycle; an empty field means the work had none.
+logging:
+  pattern:
+    correlation: "[cid=%X{correlationId:-} trace=%X{traceId:-} span=%X{spanId:-}] "
+
 # Actuator (observability.md §5, §8; Phase 6 checklist D64). It runs on its own management port, never on the
 # API port, so no Ingress route can reach /actuator/**: only `health` and `prometheus` are exposed, and the
 # management chain permits both without a token (ManagementSecurityConfig). Tests set the port to 0.

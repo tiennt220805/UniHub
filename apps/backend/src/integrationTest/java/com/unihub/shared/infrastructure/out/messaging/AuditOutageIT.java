@@ -16,8 +16,6 @@ import com.unihub.shared.domain.id.UserId;
 import com.unihub.shared.domain.id.WorkshopId;
 import com.unihub.shared.infrastructure.AuditBroker;
 import com.unihub.shared.security.TestJwts;
-import java.io.IOException;
-import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -83,11 +81,7 @@ class AuditOutageIT extends CheckInITSupport {
     }
 
     private static int freePort() {
-        try (var socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
+        return com.unihub.shared.infrastructure.FixedPorts.free();
     }
 
     @DynamicPropertySource

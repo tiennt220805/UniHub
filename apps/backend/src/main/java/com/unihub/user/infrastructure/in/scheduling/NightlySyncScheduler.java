@@ -1,6 +1,7 @@
 package com.unihub.user.infrastructure.in.scheduling;
 
 import com.unihub.shared.application.port.out.JobLock;
+import com.unihub.shared.infrastructure.in.scheduling.JobCycle;
 import com.unihub.user.application.port.in.RunNightlySyncUseCase;
 import java.time.Duration;
 import org.slf4j.Logger;
@@ -27,14 +28,20 @@ class NightlySyncScheduler {
 
     private final JobLock jobLock;
     private final RunNightlySyncUseCase runNightlySync;
+    private final JobCycle cycles;
 
-    NightlySyncScheduler(JobLock jobLock, RunNightlySyncUseCase runNightlySync) {
+    NightlySyncScheduler(JobLock jobLock, RunNightlySyncUseCase runNightlySync, JobCycle cycles) {
         this.jobLock = jobLock;
         this.runNightlySync = runNightlySync;
+        this.cycles = cycles;
     }
 
     @Scheduled(cron = "${unihub.jobs.nightly-sync.cron}", zone = "${unihub.jobs.nightly-sync.zone}")
     public void runNightlySync() {
+        cycles.run("nightly-sync", this::cycle);
+    }
+
+    private void cycle() {
         var lock = jobLock.tryAcquire(LOCK_KEY, LEASE);
         if (lock.isEmpty()) {
             LOG.warn("Nightly sync skipped: job lock {} is held by another run", LOCK_KEY);

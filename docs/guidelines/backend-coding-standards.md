@@ -1172,6 +1172,7 @@ public record RegistrationProperties(Duration seatHoldDuration) {}
 - On RabbitMQ the correlation ID travels in the `correlationId` message header, set once by a global `RabbitTemplate` post-processor and restored into the MDC by a shared listener advice (`observability.md` §1). Do not add header code in individual publishers or listeners.
 - The relay restores each outbox row's stored correlation ID into the MDC before publishing it (§8.2), so a message consumed minutes later still links back to the originating request.
 - Every relay publish and every listener invocation logs `eventId` (AMQP `message-id`), routing key and correlation ID at `INFO`.
+- A scheduled trigger runs its cycle through `JobCycle.run("<job>", …)` (`shared.infrastructure.in.scheduling`), so the cycle has a trace and therefore a correlation ID in the MDC; a trigger that does not leaves the outbox rows it writes with no `correlation_id`. `CorrelationIdFilter` sets the ID on an HTTP request and `CorrelationIdProblemAdvice` puts it in every problem body; neither is called from a use case or a controller (`observability.md` §1).
 
 ---
 

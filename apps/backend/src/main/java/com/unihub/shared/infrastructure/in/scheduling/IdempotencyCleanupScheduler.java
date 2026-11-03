@@ -35,20 +35,27 @@ class IdempotencyCleanupScheduler {
     private final JobLock jobLock;
     private final PurgeIdempotencyKeysUseCase purge;
     private final IdempotencyCleanupProperties properties;
+    private final JobCycle cycles;
 
     IdempotencyCleanupScheduler(
             JobLock jobLock,
             PurgeIdempotencyKeysUseCase purge,
-            IdempotencyCleanupProperties properties) {
+            IdempotencyCleanupProperties properties,
+            JobCycle cycles) {
         this.jobLock = jobLock;
         this.purge = purge;
         this.properties = properties;
+        this.cycles = cycles;
     }
 
     @Scheduled(
             fixedDelayString = "${unihub.jobs.idempotency-cleanup.interval}",
             initialDelayString = "${unihub.jobs.idempotency-cleanup.interval}")
     public void sweep() {
+        cycles.run("idempotency-cleanup", this::cycle);
+    }
+
+    private void cycle() {
         var lock = jobLock.tryAcquire(LOCK_KEY, LEASE);
         if (lock.isEmpty()) {
             LOG.debug("Idempotency cleanup skipped: job lock {} is held", LOCK_KEY);

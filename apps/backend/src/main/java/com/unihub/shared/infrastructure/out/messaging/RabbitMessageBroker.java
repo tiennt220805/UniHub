@@ -48,8 +48,10 @@ class RabbitMessageBroker implements MessageBroker {
         var message = new Message(event.payload().getBytes(StandardCharsets.UTF_8), properties);
 
         // The relay runs outside the request that wrote the row. The stored correlation id goes
-        // back
-        // into the MDC so the template's post-processor writes it into the message header.
+        // back into the MDC so the template's post-processor writes it into the message header; a
+        // row without one keeps the id of the relay cycle that is publishing it. Whatever the MDC
+        // held before is put back afterwards.
+        var previous = MDC.get(CorrelationIdPostProcessor.MDC_KEY);
         if (event.correlationId() != null) {
             MDC.put(CorrelationIdPostProcessor.MDC_KEY, event.correlationId());
         }
@@ -61,7 +63,11 @@ class RabbitMessageBroker implements MessageBroker {
                     event.routingKey(),
                     event.correlationId());
         } finally {
-            MDC.remove(CorrelationIdPostProcessor.MDC_KEY);
+            if (previous == null) {
+                MDC.remove(CorrelationIdPostProcessor.MDC_KEY);
+            } else {
+                MDC.put(CorrelationIdPostProcessor.MDC_KEY, previous);
+            }
         }
     }
 }

@@ -8,7 +8,7 @@ const error = (status: number | null, slug?: string, type?: string, retryAfter: 
     status,
     status === null
       ? null
-      : { type: type ?? (slug ? `urn:unihub:problem:${slug}` : 'about:blank'), title: 'Problem', status },
+      : { type: type ?? (slug ? `urn:unihub:problem:${slug}` : 'about:blank'), title: 'Problem', status, correlationId: '0af7651916cd43dd8448eb211c80319c' },
     retryAfter,
   )
 

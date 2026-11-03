@@ -40,8 +40,8 @@ import org.springframework.web.bind.annotation.RestController;
  * ownership in this system).
  *
  * <p>The annotations describe the contract so contract-diff can compare shapes. {@code
- * X-Correlation-Id} response header is documented only, as on every other endpoint, until the Phase
- * 6 filter exists; the request carries no such parameter (a client's header is ignored).
+ * X-Correlation-Id} response header is written by {@code CorrelationIdFilter} on every endpoint;
+ * the request carries no such parameter (a client's header is ignored).
  */
 @RestController
 @RequestMapping("/api/v1/workshops/{id}")

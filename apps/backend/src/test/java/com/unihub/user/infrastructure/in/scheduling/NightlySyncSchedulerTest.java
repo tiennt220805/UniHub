@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.unihub.shared.application.port.out.JobLock;
+import com.unihub.shared.infrastructure.in.scheduling.JobCycle;
 import com.unihub.shared.infrastructure.out.lock.InProcessJobLock;
 import com.unihub.user.application.port.in.RunNightlySyncUseCase;
 import java.time.Duration;
@@ -24,7 +25,8 @@ class NightlySyncSchedulerTest {
 
     private final JobLock jobLock = new InProcessJobLock();
     private final RunNightlySyncUseCase useCase = mock(RunNightlySyncUseCase.class);
-    private final NightlySyncScheduler scheduler = new NightlySyncScheduler(jobLock, useCase);
+    private final NightlySyncScheduler scheduler =
+            new NightlySyncScheduler(jobLock, useCase, JobCycle.untraced());
 
     @Test
     @DisplayName("uses the documented lock key and lease")

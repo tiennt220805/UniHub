@@ -3,6 +3,7 @@ package com.unihub.payment.infrastructure.in.scheduling;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.unihub.shared.infrastructure.in.scheduling.JobCycle;
 import com.unihub.shared.infrastructure.out.lock.InProcessJobLock;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -14,7 +15,7 @@ class PaymentReconciliationSchedulerTest {
     private final InProcessJobLock lock = new InProcessJobLock();
     private final AtomicInteger sweeps = new AtomicInteger();
     private final PaymentReconciliationScheduler scheduler =
-            new PaymentReconciliationScheduler(lock, sweeps::incrementAndGet);
+            new PaymentReconciliationScheduler(lock, sweeps::incrementAndGet, JobCycle.untraced());
 
     @Test
     @DisplayName("runs the sweep under the job lock and releases it afterwards")
@@ -47,7 +48,8 @@ class PaymentReconciliationSchedulerTest {
                         lock,
                         () -> {
                             throw new IllegalStateException("db down");
-                        });
+                        },
+                        JobCycle.untraced());
 
         assertThatThrownBy(failing::sweep).isInstanceOf(IllegalStateException.class);
 

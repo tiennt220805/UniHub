@@ -88,6 +88,11 @@ class RegistrationControllerIT extends IntegrationTestSupport {
         return http.exchange(PATH, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
     }
 
+    private static JsonNode withoutCorrelationId(JsonNode problem) {
+        return ((com.fasterxml.jackson.databind.node.ObjectNode) problem.deepCopy())
+                .without("correlationId");
+    }
+
     private static JsonNode json(ResponseEntity<String> response) throws Exception {
         return JSON.readTree(response.getBody());
     }
@@ -219,7 +224,9 @@ class RegistrationControllerIT extends IntegrationTestSupport {
 
         assertThat(first.getStatusCode().value()).isEqualTo(201);
         assertThat(retry.getStatusCode().value()).isEqualTo(201);
-        assertThat(json(retry)).isEqualTo(json(first));
+        // The replay is the stored answer, but it answers a new request: its correlationId is
+        // that request's own, so everything else must match.
+        assertThat(withoutCorrelationId(json(retry))).isEqualTo(withoutCorrelationId(json(first)));
         assertThat(fixtures.registrationRows(workshop)).isEqualTo(1);
         assertThat(fixtures.seatsTaken(workshop)).isEqualTo(1);
     }
@@ -237,7 +244,7 @@ class RegistrationControllerIT extends IntegrationTestSupport {
 
         assertProblem(first, 409, "urn:unihub:problem:sold-out");
         assertProblem(retry, 409, "urn:unihub:problem:sold-out");
-        assertThat(json(retry)).isEqualTo(json(first));
+        assertThat(withoutCorrelationId(json(retry))).isEqualTo(withoutCorrelationId(json(first)));
     }
 
     @Test

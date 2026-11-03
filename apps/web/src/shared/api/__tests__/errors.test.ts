@@ -5,7 +5,7 @@ import { AppError, isTransient, problemSlug, toAppError } from '../errors'
 const problemError = (type: string | undefined, status = 409) =>
   new AppError(
     status,
-    type === undefined ? null : { type, title: 'Problem', status },
+    type === undefined ? null : { type, title: 'Problem', status, correlationId: '0af7651916cd43dd8448eb211c80319c' },
     null,
   )
 

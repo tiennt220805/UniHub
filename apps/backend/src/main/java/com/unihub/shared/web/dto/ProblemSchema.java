@@ -11,7 +11,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 @Schema(
         name = "error",
         types = {"object"},
-        requiredProperties = {"type", "title", "status"})
+        requiredProperties = {"type", "title", "status", "correlationId"})
 public record ProblemSchema(
         @Schema(format = "uri-reference") String type,
         String title,

@@ -1,5 +1,6 @@
 package com.unihub.shared.infrastructure.in.messaging;
 
+import java.util.function.Supplier;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
 import org.slf4j.Logger;
@@ -21,6 +22,22 @@ public final class CorrelationIdListenerAdvice implements MethodInterceptor {
 
     private static final Logger LOG = LoggerFactory.getLogger(CorrelationIdListenerAdvice.class);
 
+    private final Supplier<String> ownTraceId;
+
+    /** No fallback: a message without the header is handled without a correlation id. */
+    public CorrelationIdListenerAdvice() {
+        this(() -> null);
+    }
+
+    /**
+     * @param ownTraceId the trace id of the consumer's own span, used when the message carries no
+     *     {@code correlationId} header (a row stored without one, a message that predates the
+     *     header): the work still gets an id, the consumer's (Phase 6 checklist D66 (iii))
+     */
+    public CorrelationIdListenerAdvice(Supplier<String> ownTraceId) {
+        this.ownTraceId = ownTraceId;
+    }
+
     @Override
     public Object invoke(MethodInvocation invocation) throws Throwable {
         var message = messageOf(invocation);
@@ -29,6 +46,9 @@ public final class CorrelationIdListenerAdvice implements MethodInterceptor {
         }
         var properties = message.getMessageProperties();
         Object correlationId = properties.getHeader(HEADER);
+        if (correlationId == null) {
+            correlationId = ownTraceId.get();
+        }
         if (correlationId != null) {
             MDC.put(MDC_KEY, correlationId.toString());
         }

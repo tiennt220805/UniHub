@@ -3,6 +3,8 @@ package com.unihub.shared.infrastructure.config;
 import com.unihub.shared.infrastructure.in.messaging.CorrelationIdListenerAdvice;
 import com.unihub.shared.infrastructure.out.messaging.RetryChainRecoverer;
 import com.unihub.shared.messaging.ParkedMessageObserver;
+import com.unihub.shared.web.CorrelationIds;
+import io.micrometer.tracing.Tracer;
 import org.aopalliance.aop.Advice;
 import org.springframework.amqp.rabbit.config.ContainerCustomizer;
 import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
@@ -39,11 +41,14 @@ class ListenerContainerConfig {
 
     @Bean
     ContainerCustomizer<SimpleMessageListenerContainer> unihubListenerAdvice(
-            RetryChainRecoverer recoverer) {
+            RetryChainRecoverer recoverer, ObjectProvider<Tracer> tracer) {
         return container -> {
             Advice retry =
                     RetryInterceptorBuilder.stateless().maxAttempts(1).recoverer(recoverer).build();
-            container.setAdviceChain(new CorrelationIdListenerAdvice(), retry);
+            container.setAdviceChain(
+                    new CorrelationIdListenerAdvice(
+                            () -> CorrelationIds.currentTraceId(tracer.getIfAvailable())),
+                    retry);
         };
     }
 }

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import com.unihub.shared.application.port.out.JobLock;
+import com.unihub.shared.infrastructure.in.scheduling.JobCycle;
 import com.unihub.user.application.port.in.RunNightlySyncUseCase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,6 +16,7 @@ class NightlySyncSchedulerConditionTest {
     private final ApplicationContextRunner context =
             new ApplicationContextRunner()
                     .withBean(JobLock.class, () -> mock(JobLock.class))
+                    .withBean(JobCycle.class, JobCycle::untraced)
                     .withBean(RunNightlySyncUseCase.class, () -> mock(RunNightlySyncUseCase.class))
                     .withUserConfiguration(NightlySyncScheduler.class);
 

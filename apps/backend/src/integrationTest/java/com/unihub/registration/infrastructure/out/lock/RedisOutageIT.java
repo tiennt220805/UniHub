@@ -22,7 +22,6 @@ import com.unihub.workshop.application.port.out.WorkshopRepository;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -118,11 +117,7 @@ class RedisOutageIT extends IntegrationTestSupport {
     }
 
     private static int freePort() {
-        try (var socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
+        return com.unihub.shared.infrastructure.FixedPorts.free();
     }
 
     @AfterAll

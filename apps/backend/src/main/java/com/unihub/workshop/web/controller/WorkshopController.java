@@ -84,9 +84,8 @@ class WorkshopController {
     // GlobalProblemHandler.
     //  - 429 + Retry-After: documented only — no rate limiter exists (distributed-coordination.md
     // §3).
-    //  - X-Correlation-Id (200 header): documented only until the correlation-ID filter exists
-    //    (Phase 6 task 3.1). There is no request parameter: a header sent by the client is ignored
-    //    (D65).
+    //  - X-Correlation-Id (200 header): real — written by CorrelationIdFilter (Phase 6 task 3.1).
+    //    There is no request parameter: a header sent by the client is ignored (D65).
     @Operation(
             operationId = "listWorkshops",
             tags = {"Workshop"})
@@ -135,7 +134,8 @@ class WorkshopController {
 
     // Public like the list (contract: security: []), but the bearer token is optional input: a
     // caller holding WORKSHOP_CREATE/WORKSHOP_EDIT may see a DRAFT, anyone else gets 404 for it.
-    // 429 and the X-Correlation-Id response header are documented only, as on the list endpoint.
+    // 429 is documented only, as on the list endpoint; X-Correlation-Id is written by
+    // CorrelationIdFilter on every response.
     @Operation(
             operationId = "getWorkshop",
             tags = {"Workshop"},

@@ -1,6 +1,7 @@
 package com.unihub.shared.infrastructure.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.unihub.shared.web.CorrelationIds;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -11,8 +12,8 @@ import org.springframework.http.MediaType;
 
 /**
  * Writes an RFC 7807 body from inside a servlet filter, where no {@code @RestControllerAdvice} can
- * help (packages/api-contract/common/error.yaml). The body carries HTTP facts only; why a token was
- * refused never reaches the client.
+ * help (packages/api-contract/common/error.yaml). The body carries HTTP facts and the correlation
+ * id only; why a token was refused never reaches the client.
  */
 final class ProblemResponses {
 
@@ -31,6 +32,10 @@ final class ProblemResponses {
         body.put("status", status.value());
         body.put("detail", detail);
         body.put("instance", request.getRequestURI());
+        var correlationId = CorrelationIds.current();
+        if (correlationId != null) {
+            body.put(CorrelationIds.MDC_KEY, correlationId);
+        }
 
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);

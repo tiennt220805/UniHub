@@ -22,6 +22,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -43,6 +44,7 @@ import org.springframework.test.context.DynamicPropertySource;
  * "exactly four members" is asserted against a key that has more.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureObservability
 class VerificationKeyIT extends CheckInITSupport {
     private static final String KEY_URL = "/api/v1/checkin/verification-key";
     private static final ECKey OPERATOR_KEY = operatorKey();
@@ -77,6 +79,9 @@ class VerificationKeyIT extends CheckInITSupport {
     private JsonNode fetchKey() throws Exception {
         var response = fetch(token(staff));
         assertThat(response.getStatusCode().value()).isEqualTo(200);
+        // The contract's X-Correlation-Id response header, asserted here since the filter exists
+        // (Phase 6 checklist 3.5; closes phase-5.md §5 row 9).
+        assertThat(response.getHeaders().getFirst("X-Correlation-Id")).matches("[0-9a-f]{32}");
         return JSON.readTree(response.getBody());
     }
 

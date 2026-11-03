@@ -28,8 +28,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  * with its own {@code {timestamp, status, error, path}} JSON instead of the contract's shape.
  *
  * <p>An {@code UNAVAILABLE} exception that is a {@link RetryableUnavailable} also answers with a
- * {@code Retry-After} header. Not yet here: the {@code correlationId} property (no correlation-ID
- * filter exists yet — see {@code package-info}).
+ * {@code Retry-After} header. The {@code correlationId} property is added to every {@code
+ * ProblemDetail}, this class's and any other's, by {@link CorrelationIdProblemAdvice}.
  */
 @RestControllerAdvice
 class GlobalProblemHandler extends ResponseEntityExceptionHandler {

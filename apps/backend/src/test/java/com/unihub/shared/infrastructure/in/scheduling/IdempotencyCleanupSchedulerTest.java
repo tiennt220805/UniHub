@@ -26,7 +26,8 @@ class IdempotencyCleanupSchedulerTest {
             new IdempotencyCleanupScheduler(
                     lock,
                     purge,
-                    new IdempotencyCleanupProperties(Duration.ofMinutes(1), RETENTION));
+                    new IdempotencyCleanupProperties(Duration.ofMinutes(1), RETENTION),
+                    JobCycle.untraced());
 
     @Test
     @DisplayName("runs the sweep with the configured retention under the job lock")
@@ -60,7 +61,8 @@ class IdempotencyCleanupSchedulerTest {
                         retention -> {
                             throw new IllegalStateException("db down");
                         },
-                        new IdempotencyCleanupProperties(Duration.ofMinutes(1), RETENTION));
+                        new IdempotencyCleanupProperties(Duration.ofMinutes(1), RETENTION),
+                        JobCycle.untraced());
 
         assertThatThrownBy(failing::sweep).isInstanceOf(IllegalStateException.class);
 

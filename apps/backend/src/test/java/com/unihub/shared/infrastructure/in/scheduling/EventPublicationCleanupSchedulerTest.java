@@ -28,7 +28,7 @@ class EventPublicationCleanupSchedulerTest {
     @Test
     @DisplayName("runs the sweep with the configured retention under the job lock")
     void sweep_runsUnderTheLock() {
-        new EventPublicationCleanupScheduler(lock, purge, properties).sweep();
+        new EventPublicationCleanupScheduler(lock, purge, properties, JobCycle.untraced()).sweep();
 
         assertThat(purged).containsExactly(RETENTION);
         assertThat(
@@ -44,7 +44,8 @@ class EventPublicationCleanupSchedulerTest {
         try (var held =
                 lock.tryAcquire(EventPublicationCleanupScheduler.LOCK_KEY, Duration.ofMinutes(1))
                         .orElseThrow()) {
-            new EventPublicationCleanupScheduler(lock, purge, properties).sweep();
+            new EventPublicationCleanupScheduler(lock, purge, properties, JobCycle.untraced())
+                    .sweep();
         }
 
         assertThat(purged).isEmpty();
@@ -59,7 +60,8 @@ class EventPublicationCleanupSchedulerTest {
                         retention -> {
                             throw new IllegalStateException("db down");
                         },
-                        properties);
+                        properties,
+                        JobCycle.untraced());
 
         assertThatThrownBy(failing::sweep).isInstanceOf(IllegalStateException.class);
 
