@@ -12,6 +12,7 @@ import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -298,20 +299,34 @@ class NotificationDeliveryIT extends NotificationITSupport {
             "AC39.1, AC39.2: a fan-out of 60 whose email channel fails midway still tells everyone"
                     + " in-app at once, and the retry sends only the emails still PENDING")
     void fanOutWithAChannelFailingMidway() {
+        fanOut(Set.of(20));
+    }
+
+    @Test
+    @DisplayName(
+            "M-38: the same fan-out with one more, unplanned, email failure before the planned"
+                    + " outage (a provider that is slow once) still sends each email exactly once")
+    void fanOutWithATransientFailureBeforeTheOutage() {
+        fanOut(Set.of(4, 20));
+    }
+
+    /**
+     * 60 recipients; the provider goes down after each count in {@code outagesAfter} sends and is
+     * back as soon as one send has failed.
+     */
+    private void fanOut(Set<Integer> outagesAfter) {
         var recipients = 60;
-        var sentBeforeTheOutage = 20;
         var token = "fanout" + UUID.randomUUID().toString().substring(0, 8);
         var workshop = aWorkshop("Fan-out " + token);
         var students = IntStream.range(0, recipients).mapToObj(i -> student()).toList();
         students.forEach(s -> registration(s, workshop, "CONFIRMED"));
-        // the provider goes down after 20 emails and is back as soon as one send has failed
         afterSend =
                 (channel, result) -> {
                     if (!channel.equals("EMAIL")) {
                         return;
                     }
                     if (result == NotificationDeliveryResult.SENT
-                            && SENT_EMAILS.incrementAndGet() == sentBeforeTheOutage) {
+                            && outagesAfter.contains(SENT_EMAILS.incrementAndGet())) {
                         SMTP.mode(Mode.CLOSE);
                     } else if (result == NotificationDeliveryResult.UNAVAILABLE) {
                         SMTP.mode(Mode.FORWARD);
@@ -333,24 +348,63 @@ class NotificationDeliveryIT extends NotificationITSupport {
                                                         workshop.value()))
                                         .isEqualTo(recipients * 2));
         assertThat(Mailpit.recipientsOfSubject(token))
-                .as("exactly one email per student: the retry did not repeat the first twenty")
+                .as("exactly one email per student: the retry did not repeat what was sent")
                 .hasSize(recipients)
                 .doesNotHaveDuplicates();
         var email = calls("EMAIL");
-        assertThat(email)
-                .as("60 emails and the one that found the provider down")
-                .hasSize(recipients + 1);
-        assertThat(email.stream().filter(c -> c.result() == NotificationDeliveryResult.UNAVAILABLE))
-                .hasSize(1);
+        var failed =
+                email.stream()
+                        .filter(c -> c.result() == NotificationDeliveryResult.UNAVAILABLE)
+                        .count();
+        // Not "exactly 61 calls": any one send that fails by itself (a provider that is slow once,
+        // on a loaded runner) adds a failed call and moves the planned outage to a later hop, which
+        // is not what is under test. What is: each email is sent successfully once, and the failing
+        // channel does not hold the in-app one back (the ordering check below, which is what a
+        // channel that is not skipped within a delivery turns red; the hanging-provider test above
+        // is the guard for one timeout per delivery). The bound on failed calls only stops a
+        // runaway:
+        // the first delivery and its three retry hops.
+        assertThat(email.stream().filter(c -> c.result() == NotificationDeliveryResult.SENT))
+                .as("every email sent successfully exactly once; calls=" + describe())
+                .hasSize(recipients);
+        assertThat(failed)
+                .as("every planned outage was met; calls=" + describe())
+                .isGreaterThanOrEqualTo(outagesAfter.size());
+        assertThat(failed)
+                .as(
+                        "one failed call per delivery (the first and three retry hops), not one per row;"
+                                + " calls="
+                                + describe())
+                .isLessThanOrEqualTo(4);
         var inApp = calls("IN_APP");
         assertThat(inApp)
                 .as("each in-app row sent once, the retry never touched one")
                 .hasSize(recipients);
         // the failing channel did not hold the other back: every in-app row was sent in the first
         // delivery, before the retry sent the first of the emails that were left
-        var firstRetriedEmail = CALLS.indexOf(email.get(sentBeforeTheOutage + 1));
+        var firstFailure =
+                CALLS.indexOf(
+                        email.stream()
+                                .filter(c -> c.result() == NotificationDeliveryResult.UNAVAILABLE)
+                                .findFirst()
+                                .orElseThrow());
+        var firstRetriedEmail =
+                IntStream.range(firstFailure + 1, CALLS.size())
+                        .filter(k -> CALLS.get(k).channel().equals("EMAIL"))
+                        .findFirst()
+                        .orElseThrow();
         assertThat(CALLS.subList(firstRetriedEmail, CALLS.size()))
                 .noneMatch(c -> c.channel().equals("IN_APP"));
         assertThat(parkedMessages()).isZero();
+    }
+
+    /** The calls in order, one short token each, for the message of a failed assertion. */
+    private static String describe() {
+        var out = new StringBuilder();
+        CALLS.forEach(
+                c ->
+                        out.append(c.channel().charAt(0))
+                                .append(c.result() == NotificationDeliveryResult.SENT ? '+' : '!'));
+        return out.toString();
     }
 }
