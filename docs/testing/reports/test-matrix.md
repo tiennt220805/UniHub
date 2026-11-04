@@ -286,7 +286,7 @@ A test the catalog names but the team has chosen not to write yet, with the reas
 
 ## 5. Reference Table
 
-**Snapshot refreshed on 2026-11-05 (Phase 6 checklist Mục 9, ahead of the Phase 6 sign-off) — not updated automatically; refreshed again at that sign-off if any row changes before it (§3).**
+**Snapshot refreshed on 2026-11-05 (Phase 6 checklist Mục 9, at the Phase 6 sign-off of 2026-11-05) — not updated automatically; refreshed again at that sign-off if any row changes before it (§3).**
 
 | Item | Value | Source |
 |---|---|---|
