@@ -241,7 +241,7 @@ USER unihub
 # before the JVM's own heuristics catch up.
 ENV JAVA_TOOL_OPTIONS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=50.0"
 
-EXPOSE 8080
+EXPOSE 8080 8081
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
 ```
 
@@ -295,7 +295,7 @@ k8s/
     └── flyway-migrate-job.yaml
 ```
 
-**Observability stack — not yet in this tree (Phase 6 checklist C43, 2026-11-02).** `architecture.md` §1.2 lists the Observability Stack as a Core Component and precondition (c) above assumes Prometheus, Grafana and Tempo run in the cluster, but the tree above has no manifest for them. Their **content** (Grafana datasources, dashboards, alert rules, Tempo configuration) is written in Phase 6 at **`observability/` in the repository root** and used by docker-compose (`observability.md` §8). Phase 7 adds the manifests — suggested: `k8s/observability/` with the Deployments/Services, a Kubernetes-specific Prometheus scrape configuration (service discovery), and a `configMapGenerator` reading `../../observability/` (allowed by `--load-restrictor LoadRestrictionsNone`, §7) — so one copy of the content serves both. Phase 6 creates no `k8s/` directory.
+**Observability stack — the content exists, the manifests do not (Phase 6 checklist C43, 2026-11-02; content written 2026-11-03/04).** `architecture.md` §1.2 lists the Observability Stack as a Core Component and precondition (c) above assumes Prometheus, Grafana and Tempo run in the cluster, but the tree above has no manifest for them. Their **content** is written (Phase 6) at **`observability/` in the repository root** and used by docker-compose (`observability.md` §8): the Grafana datasources, three dashboards (`observability/grafana/dashboards/`), the 22 alert rules (`observability/grafana/provisioning/alerting/unihub-rules.yml`), Tempo's configuration, the broker's per-queue metrics setting and a compose-only Prometheus scrape configuration. `AuditAlertIT` mounts the same Grafana files into a real Grafana, so the content is proven to load; a Kubernetes cluster has not seen it. Phase 7 adds the manifests — suggested: `k8s/observability/` with the Deployments/Services, a Kubernetes-specific Prometheus scrape configuration (service discovery), and a `configMapGenerator` reading `../../observability/` (allowed by `--load-restrictor LoadRestrictionsNone`, §7) — so one copy of the content serves both. Phase 6 creates no `k8s/` directory.
 
 `base/kustomization.yaml` is what actually ties the files above into one applied resource set — every manifest is listed explicitly, **except** `secret.example.yaml`, which is deliberately left out — and it also carries the `configMapGenerator` for the Flyway migrations (§4). Kustomize does not glob, so each new migration file is added to that `files:` list as part of adding the migration:
 
@@ -384,6 +384,10 @@ spec:
           image: unihub/unihub-backend:latest  # tag pinned per-deploy via `kustomize edit set image` (§7)
           ports:
             - containerPort: 8080
+            # Actuator is on its own port, never on the API port (Phase 6 checklist D64): the probes and the
+            # Prometheus scrape use it, the Ingress and the API Service do not publish it.
+            - containerPort: 8081
+              name: management
           envFrom:
             - configMapRef: { name: backend-api-config }
             - secretRef: { name: backend-api-secrets }
@@ -391,11 +395,11 @@ spec:
             requests: { cpu: "250m", memory: "512Mi" }  # base default only — patched per overlay (§3)
             limits:   { cpu: "500m", memory: "768Mi" }
           readinessProbe:
-            httpGet: { path: /actuator/health/readiness, port: 8080 }
+            httpGet: { path: /actuator/health/readiness, port: management }
             initialDelaySeconds: 15
             periodSeconds: 10
           livenessProbe:
-            httpGet: { path: /actuator/health/liveness, port: 8080 }
+            httpGet: { path: /actuator/health/liveness, port: management }
             initialDelaySeconds: 30
             periodSeconds: 15
 ```

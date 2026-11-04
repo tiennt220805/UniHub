@@ -1015,7 +1015,7 @@ ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 `V6` is forward-only.
 
-### 10.4 Migration `V7` — specification (Phase 5; to be applied as `V7__workshop_pending_brochure_key.sql`)
+### 10.4 Migration `V7` — specification (Phase 5; applied 2026-11-01 as `V7__workshop_pending_brochure_key.sql`)
 
 Specified here first, per the rule above (Phase 5 checklist 9.2). **Why it exists:** `confirmBrochureUpload` carries no request body, and `brochure_s3_key` is deliberately not written when the URL is issued (`workshop.md` §5, §7: the column is only ever set after `HeadObject` found the object). The server therefore has to remember *which key it issued* between the two calls, and no document said where. The owner delegated the choice on 2026-11-01 ("hỏi advisor rồi quyết định cho tôi"); the options were this column, a Redis key with a 10-minute TTL (rejected: the brochure flow would depend on Redis, which no document asks for, and Redis is not the authority for brochure state), and the key in the confirm request body (rejected: it changes the published contract and loses the `409` "never issued or already confirmed").
 
@@ -1036,7 +1036,7 @@ ALTER TABLE workshops ADD COLUMN pending_brochure_key VARCHAR(512);
 
 `V7` is forward-only.
 
-### 10.5 Migration `V8` — specification (Phase 6; to be applied as `V8__audit_events_source_message_id.sql`)
+### 10.5 Migration `V8` — specification (Phase 6; applied 2026-11-03 as `V8__audit_events_source_message_id.sql`)
 
 Specified here first (Phase 6 checklist D69, Mục 2.1). **Why it exists:** the audit consumer must be idempotent under redelivery (`CLAUDE.md`; `messaging.md` §3), and nothing in `audit_events` tied a row to the message that produced it.
 
