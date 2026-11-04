@@ -15,6 +15,7 @@ import com.unihub.payment.infrastructure.out.client.UnconfiguredPaymentGateway;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.github.resilience4j.micrometer.tagged.TaggedCircuitBreakerMetrics;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.Clock;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -49,11 +50,12 @@ class PaymentGatewayConfig {
     PaymentGateway paymentGateway(
             StripeProperties stripe,
             PaymentBreakerProperties settings,
-            CircuitBreaker paymentGatewayBreaker) {
+            CircuitBreaker paymentGatewayBreaker,
+            ObservationRegistry observations) {
         PaymentGateway delegate =
                 stripe.secretKey() == null || stripe.secretKey().isBlank()
                         ? new UnconfiguredPaymentGateway()
-                        : StripeGatewayFactory.create(stripe);
+                        : StripeGatewayFactory.create(stripe, observations);
         return new ResilientPaymentGateway(delegate, paymentGatewayBreaker, settings);
     }
 

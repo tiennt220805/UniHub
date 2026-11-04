@@ -10,6 +10,8 @@ import io.micrometer.context.ContextSnapshot;
 import io.micrometer.context.ContextSnapshotFactory;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.tracing.CurrentTraceContext;
+import io.micrometer.tracing.TraceContext;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.EnumMap;
@@ -55,12 +57,14 @@ public final class RabbitAuditTrail implements AuditTrail, DisposableBean {
             byte[] body,
             String correlationId,
             ContextSnapshot context,
+            TraceContext trace,
             String description) {}
 
     private final AuditPublisher publisher;
     private final ObjectMapper json;
     private final ExecutorService executor;
     private final Duration drainTimeout;
+    private final CurrentTraceContext traces;
     private final Map<Reason, Counter> failures = new EnumMap<>(Reason.class);
 
     public RabbitAuditTrail(
@@ -69,6 +73,22 @@ public final class RabbitAuditTrail implements AuditTrail, DisposableBean {
             MeterRegistry meters,
             ExecutorService executor,
             Duration drainTimeout) {
+        this(publisher, json, meters, executor, drainTimeout, null);
+    }
+
+    /**
+     * {@code traces} is how the request's trace crosses to the executor thread: the observation
+     * context alone is not enough, because the one current at {@code record()} is whatever the JDBC
+     * layer left open (a no-op between statements), not the request's. Null where tracing is off.
+     */
+    public RabbitAuditTrail(
+            AuditPublisher publisher,
+            ObjectMapper json,
+            MeterRegistry meters,
+            ExecutorService executor,
+            Duration drainTimeout,
+            CurrentTraceContext traces) {
+        this.traces = traces;
         this.publisher = publisher;
         this.json = json;
         this.executor = executor;
@@ -93,6 +113,7 @@ public final class RabbitAuditTrail implements AuditTrail, DisposableBean {
                             format(entry),
                             MDC.get(CorrelationIdPostProcessor.MDC_KEY),
                             SNAPSHOTS.captureAll(),
+                            traces == null ? null : traces.context(),
                             describe(entry));
             if (TransactionSynchronizationManager.isSynchronizationActive()) {
                 TransactionSynchronizationManager.registerSynchronization(
@@ -131,19 +152,21 @@ public final class RabbitAuditTrail implements AuditTrail, DisposableBean {
             MDC.put(CorrelationIdPostProcessor.MDC_KEY, job.correlationId());
         }
         try {
-            job.context()
-                    .wrap(
-                            () -> {
-                                try {
-                                    publisher.publish(
-                                            job.messageId(), job.body(), job.correlationId());
-                                } catch (AuditPublishException e) {
-                                    failed(e.reason(), 1, job.description(), e);
-                                } catch (RuntimeException e) {
-                                    failed(Reason.ERROR, 1, job.description(), e);
-                                }
-                            })
-                    .run();
+            try (var ignored = traces == null ? null : traces.maybeScope(job.trace())) {
+                job.context()
+                        .wrap(
+                                () -> {
+                                    try {
+                                        publisher.publish(
+                                                job.messageId(), job.body(), job.correlationId());
+                                    } catch (AuditPublishException e) {
+                                        failed(e.reason(), 1, job.description(), e);
+                                    } catch (RuntimeException e) {
+                                        failed(Reason.ERROR, 1, job.description(), e);
+                                    }
+                                })
+                        .run();
+            }
         } finally {
             MDC.remove(CorrelationIdPostProcessor.MDC_KEY);
         }

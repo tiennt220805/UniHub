@@ -2,8 +2,10 @@ package com.unihub.workshop.infrastructure.out.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.unihub.shared.infrastructure.out.observation.OutboundCall;
 import com.unihub.workshop.application.port.out.SummarizationClient;
 import com.unihub.workshop.infrastructure.config.AiSummarizationProperties;
+import io.micrometer.observation.ObservationRegistry;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -28,6 +30,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 class HttpSummarizationClient implements SummarizationClient {
+    static final String OBSERVATION = "unihub.ai.summarize";
+
     private static final String BOUNDARY_PREFIX = "unihub-";
 
     /** An answer larger than this is not a summary (it is cut to 500 characters anyway). */
@@ -36,9 +40,14 @@ class HttpSummarizationClient implements SummarizationClient {
     private final AiSummarizationProperties settings;
     private final ObjectMapper json;
     private final HttpClient http;
+    private final ObservationRegistry observations;
 
-    HttpSummarizationClient(AiSummarizationProperties settings, ObjectMapper json) {
+    HttpSummarizationClient(
+            AiSummarizationProperties settings,
+            ObjectMapper json,
+            ObservationRegistry observations) {
         this.settings = settings;
+        this.observations = observations;
         this.json = json;
         this.http =
                 HttpClient.newBuilder()
@@ -48,8 +57,22 @@ class HttpSummarizationClient implements SummarizationClient {
                         .build();
     }
 
+    /**
+     * One span for the whole exchange with the service: the outcome and the time, not the URL, the
+     * key or the document (observability.md §2). Either answer, a summary or "not a document it can
+     * read", is the service answering; an unreachable or failing service is not.
+     */
     @Override
     public SummaryOutcome summarize(InputStream pdf, long contentLength) {
+        return OutboundCall.observe(
+                observations,
+                OBSERVATION,
+                "summarize",
+                () -> exchange(pdf, contentLength),
+                answer -> OutboundCall.SUCCESS);
+    }
+
+    private SummaryOutcome exchange(InputStream pdf, long contentLength) {
         if (settings.baseUrl() == null) {
             throw new SummarizationUnavailableException(
                     "no AI summarization service is configured");

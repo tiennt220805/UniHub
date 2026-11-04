@@ -160,6 +160,9 @@ dependencies {
     implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("io.micrometer:micrometer-tracing-bridge-otel")
     implementation("io.opentelemetry:opentelemetry-exporter-otlp")
+    // JDBC spans (Phase 6 D74, task 5.2): SQL text only, never bind values. 1.0.6 is the line built on
+    // Boot 3.0; 1.1.x needs Boot 3.4 and 1.2.x Boot 3.5.
+    implementation("net.ttddyy.observation:datasource-micrometer-spring-boot:1.0.6")
     // Redis client (distributed-coordination.md §1: Redisson, single-server mode). Pinned on the 3.x line that
     // matches Boot 3.3 (4.x targets newer Boot/Netty). Plain `redisson`, not the Spring Boot starter: the
     // client is configured from unihub.redis.* in RedisConfig. The address is required (Phase 3 checklist
@@ -237,7 +240,7 @@ dependencies {
     // one less number to reconcile locally; deployment-and-cicd.md §4's K8s Job is a separate concern.
     // In-memory span exporter for the tracing ITs (Phase 6 D75, M-56). Version from the OpenTelemetry BOM
     // the Boot BOM imports.
-    integrationTestImplementation("io.opentelemetry:opentelemetry-sdk-testing")
+    testImplementation("io.opentelemetry:opentelemetry-sdk-testing")
     integrationTestImplementation("org.flywaydb:flyway-core:13.8.0")
     integrationTestImplementation("org.flywaydb:flyway-database-postgresql:13.8.0")
 }

@@ -1,12 +1,15 @@
 package com.unihub.workshop.infrastructure.out.client;
 
 import com.unihub.shared.domain.id.WorkshopId;
+import com.unihub.shared.infrastructure.out.observation.OutboundCall;
 import com.unihub.workshop.application.port.out.BrochureStorage;
 import com.unihub.workshop.infrastructure.config.ObjectStorageProperties;
+import io.micrometer.observation.ObservationRegistry;
 import java.io.InputStream;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkException;
@@ -24,12 +27,20 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 @Component
 class S3BrochureStorage implements BrochureStorage {
     static final String CONTENT_TYPE = "application/pdf";
+    static final String OBSERVATION = "unihub.s3.request";
+    static final String NOT_FOUND = "not_found";
 
     private final S3Client client;
     private final S3Presigner presigner;
     private final String bucket;
+    private final ObservationRegistry observations;
 
-    S3BrochureStorage(S3Client client, S3Presigner presigner, ObjectStorageProperties settings) {
+    S3BrochureStorage(
+            S3Client client,
+            S3Presigner presigner,
+            ObjectStorageProperties settings,
+            ObservationRegistry observations) {
+        this.observations = observations;
         this.client = client;
         this.presigner = presigner;
         this.bucket = settings.bucket();
@@ -62,7 +73,7 @@ class S3BrochureStorage implements BrochureStorage {
     @Override
     public Optional<ObjectInfo> head(String key) {
         try {
-            var head = client.headObject(r -> r.bucket(bucket).key(key));
+            var head = call("head", () -> client.headObject(r -> r.bucket(bucket).key(key)));
             return Optional.of(new ObjectInfo(head.contentLength()));
         } catch (NoSuchKeyException e) {
             return Optional.empty();
@@ -81,7 +92,7 @@ class S3BrochureStorage implements BrochureStorage {
     public StoredObject open(String key) {
         try {
             ResponseInputStream<GetObjectResponse> response =
-                    client.getObject(r -> r.bucket(bucket).key(key));
+                    call("get", () -> client.getObject(r -> r.bucket(bucket).key(key)));
             return new Opened(response);
         } catch (NoSuchKeyException e) {
             throw new ObjectNotFoundException(key);
@@ -98,10 +109,28 @@ class S3BrochureStorage implements BrochureStorage {
     @Override
     public void delete(String key) {
         try {
-            client.deleteObject(r -> r.bucket(bucket).key(key));
+            call("delete", () -> client.deleteObject(r -> r.bucket(bucket).key(key)));
         } catch (SdkException e) {
             throw new StorageUnavailableException("DeleteObject failed", e);
         }
+    }
+
+    /**
+     * A span and a timer for each request that reaches the store (the presigned URL is computed
+     * locally and is not one, and must never reach a span: it carries the signature). A missing
+     * object is an answer, not a failure of the store.
+     */
+    private <T> T call(String operation, Supplier<T> request) {
+        return OutboundCall.observe(
+                observations,
+                OBSERVATION,
+                operation,
+                request::get,
+                answer -> OutboundCall.SUCCESS,
+                failure ->
+                        failure instanceof S3Exception s3 && s3.statusCode() == 404
+                                ? NOT_FOUND
+                                : OutboundCall.failureOutcome(failure));
     }
 
     private static final class Opened implements StoredObject {

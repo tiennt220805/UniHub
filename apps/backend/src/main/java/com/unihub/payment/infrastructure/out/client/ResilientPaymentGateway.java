@@ -16,6 +16,7 @@ import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
 import io.github.resilience4j.timelimiter.TimeLimiter;
 import io.github.resilience4j.timelimiter.TimeLimiterConfig;
+import io.micrometer.context.ContextSnapshotFactory;
 import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -53,6 +54,9 @@ import java.util.function.Function;
  * and timeouts. A refused payment method token and a refused cancel are answers.
  */
 public final class ResilientPaymentGateway implements PaymentGateway, AutoCloseable {
+
+    private static final ContextSnapshotFactory SNAPSHOTS =
+            ContextSnapshotFactory.builder().build();
 
     private final PaymentGateway delegate;
     private final CircuitBreaker breaker;
@@ -205,7 +209,13 @@ public final class ResilientPaymentGateway implements PaymentGateway, AutoClosea
             Callable<T> operation,
             Function<Throwable, RuntimeException> whenRefused,
             Function<Throwable, RuntimeException> whenTimedOut) {
-        Callable<T> timed = limit.decorateFutureSupplier(() -> executor.submit(operation));
+        Callable<T> timed =
+                limit.decorateFutureSupplier(
+                        // The call runs on a virtual thread so the time limiter can stop waiting
+                        // for it; the caller's observation context goes with it, or the gateway's
+                        // span would start a trace of its own instead of belonging to the
+                        // request's.
+                        () -> executor.submit(SNAPSHOTS.captureAll().wrap(operation)));
         Callable<T> attempted = retried ? Retry.decorateCallable(asyncRetry, timed) : timed;
         try {
             return CircuitBreaker.decorateCallable(breaker, attempted).call();

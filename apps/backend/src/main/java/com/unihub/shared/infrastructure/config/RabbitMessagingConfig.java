@@ -45,10 +45,17 @@ class RabbitMessagingConfig {
         return converter;
     }
 
-    /** Registered once on the shared template, not at each publish call site. */
+    /**
+     * Registered once on the shared template, not at each publish call site. The template also
+     * records every publish as a span: switched on here and not left to {@code
+     * spring.rabbitmq.template.observation-enabled}, which Boot 3.3.5 does not copy onto the
+     * template (Phase 6 checklist C38, 5.1).
+     */
     @Bean
     RabbitTemplateCustomizer correlationIdOnEveryPublish() {
-        return template ->
-                template.addBeforePublishPostProcessors(new CorrelationIdPostProcessor());
+        return template -> {
+            template.addBeforePublishPostProcessors(new CorrelationIdPostProcessor());
+            template.setObservationEnabled(true);
+        };
     }
 }

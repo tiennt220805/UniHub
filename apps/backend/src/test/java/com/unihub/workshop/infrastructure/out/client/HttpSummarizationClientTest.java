@@ -16,6 +16,7 @@ import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import com.unihub.workshop.application.port.out.SummarizationClient.SummarizationUnavailableException;
 import com.unihub.workshop.application.port.out.SummarizationClient.SummaryOutcome;
 import com.unihub.workshop.infrastructure.config.AiSummarizationProperties;
+import io.micrometer.observation.ObservationRegistry;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -57,7 +58,8 @@ class HttpSummarizationClientTest {
         return new HttpSummarizationClient(
                 new AiSummarizationProperties(
                         "http://localhost:" + service.port(), apiKey, timeout),
-                new ObjectMapper());
+                new ObjectMapper(),
+                ObservationRegistry.NOOP);
     }
 
     private SummaryOutcome call(HttpSummarizationClient client) {
@@ -166,7 +168,8 @@ class HttpSummarizationClientTest {
                 new HttpSummarizationClient(
                         new AiSummarizationProperties(
                                 "http://localhost:1", "k", Duration.ofSeconds(2)),
-                        new ObjectMapper());
+                        new ObjectMapper(),
+                        ObservationRegistry.NOOP);
 
         assertThatThrownBy(() -> call(dead)).isInstanceOf(SummarizationUnavailableException.class);
     }
@@ -190,7 +193,9 @@ class HttpSummarizationClientTest {
     void notConfigured() {
         var unconfigured =
                 new HttpSummarizationClient(
-                        new AiSummarizationProperties(null, null, null), new ObjectMapper());
+                        new AiSummarizationProperties(null, null, null),
+                        new ObjectMapper(),
+                        ObservationRegistry.NOOP);
 
         assertThatThrownBy(() -> call(unconfigured))
                 .isInstanceOf(SummarizationUnavailableException.class)

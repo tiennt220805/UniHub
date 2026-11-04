@@ -23,6 +23,7 @@ import com.unihub.payment.application.port.out.GatewayRefundState;
 import com.unihub.payment.application.port.out.PaymentGateway;
 import com.unihub.payment.application.port.out.PaymentMethodRejectedException;
 import com.unihub.shared.domain.id.PaymentId;
+import io.micrometer.observation.ObservationRegistry;
 import java.math.BigDecimal;
 import java.util.Locale;
 import java.util.Optional;
@@ -45,7 +46,7 @@ final class StripePaymentGateway implements PaymentGateway {
 
     private final StripeClient stripe;
 
-    StripePaymentGateway(StripeProperties properties) {
+    StripePaymentGateway(StripeProperties properties, ObservationRegistry observations) {
         this.stripe =
                 StripeClient.builder()
                         .setApiKey(properties.secretKey())
@@ -55,7 +56,9 @@ final class StripePaymentGateway implements PaymentGateway {
                         .setMaxNetworkRetries(0)
                         .setHttpClient(
                                 new JdkStripeHttpClient(
-                                        properties.connectTimeout(), properties.readTimeout()))
+                                        properties.connectTimeout(),
+                                        properties.readTimeout(),
+                                        observations))
                         .build();
     }
 

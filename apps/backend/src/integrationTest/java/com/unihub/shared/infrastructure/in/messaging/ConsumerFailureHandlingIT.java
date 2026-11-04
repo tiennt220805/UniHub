@@ -320,9 +320,12 @@ class ConsumerFailureHandlingIT extends IntegrationTestSupport {
                 .atMost(Duration.ofSeconds(10))
                 .untilAsserted(() -> assertThat(listener.deliveriesOf("m7")).isEqualTo(1));
 
+        // With listener observation on (Phase 6 task 5.1) a message that arrives without the header
+        // is handled under the consumer's own trace id; what must never happen is that it is the
+        // previous message's id still sitting on the pooled thread.
         assertThat(listener.correlationSeen.get())
                 .as("a message without the header must not inherit the previous one's id")
-                .isEqualTo("null");
+                .isNotEqualTo("4bf92f3577b34da6a3ce929d0e0e4736");
     }
 
     @Test

@@ -5,6 +5,8 @@ import com.stripe.exception.StripeException;
 import com.stripe.net.HttpClient;
 import com.stripe.net.StripeRequest;
 import com.stripe.net.StripeResponse;
+import com.unihub.shared.infrastructure.out.observation.OutboundCall;
+import io.micrometer.observation.ObservationRegistry;
 import java.net.URISyntaxException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -26,6 +28,8 @@ import java.util.concurrent.TimeoutException;
  * as its cause. The SDK does not retry (max network retries is 0).
  */
 final class JdkStripeHttpClient extends HttpClient {
+    static final String OBSERVATION = "unihub.stripe.request";
+
     private final java.net.http.HttpClient http;
     private final Duration readTimeout;
 
@@ -34,7 +38,11 @@ final class JdkStripeHttpClient extends HttpClient {
      */
     private final Duration overall;
 
-    JdkStripeHttpClient(Duration connectTimeout, Duration readTimeout) {
+    private final ObservationRegistry observations;
+
+    JdkStripeHttpClient(
+            Duration connectTimeout, Duration readTimeout, ObservationRegistry observations) {
+        this.observations = observations;
         this.http =
                 java.net.http.HttpClient.newBuilder()
                         .connectTimeout(connectTimeout)
@@ -44,8 +52,22 @@ final class JdkStripeHttpClient extends HttpClient {
         this.overall = connectTimeout.plus(readTimeout);
     }
 
+    /**
+     * One span per exchange with the gateway: the HTTP method and the outcome, never the URL, the
+     * headers or a body (observability.md §2). An answer of 500 or more is a failure of the
+     * gateway; a decline or a bad request is the gateway answering.
+     */
     @Override
     public StripeResponse request(StripeRequest request) throws StripeException {
+        return OutboundCall.observe(
+                observations,
+                OBSERVATION,
+                request.method().name(),
+                () -> exchange(request),
+                response -> response.code() >= 500 ? OutboundCall.FAILURE : OutboundCall.SUCCESS);
+    }
+
+    private StripeResponse exchange(StripeRequest request) throws StripeException {
         var future =
                 http.sendAsync(
                         toHttp(request),

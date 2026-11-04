@@ -16,6 +16,8 @@ import com.unihub.shared.domain.id.UserId;
 import com.unihub.shared.infrastructure.out.messaging.AuditPublishException.Reason;
 import com.unihub.shared.security.Actor;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.tracing.CurrentTraceContext;
+import io.micrometer.tracing.TraceContext;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -184,6 +186,32 @@ class RabbitAuditTrailTest {
         assertThat(Reason.values())
                 .extracting(Reason::tag)
                 .containsExactly("dropped", "nack", "timeout", "error");
+    }
+
+    @Test
+    @DisplayName(
+            "the trace context current when record() is called is current again on the executor"
+                    + " thread while it publishes, and the scope is closed after")
+    void requestTrace_isRestoredOnTheExecutorThread() {
+        var traces = org.mockito.Mockito.mock(CurrentTraceContext.class);
+        var context = org.mockito.Mockito.mock(TraceContext.class);
+        var scope = org.mockito.Mockito.mock(CurrentTraceContext.Scope.class);
+        var enteredOn = new java.util.concurrent.atomic.AtomicReference<Thread>();
+        org.mockito.Mockito.when(traces.context()).thenReturn(context);
+        org.mockito.Mockito.when(traces.maybeScope(context))
+                .thenAnswer(
+                        call -> {
+                            enteredOn.set(Thread.currentThread());
+                            return scope;
+                        });
+        var trail = new RabbitAuditTrail(publisher, json, meters, executor(10), SECOND, traces);
+        created.add(trail);
+
+        trail.record(userEntry());
+
+        awaitSent(1);
+        assertThat(enteredOn.get()).isNotNull().isNotSameAs(Thread.currentThread());
+        org.mockito.Mockito.verify(scope, org.mockito.Mockito.timeout(2000)).close();
     }
 
     @Test

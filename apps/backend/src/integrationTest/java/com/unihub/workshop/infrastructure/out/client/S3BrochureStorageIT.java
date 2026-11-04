@@ -9,6 +9,7 @@ import com.unihub.workshop.application.port.out.BrochureStorage.ObjectNotFoundEx
 import com.unihub.workshop.application.port.out.BrochureStorage.StorageUnavailableException;
 import com.unihub.workshop.infrastructure.config.BrochureStorageConfig;
 import com.unihub.workshop.infrastructure.config.ObjectStorageProperties;
+import io.micrometer.observation.ObservationRegistry;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -61,7 +62,7 @@ class S3BrochureStorageIT extends IntegrationTestSupport {
         } catch (software.amazon.awssdk.services.s3.model.NoSuchBucketException e) {
             client.createBucket(b -> b.bucket(settings.bucket()));
         }
-        storage = new S3BrochureStorage(client, presigner, settings);
+        storage = new S3BrochureStorage(client, presigner, settings, ObservationRegistry.NOOP);
     }
 
     @AfterAll
@@ -195,7 +196,9 @@ class S3BrochureStorageIT extends IntegrationTestSupport {
         var config = new BrochureStorageConfig();
         try (var deadClient = config.brochureS3Client(dead);
                 var deadPresigner = config.brochureS3Presigner(dead)) {
-            var offline = new S3BrochureStorage(deadClient, deadPresigner, dead);
+            var offline =
+                    new S3BrochureStorage(
+                            deadClient, deadPresigner, dead, ObservationRegistry.NOOP);
             var started = System.nanoTime();
 
             assertThatThrownBy(() -> offline.head("a/b.pdf"))

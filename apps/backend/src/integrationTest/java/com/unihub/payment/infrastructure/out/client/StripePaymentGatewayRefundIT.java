@@ -22,6 +22,7 @@ import com.unihub.payment.application.port.out.GatewayRefundState;
 import com.unihub.payment.application.port.out.PaymentGateway;
 import com.unihub.shared.domain.id.PaymentId;
 import com.unihub.shared.infrastructure.IntegrationTestSupport;
+import io.micrometer.observation.ObservationRegistry;
 import java.net.ServerSocket;
 import java.time.Duration;
 import org.junit.jupiter.api.AfterAll;
@@ -67,7 +68,8 @@ class StripePaymentGatewayRefundIT extends IntegrationTestSupport {
     private static PaymentGateway adapterFor(String apiBase) {
         return StripeGatewayFactory.create(
                 new StripeProperties(
-                        "dummy-secret-for-tests", apiBase, Duration.ofMillis(400), READ_TIMEOUT));
+                        "dummy-secret-for-tests", apiBase, Duration.ofMillis(400), READ_TIMEOUT),
+                ObservationRegistry.NOOP);
     }
 
     private PaymentGateway adapter() {

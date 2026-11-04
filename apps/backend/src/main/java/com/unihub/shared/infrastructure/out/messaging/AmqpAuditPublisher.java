@@ -17,6 +17,7 @@ import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.boot.autoconfigure.amqp.RabbitProperties;
+import org.springframework.context.ApplicationContext;
 
 /**
  * Publishes audit messages to {@code unihub.system.audit.created} (messaging.md §3, Phase 6
@@ -37,12 +38,16 @@ public final class AmqpAuditPublisher implements AuditPublisher, DisposableBean 
     private final Duration confirmTimeout;
     private final Runnable closer;
 
-    public AmqpAuditPublisher(RabbitProperties rabbit, AuditProperties properties) {
-        this(connectionFactory(rabbit, properties), properties.confirmTimeout());
+    public AmqpAuditPublisher(
+            RabbitProperties rabbit, AuditProperties properties, ApplicationContext context) {
+        this(connectionFactory(rabbit, properties), properties.confirmTimeout(), context);
     }
 
-    private AmqpAuditPublisher(CachingConnectionFactory connections, Duration confirmTimeout) {
-        this(template(connections), confirmTimeout, connections::destroy);
+    private AmqpAuditPublisher(
+            CachingConnectionFactory connections,
+            Duration confirmTimeout,
+            ApplicationContext context) {
+        this(template(connections, context), confirmTimeout, connections::destroy);
     }
 
     /** For tests: a template that needs no broker. */
@@ -77,9 +82,17 @@ public final class AmqpAuditPublisher implements AuditPublisher, DisposableBean 
         return connections;
     }
 
-    private static RabbitTemplate template(CachingConnectionFactory connections) {
+    /**
+     * Not a bean, so the template does not find the {@code ObservationRegistry} by itself: it looks
+     * it up through the application context it is given, and records the publish as a span of the
+     * request's trace (the executor thread has the request's observation context restored, D75).
+     */
+    private static RabbitTemplate template(
+            CachingConnectionFactory connections, ApplicationContext context) {
         var template = new RabbitTemplate(connections);
         template.setMandatory(true);
+        template.setApplicationContext(context);
+        template.setObservationEnabled(true);
         return template;
     }
 

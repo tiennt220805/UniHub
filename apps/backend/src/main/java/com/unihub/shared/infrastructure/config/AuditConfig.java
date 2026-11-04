@@ -5,12 +5,15 @@ import com.unihub.shared.infrastructure.out.messaging.AmqpAuditPublisher;
 import com.unihub.shared.infrastructure.out.messaging.AuditPublisher;
 import com.unihub.shared.infrastructure.out.messaging.RabbitAuditTrail;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.tracing.CurrentTraceContext;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.amqp.RabbitProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -24,8 +27,9 @@ import org.springframework.context.annotation.Configuration;
 class AuditConfig {
 
     @Bean
-    AuditPublisher auditPublisher(RabbitProperties rabbit, AuditProperties properties) {
-        return new AmqpAuditPublisher(rabbit, properties);
+    AuditPublisher auditPublisher(
+            RabbitProperties rabbit, AuditProperties properties, ApplicationContext context) {
+        return new AmqpAuditPublisher(rabbit, properties, context);
     }
 
     /**
@@ -56,8 +60,14 @@ class AuditConfig {
             AuditPublisher publisher,
             ObjectMapper json,
             MeterRegistry meters,
-            AuditProperties properties) {
+            AuditProperties properties,
+            ObjectProvider<CurrentTraceContext> traces) {
         return new RabbitAuditTrail(
-                publisher, json, meters, executorOf(properties), properties.drainTimeout());
+                publisher,
+                json,
+                meters,
+                executorOf(properties),
+                properties.drainTimeout(),
+                traces.getIfAvailable());
     }
 }

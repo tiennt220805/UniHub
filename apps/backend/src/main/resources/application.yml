@@ -48,6 +48,10 @@ spring:
     listener:
       simple:
         default-requeue-rejected: false
+        # A consumer continues the trace of the message it receives (observability.md §1, Phase 6 C38).
+        # Boot's configurer copies this onto the hand-built notification factory too; the template's
+        # switch is in RabbitMessagingConfig, where it cannot be silently ignored.
+        observation-enabled: true
 
 # Every log line carries the correlation id, the trace id and the span id (observability.md §1, Phase 6
 # checklist D67). They are the same value for the id and the trace; both are printed so that a line can be
@@ -111,6 +115,18 @@ management:
   tracing:
     sampling:
       probability: 0.10
+
+# JDBC spans (observability.md §2, Phase 6 D74, 5.2): datasource-micrometer wraps a pool so that each
+# statement is a span. Query text only: the bind values stay out (a student's email, an amount),
+# stated here and not left to the library's default. QUERY only: its default also traces every
+# connection checkout and every result-set fetch, three spans for a statement that is one in
+# the catalogue. The router (`dataSource`) is not wrapped, only the two pools behind it,
+# or each statement would be a span twice.
+jdbc:
+  includes: query
+  excluded-data-source-bean-names: dataSource
+  datasource-proxy:
+    include-parameter-values: false
 
 # packages/api-contract is OpenAPI 3.1; springdoc 2.6.0 defaults to 3.0.x. Pinned so the spec
 # `generateOpenApiDocs` produces (contract-testing.md §2) is the same dialect as the hand-written one —
