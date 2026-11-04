@@ -1,12 +1,13 @@
 package com.unihub.payment.infrastructure.out.metrics;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.unihub.payment.application.port.out.RefundBacklog;
+import com.unihub.shared.infrastructure.out.metrics.BackgroundGauges;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
@@ -24,6 +25,7 @@ class RefundStuckSignalsTest {
     private static final Instant T0 = Instant.parse("2026-12-01T09:00:00Z");
 
     private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    private final BackgroundGauges gauges = new BackgroundGauges(true);
     private final RefundBacklog backlog = mock(RefundBacklog.class);
     private final AtomicReference<Instant> now = new AtomicReference<>(T0);
     private final Clock clock =
@@ -51,13 +53,14 @@ class RefundStuckSignalsTest {
 
     @AfterEach
     void detach() {
+        gauges.close();
         Metrics.removeRegistry(meters);
     }
 
     @Test
     @DisplayName("only a park from the refund queue ticks unihub_payment_refund_parked_total")
     void parkedCounter_isForTheRefundQueueOnly() {
-        var signals = new RefundStuckSignals(backlog, clock);
+        var signals = new RefundStuckSignals(backlog, clock, gauges, Metrics.globalRegistry);
 
         signals.parked("unihub.payment-refund-execution.queue");
         signals.parked("unihub.payment-refund-execution.queue");
@@ -71,7 +74,7 @@ class RefundStuckSignalsTest {
     @Test
     @DisplayName("the gauge is the age of the longest-waiting refund, and 0 when none is owed")
     void gauge_isTheOldestAge() {
-        var signals = new RefundStuckSignals(backlog, clock);
+        var signals = new RefundStuckSignals(backlog, clock, gauges, Metrics.globalRegistry);
         when(backlog.oldestOwedSince()).thenReturn(Optional.empty());
         assertThat(signals.oldestAgeSeconds()).isZero();
 
@@ -81,32 +84,26 @@ class RefundStuckSignalsTest {
     }
 
     @Test
-    @DisplayName("the gauge is debounced: one query per 10 seconds however often it is scraped")
-    void gauge_isDebounced() {
-        var signals = new RefundStuckSignals(backlog, clock);
-        when(backlog.oldestOwedSince()).thenReturn(Optional.of(T0.minusSeconds(60)));
+    @DisplayName("a failed read throws, so the background gauge reports unknown, not a stale age")
+    void gauge_failedReadThrows() {
+        var signals = new RefundStuckSignals(backlog, clock, gauges, Metrics.globalRegistry);
+        when(backlog.oldestOwedSince()).thenThrow(new IllegalStateException("db down"));
 
-        for (int scrape = 0; scrape < 5; scrape++) {
-            assertThat(signals.oldestAgeSeconds()).isEqualTo(60.0);
-            now.set(now.get().plusSeconds(1));
-        }
-        verify(backlog, times(1)).oldestOwedSince();
-
-        now.set(T0.plusSeconds(10));
-        signals.oldestAgeSeconds();
-        verify(backlog, times(2)).oldestOwedSince();
+        assertThatThrownBy(signals::oldestAgeSeconds).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
-    @DisplayName("a failed read keeps the last value instead of hiding the signal")
-    void gauge_keepsTheLastValueWhenTheReadFails() {
-        var signals = new RefundStuckSignals(backlog, clock);
+    @DisplayName("the registered gauge is fed in the background and never queries on a scrape")
+    void gauge_isReadInTheBackground() {
         when(backlog.oldestOwedSince()).thenReturn(Optional.of(T0.minusSeconds(60)));
-        assertThat(signals.oldestAgeSeconds()).isEqualTo(60.0);
+        // not attached to the global registry, which would hand back an earlier test's gauge
+        var own = new SimpleMeterRegistry();
+        var signals = new RefundStuckSignals(backlog, clock, gauges, own);
 
-        now.set(T0.plusSeconds(30));
-        when(backlog.oldestOwedSince()).thenThrow(new IllegalStateException("db down"));
-
-        assertThat(signals.oldestAgeSeconds()).isEqualTo(60.0);
+        await().atMost(Duration.ofSeconds(5))
+                .untilAsserted(
+                        () ->
+                                assertThat(own.get(RefundStuckSignals.OLDEST_AGE).gauge().value())
+                                        .isEqualTo(60.0));
     }
 }

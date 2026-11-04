@@ -1,11 +1,13 @@
 package com.unihub.notification.infrastructure.out.metrics;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 import com.unihub.notification.application.port.out.NewNotification;
 import com.unihub.notification.application.port.out.NotificationDeliveryResult;
 import com.unihub.notification.application.port.out.NotificationRepository;
 import com.unihub.notification.application.port.out.PendingNotification;
+import com.unihub.shared.infrastructure.out.metrics.BackgroundGauges;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Duration;
@@ -28,10 +30,16 @@ class MicrometerNotificationMetricsTest {
 
     private final AtomicReference<Optional<Instant>> oldest =
             new AtomicReference<>(Optional.empty());
+    private final BackgroundGauges gauges = new BackgroundGauges(true);
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private final MicrometerNotificationMetrics metrics =
             new MicrometerNotificationMetrics(
-                    registry, repository(), Clock.fixed(NOW, ZoneOffset.UTC));
+                    registry, repository(), Clock.fixed(NOW, ZoneOffset.UTC), gauges);
+
+    @org.junit.jupiter.api.AfterEach
+    void closeGauges() {
+        gauges.close();
+    }
 
     private NotificationRepository repository() {
         return new NotificationRepository() {
@@ -83,14 +91,27 @@ class MicrometerNotificationMetricsTest {
 
     @Test
     @DisplayName(
-            "the oldest PENDING row's age is 0 with none waiting, and grows with the oldest one")
+            "the oldest PENDING row's age is 0 with none waiting, and the age of the oldest one")
     void oldestPendingAge() {
         var gauge = registry.get(MicrometerNotificationMetrics.OLDEST_PENDING_AGE).gauge();
-        assertThat(gauge.value()).isZero();
+        await().atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> assertThat(gauge.value()).isZero());
 
         oldest.set(Optional.of(NOW.minusSeconds(90)));
+        var waiting = new SimpleMeterRegistry();
+        new MicrometerNotificationMetrics(
+                waiting, repository(), Clock.fixed(NOW, ZoneOffset.UTC), gauges);
 
-        assertThat(gauge.value()).isEqualTo(90.0);
+        await().atMost(Duration.ofSeconds(5))
+                .untilAsserted(
+                        () ->
+                                assertThat(
+                                                waiting.get(
+                                                                MicrometerNotificationMetrics
+                                                                        .OLDEST_PENDING_AGE)
+                                                        .gauge()
+                                                        .value())
+                                        .isEqualTo(90.0));
     }
 
     private double count(String channel, String result) {

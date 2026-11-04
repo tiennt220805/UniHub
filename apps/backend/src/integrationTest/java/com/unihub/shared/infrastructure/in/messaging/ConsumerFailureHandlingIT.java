@@ -30,6 +30,8 @@ import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.rabbit.listener.AbstractMessageListenerContainer;
+import org.springframework.amqp.rabbit.listener.RabbitListenerEndpointRegistry;
 import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -151,15 +153,36 @@ class ConsumerFailureHandlingIT extends IntegrationTestSupport {
     @Autowired private RabbitAdmin admin;
     @Autowired private ProbeListener listener;
     @Autowired private MessageBroker broker;
+    @Autowired private RabbitListenerEndpointRegistry registry;
 
     @BeforeEach
     void declareAndClean() {
+        stopAuditConsumer();
         admin.initialize();
         purgeAll();
         listener.deliveries.clear();
         listener.receivedKeys.clear();
         listener.receivedTypes.clear();
         listener.receivedMessageIds.clear();
+    }
+
+    /**
+     * This context runs every listener on the broker all classes share, the audit consumer
+     * included. Audit messages that earlier classes published there (their users are long deleted,
+     * so the consumer fails them on the foreign key) wait in the audit queue and its retry stages
+     * until some context has a listener, and a message whose five-minute stage expires here would
+     * reach the parking lot in the middle of a test. Nothing in this class concerns the audit
+     * queue, so its consumer is stopped; the leftovers stay where they are, as for any context
+     * without listeners.
+     */
+    private void stopAuditConsumer() {
+        registry.getListenerContainers().stream()
+                .filter(
+                        c ->
+                                c instanceof AbstractMessageListenerContainer m
+                                        && java.util.Arrays.asList(m.getQueueNames())
+                                                .contains(Topology.AUDIT_QUEUE))
+                .forEach(org.springframework.context.Lifecycle::stop);
     }
 
     @AfterEach

@@ -129,6 +129,12 @@ springdoc:
 # environment: turning the trigger on is a deliberate per-environment choice
 # (UNIHUB_JOBS_NIGHTLYSYNC_ENABLED=true); the job lock is the Redis one, so only one instance runs it. The rest are the documented values.
 unihub:
+  # The gauges read from PostgreSQL and the Redis/RabbitMQ probe behind unihub_dependency_up run in the
+  # background (observability.md §4, Phase 6 D76/D77). Always on here: switching it off removes the P1
+  # signal. Integration tests set it to false for every context but their own (IntegrationTestSupport).
+  observability:
+    background-refresh: true
+    dependency-probe-interval: PT5S
   jobs:
     nightly-sync:
       enabled: false

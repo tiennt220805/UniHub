@@ -7,6 +7,7 @@ import com.unihub.user.application.port.out.StudentExport;
 import com.unihub.user.application.port.out.StudentExportSource;
 import com.unihub.user.application.port.out.StudentExportUnreadableException;
 import com.unihub.user.application.port.out.SyncFailureReason;
+import com.unihub.user.application.port.out.SyncMetrics;
 import com.unihub.user.application.port.out.SyncProgress;
 import com.unihub.user.application.result.RunNightlySyncResult;
 import java.time.Clock;
@@ -33,6 +34,7 @@ class RunNightlySync implements RunNightlySyncUseCase {
     private final LegacySyncRuns runs;
     private final NightlySyncBatchTransaction batches;
     private final NightlySyncPolicy policy;
+    private final SyncMetrics metrics;
     private final Clock clock;
 
     RunNightlySync(
@@ -40,11 +42,13 @@ class RunNightlySync implements RunNightlySyncUseCase {
             LegacySyncRuns runs,
             NightlySyncBatchTransaction batches,
             NightlySyncPolicy policy,
+            SyncMetrics metrics,
             Clock clock) {
         this.exports = exports;
         this.runs = runs;
         this.batches = batches;
         this.policy = policy;
+        this.metrics = metrics;
         this.clock = clock;
     }
 
@@ -68,6 +72,7 @@ class RunNightlySync implements RunNightlySyncUseCase {
         try {
             var totals = apply(runId, export.get(), classifier);
             runs.complete(runId);
+            metrics.runCompleted(totals.processed(), totals.quarantined());
             LOG.info(
                     "Nightly sync run {} for {} completed: {} rows, {} created, {} updated, {}"
                             + " quarantined",

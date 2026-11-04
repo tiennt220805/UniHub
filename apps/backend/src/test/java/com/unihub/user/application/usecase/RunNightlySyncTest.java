@@ -5,6 +5,7 @@ import static com.unihub.user.application.usecase.ExportLines.numbered;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
@@ -26,6 +27,7 @@ import com.unihub.user.application.port.out.StudentExport;
 import com.unihub.user.application.port.out.StudentExportSource;
 import com.unihub.user.application.port.out.StudentExportUnreadableException;
 import com.unihub.user.application.port.out.SyncFailureReason;
+import com.unihub.user.application.port.out.SyncMetrics;
 import com.unihub.user.application.port.out.SyncProgress;
 import com.unihub.user.application.result.RunNightlySyncResult;
 import java.time.Clock;
@@ -62,6 +64,7 @@ class RunNightlySyncTest {
     private final LegacySyncRuns runs = mock(LegacySyncRuns.class);
     private final LegacyStudentAccounts accounts = mock(LegacyStudentAccounts.class);
     private final LegacySyncErrors errors = mock(LegacySyncErrors.class);
+    private final SyncMetrics syncMetrics = mock(SyncMetrics.class);
 
     private final List<LegacyStudentRecord> upserted = new ArrayList<>();
     private final List<QuarantinedRow> quarantined = new ArrayList<>();
@@ -93,6 +96,7 @@ class RunNightlySyncTest {
                 runs,
                 new NightlySyncBatchTransaction(accounts, errors, runs),
                 new NightlySyncPolicy(ZONE, batchSize),
+                syncMetrics,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -132,6 +136,7 @@ class RunNightlySyncTest {
                 .isEqualTo(
                         new RunNightlySyncResult.Failed(RUN, EXPORT_DATE, "FILE_NOT_FOUND", null));
         verify(runs).fail(RUN, SyncFailureReason.FILE_NOT_FOUND, null);
+        verify(syncMetrics, never()).runCompleted(anyInt(), anyInt());
         assertNothingWritten();
     }
 
@@ -266,6 +271,7 @@ class RunNightlySyncTest {
         assertThat(result)
                 .isEqualTo(new RunNightlySyncResult.Completed(RUN, EXPORT_DATE, 8, 2, 0, 6));
         verify(runs).complete(RUN);
+        verify(syncMetrics).runCompleted(8, 6);
     }
 
     @Test

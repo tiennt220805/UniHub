@@ -6,7 +6,6 @@ import javax.sql.DataSource;
 import org.redisson.api.RedissonClient;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.actuate.amqp.RabbitHealthIndicator;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.boot.actuate.health.Status;
@@ -32,7 +31,7 @@ import org.springframework.context.annotation.Configuration;
 class DependencyHealthConfig {
 
     static final Status DEGRADED = new Status("DEGRADED");
-    private static final Duration DEPENDENCY_LIMIT = Duration.ofSeconds(1);
+    static final Duration DEPENDENCY_LIMIT = Duration.ofSeconds(1);
     private static final Duration DATABASE_LIMIT = Duration.ofSeconds(2);
 
     @Bean(name = "dbHealthIndicator", destroyMethod = "shutdown")
@@ -44,23 +43,41 @@ class DependencyHealthConfig {
 
     @Bean(name = "redisHealthIndicator", destroyMethod = "shutdown")
     BoundedHealthIndicator redisHealthIndicator(RedissonClient redisson) {
-        HealthIndicator ping =
-                () ->
-                        redisson.getNodesGroup()
-                                        .pingAll(DEPENDENCY_LIMIT.toMillis(), TimeUnit.MILLISECONDS)
-                                ? Health.up().build()
-                                : Health.status(DEGRADED)
-                                        .withDetail("error", "ping refused")
-                                        .build();
         return new BoundedHealthIndicator(
-                new BoundedProbe("redis", DEPENDENCY_LIMIT, DEGRADED), ping, DEGRADED);
+                new BoundedProbe("redis", DEPENDENCY_LIMIT, DEGRADED),
+                redisPing(redisson),
+                DEGRADED);
+    }
+
+    /** The Redis check itself, also run by the {@link DependencyUpGauges} background probe. */
+    static HealthIndicator redisPing(RedissonClient redisson) {
+        return () ->
+                redisson.getNodesGroup().pingAll(DEPENDENCY_LIMIT.toMillis(), TimeUnit.MILLISECONDS)
+                        ? Health.up().build()
+                        : Health.status(DEGRADED).withDetail("error", "ping refused").build();
     }
 
     @Bean(name = "rabbitHealthIndicator", destroyMethod = "shutdown")
     BoundedHealthIndicator rabbitHealthIndicator(RabbitTemplate template) {
         return new BoundedHealthIndicator(
                 new BoundedProbe("rabbit", DEPENDENCY_LIMIT, DEGRADED),
-                new RabbitHealthIndicator(template),
+                rabbitCheck(template),
                 DEGRADED);
+    }
+
+    /**
+     * The broker check itself, also run by the {@link DependencyUpGauges} background probe. A real
+     * round trip on a channel ({@code basicQos} waits for the broker's reply). Boot's own {@code
+     * RabbitHealthIndicator} reads the server properties kept from the handshake, which a cached
+     * connection answers without asking the broker: a broker that is paused, with its sockets still
+     * open, would read as up.
+     */
+    static HealthIndicator rabbitCheck(RabbitTemplate template) {
+        return () ->
+                template.execute(
+                        channel -> {
+                            channel.basicQos(0);
+                            return Health.up().build();
+                        });
     }
 }

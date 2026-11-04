@@ -159,6 +159,16 @@ public abstract class IntegrationTestSupport {
         // reads it with @LocalManagementPort.
         System.setProperty("management.server.port", "0");
 
+        // The gauges that read PostgreSQL and the Redis/RabbitMQ probe of unihub_dependency_up run
+        // in
+        // the background (Phase 6 checklist 4.1, 4.2). Spring keeps one context per test
+        // configuration for the whole run; left on, every idle one would keep reading from the
+        // shared
+        // database (pool connections), opening broker connections (which makes RabbitAdmin declare
+        // that context's topology, with its own arguments, on the shared broker) and pinging Redis.
+        // Off, like the listeners; MetricsExportIT and DependencyProbeIT turn it on for themselves.
+        System.setProperty("unihub.observability.background-refresh", "false");
+
         System.setProperty("spring.rabbitmq.host", RABBITMQ.getHost());
         System.setProperty("spring.rabbitmq.port", String.valueOf(RABBITMQ.getAmqpPort()));
         System.setProperty("spring.rabbitmq.username", RABBITMQ.getAdminUsername());
