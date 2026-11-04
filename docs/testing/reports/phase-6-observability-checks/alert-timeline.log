@@ -1,0 +1,38 @@
+21:30:14 BASELINE
+21:30:14 baseline audit-publish-failures=inactive | dependency-down=inactive | rabbitmq-target-down=inactive | parking-lot=inactive  others-firing=[]
+21:30:14 rules loaded=22, unhealthy=0
+21:30:14 STOP RabbitMQ (docker stop unihub-rabbitmq)
+21:30:15 registrations while the broker is down: (status, seconds) = [(201, 0.03), (201, 0.02), (201, 0.03)]
+21:30:15 down +  1s audit-publish-failures=inactive | dependency-down=inactive | rabbitmq-target-down=inactive | parking-lot=inactive  others-firing=[]
+21:30:30 down + 16s audit-publish-failures=inactive | dependency-down=inactive | rabbitmq-target-down=inactive | parking-lot=inactive  others-firing=[]
+21:30:45 down + 31s audit-publish-failures=firing | dependency-down=pending | rabbitmq-target-down=pending | parking-lot=inactive  others-firing=[]
+21:30:45 FIRING unihub-audit-publish-failures after 31s
+21:31:00 down + 46s audit-publish-failures=firing | dependency-down=pending | rabbitmq-target-down=pending | parking-lot=inactive  others-firing=[]
+21:31:15 down + 61s audit-publish-failures=firing | dependency-down=pending | rabbitmq-target-down=pending | parking-lot=inactive  others-firing=[]
+21:31:30 down + 76s audit-publish-failures=firing | dependency-down=pending | rabbitmq-target-down=pending | parking-lot=inactive  others-firing=[]
+21:31:45 down + 91s audit-publish-failures=firing | dependency-down=firing | rabbitmq-target-down=firing | parking-lot=inactive  others-firing=[]
+21:31:45 FIRING unihub-dependency-down after 92s
+21:31:45 FIRING unihub-rabbitmq-target-down after 92s
+21:31:45 fired: {'unihub-audit-publish-failures': 31, 'unihub-dependency-down': 92, 'unihub-rabbitmq-target-down': 92}
+21:31:45 START RabbitMQ (docker start unihub-rabbitmq)
+21:31:46 up +  0s audit-publish-failures=firing | dependency-down=firing | rabbitmq-target-down=firing | parking-lot=inactive  others-firing=[]
+21:32:01 up + 15s audit-publish-failures=firing | dependency-down=firing | rabbitmq-target-down=firing | parking-lot=inactive  others-firing=[]
+21:32:16 up + 30s audit-publish-failures=firing | dependency-down=firing | rabbitmq-target-down=firing | parking-lot=inactive  others-firing=[]
+21:32:31 up + 45s audit-publish-failures=firing | dependency-down=inactive | rabbitmq-target-down=firing | parking-lot=inactive  others-firing=[]
+21:32:31 NORMAL unihub-dependency-down after 45s
+21:32:46 up + 60s audit-publish-failures=firing | dependency-down=inactive | rabbitmq-target-down=inactive | parking-lot=inactive  others-firing=[]
+21:32:46 NORMAL unihub-rabbitmq-target-down after 60s
+21:33:01 up + 75s audit-publish-failures=firing | dependency-down=inactive | rabbitmq-target-down=inactive | parking-lot=inactive  others-firing=[]
+21:33:16 up + 90s audit-publish-failures=firing | dependency-down=inactive | rabbitmq-target-down=inactive | parking-lot=inactive  others-firing=[]
+21:33:31 up +105s audit-publish-failures=firing | dependency-down=inactive | rabbitmq-target-down=inactive | parking-lot=inactive  others-firing=[]
+21:33:46 up +120s audit-publish-failures=firing | dependency-down=inactive | rabbitmq-target-down=inactive | parking-lot=inactive  others-firing=[]
+21:34:01 up +135s audit-publish-failures=firing | dependency-down=inactive | rabbitmq-target-down=inactive | parking-lot=inactive  others-firing=[]
+21:34:16 up +150s audit-publish-failures=firing | dependency-down=inactive | rabbitmq-target-down=inactive | parking-lot=inactive  others-firing=[]
+21:34:31 up +165s audit-publish-failures=firing | dependency-down=inactive | rabbitmq-target-down=inactive | parking-lot=inactive  others-firing=[]
+21:34:46 up +180s audit-publish-failures=firing | dependency-down=inactive | rabbitmq-target-down=inactive | parking-lot=inactive  others-firing=[]
+21:35:01 up +195s audit-publish-failures=firing | dependency-down=inactive | rabbitmq-target-down=inactive | parking-lot=inactive  others-firing=[]
+21:35:16 up +210s audit-publish-failures=firing | dependency-down=inactive | rabbitmq-target-down=inactive | parking-lot=inactive  others-firing=[]
+21:35:31 up +225s audit-publish-failures=inactive | dependency-down=inactive | rabbitmq-target-down=inactive | parking-lot=inactive  others-firing=[]
+21:35:31 NORMAL unihub-audit-publish-failures after 226s
+21:35:31 back to normal: {'unihub-dependency-down': 45, 'unihub-rabbitmq-target-down': 60, 'unihub-audit-publish-failures': 226}
+21:35:31 DONE

@@ -19,7 +19,7 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 |---|---|---|
 | B1 | 1c: health-check điều khiển fallback Replica-unreachable → Master (hướng đã duyệt, cơ chế chưa có; `overlays/dev` 0 replica giải quyết theo) | D |
 | B2 | INV-07 với Redis outage dài hơn retry chain (~5m35s): hold-expiry bị đưa vào parking lot | Q |
-| B3 | Rule alert cho audit-publish failure — **rule đã định nghĩa 2026-11-02** (`observability.md` §6, Phase 6 D77); bằng chứng là `AuditAlertIT` (Phase 6 D72), chưa viết | D |
+| B3 | Rule alert cho audit-publish failure — **rule đã định nghĩa 2026-11-02** (`observability.md` §6, Phase 6 D77); bằng chứng là `AuditAlertIT` (Phase 6 D72), viết xong 2026-11-04 (Prometheus + Grafana thật, rule `Firing`, 10/10 lần local) | D |
 | B5 | Cách backend lấy `ipAddress` phía sau Ingress (ảnh hưởng limiter, load test, S-16) | Q |
 
 ## C. Tham số load-test (`non-functional/performance-load.md`)

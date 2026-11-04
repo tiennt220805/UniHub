@@ -265,6 +265,9 @@ tasks.register<Test>("integrationTest") {
     testClassesDirs = sourceSets["integrationTest"].output.classesDirs
     classpath = sourceSets["integrationTest"].runtimeClasspath
     include("**/*IT.class")
+    // The dashboards, the alert rules and the datasources are read by the provisioning ITs from outside this
+    // project; without this Gradle treats a changed rule as "nothing changed" and skips the test (Phase 6 6.4).
+    inputs.dir("../../observability").withPropertyName("observability").withPathSensitivity(PathSensitivity.RELATIVE)
     // Spring caches one application context per distinct test configuration for the whole run, and every
     // context keeps a Hikari pool, a Redisson client, a Tomcat and a listener container alive. Phase 4 took the
     // suite past what Gradle's default 512 MB test worker holds (OutOfMemoryError in the netty/Tomcat poller

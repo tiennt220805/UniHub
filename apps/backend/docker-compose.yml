@@ -130,6 +130,8 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=2d
+      # Exemplars (the trace id on a latency sample) are stored only with this flag; Grafana links them to Tempo.
+      - --enable-feature=exemplar-storage
     # host.docker.internal resolves on Docker Desktop; on Linux this line makes it resolve too.
     extra_hosts:
       - "host.docker.internal:host-gateway"

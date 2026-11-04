@@ -11,6 +11,13 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     editable: false
+    jsonData:
+      # A latency panel's exemplar (a sampled request) opens its trace in Tempo (Phase 6 checklist 6.3,
+      # ADR Trace Backend). "trace_id" is the label the application's scrape puts on the exemplar:
+      # ObservabilityProvisioningIT checks it against a real scrape.
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
 
   - name: Tempo
     uid: tempo

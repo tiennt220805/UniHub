@@ -1,0 +1,1071 @@
+# Grafana Unified Alerting rules (Phase 6 checklist 6.1, observability.md §6), written in the shape Grafana
+# 13.2.4 itself exports. Edit by hand; ObservabilityProvisioningIT checks every metric and label value against a
+# real scrape and pins the thresholds, and AuditAlertIT loads the whole file into a real Grafana.
+apiVersion: 1
+groups:
+    - orgId: 1
+      name: unihub-immediate
+      folder: UniHub
+      interval: 20s
+      rules:
+        - uid: unihub-audit-publish-failures
+          title: "Audit publish failures"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "sum(increase(unihub_audit_publish_failures_total[5m]))"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 0s
+          annotations:
+            summary: "An audit entry did not reach unihub.audit.queue"
+            description: "INV-14: the audit pipeline lost at least one entry in the last 5 minutes (reason: dropped, nack, timeout or error; see the reason label on unihub_audit_publish_failures_total). The business operation was not affected."
+          labels:
+            severity: warning
+          isPaused: false
+        - uid: unihub-reconciliation-stuck
+          title: "Payment reconciliation stuck"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "sum(increase(unihub_payment_reconciliation_stuck_total[5m]))"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 0s
+          annotations:
+            summary: "A payment no automatic path will resolve"
+            description: "payment.md section 6: a payment stayed unresolved after the reconciliation sweep gave up on it. An operator has to look at it."
+          labels:
+            severity: critical
+          isPaused: false
+        - uid: unihub-refund-parked
+          title: "Refund parked"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "sum(increase(unihub_payment_refund_parked_total[5m]))"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 0s
+          annotations:
+            summary: "A refund owed to a student needs an operator"
+            description: "payment.md section 9: the refund consumer parked a message after exhausting its retries."
+          labels:
+            severity: critical
+          isPaused: false
+        - uid: unihub-parking-lot
+          title: "Parking lot not empty"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "rabbitmq_queue_messages_ready{queue=\"unihub.parking-lot\"}"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 0s
+          annotations:
+            summary: "A message exhausted every retry"
+            description: "messaging.md section 4: anything in unihub.parking-lot is a terminal failure that needs a human."
+          labels:
+            severity: critical
+          isPaused: false
+        - uid: unihub-legacy-sync-quarantine
+          title: "Legacy sync quarantine ratio high"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "unihub_legacy_sync_last_run_quarantine_ratio"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0.05
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 0s
+          annotations:
+            summary: "More than 5% of last night's export was quarantined"
+            description: "user.md: an unusually large fraction of one nightly export needed quarantining; look at the source data. NaN until the first run of the process."
+          labels:
+            severity: warning
+          isPaused: false
+    - orgId: 1
+      name: unihub-sustained
+      folder: UniHub
+      interval: 1m
+      rules:
+        - uid: unihub-latency-p95-warning
+          title: "API p95 latency above 500 ms"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket[5m])))"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0.5
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 5m
+          annotations:
+            summary: "p95 latency above 500 ms for 5 minutes"
+            description: "Early indicator ahead of the critical threshold (requirement.md section 1.4)."
+          labels:
+            severity: warning
+          isPaused: false
+        - uid: unihub-latency-p95-critical
+          title: "API p95 latency above 2 s"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket[5m])))"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 2
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 5m
+          annotations:
+            summary: "p95 latency above 2 s for 5 minutes"
+            description: "Checkout is degrading under load (requirement.md section 1.4)."
+          labels:
+            severity: critical
+          isPaused: false
+        - uid: unihub-5xx-warning
+          title: "5xx ratio above 1%"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[5m])) / sum(rate(http_server_requests_seconds_count[5m]))"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0.01
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 5m
+          annotations:
+            summary: "More than 1% of requests failed with 5xx"
+            description: "Early signal of a developing failure. No traffic is NaN and counts as no data."
+          labels:
+            severity: warning
+          isPaused: false
+        - uid: unihub-5xx-critical
+          title: "5xx ratio above 5%"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[5m])) / sum(rate(http_server_requests_seconds_count[5m]))"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0.05
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 5m
+          annotations:
+            summary: "More than 5% of requests failed with 5xx"
+            description: "A broad share of requests is failing."
+          labels:
+            severity: critical
+          isPaused: false
+        - uid: unihub-payment-breaker-open
+          title: "Payment gateway circuit open"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "resilience4j_circuitbreaker_state{name=\"paymentGateway\",state=\"open\"}"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 1m
+          annotations:
+            summary: "The payment gateway circuit breaker has been open for a minute"
+            description: "payment.md: the shared breaker is open, so charges are refused fast. The state label is lower case."
+          labels:
+            severity: critical
+          isPaused: false
+        - uid: unihub-queue-lag-warning
+          title: "Business queue backlog above 1,000"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "rabbitmq_queue_messages_ready{queue=~\"unihub\\\\..*\\\\.queue\",queue!=\"unihub.registration.hold-delay.queue\"}"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 1000
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 5m
+          annotations:
+            summary: "A consumer is falling behind its producers"
+            description: "messaging.md section 2. The delay-only unihub.registration.hold-delay.queue is excluded: it holds messages by design."
+          labels:
+            severity: warning
+          isPaused: false
+        - uid: unihub-queue-lag-critical
+          title: "Business queue backlog above 5,000"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "rabbitmq_queue_messages_ready{queue=~\"unihub\\\\..*\\\\.queue\",queue!=\"unihub.registration.hold-delay.queue\"}"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 5000
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 5m
+          annotations:
+            summary: "A consumer is severely behind its producers"
+            description: "messaging.md section 2."
+          labels:
+            severity: critical
+          isPaused: false
+        - uid: unihub-replica-lag
+          title: "Replica lag above 10 s"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "unihub_postgres_replica_lag_seconds"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 10
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 5m
+          annotations:
+            summary: "Reads from the replica may be stale"
+            description: "architecture.md section 4.1. NaN on a primary. On a healthy replica this value also grows while the primary has no writes (open question for the owner, Phase 6 Muc 4)."
+          labels:
+            severity: warning
+          isPaused: false
+        - uid: unihub-heap
+          title: "JVM heap above 85%"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "max(jvm_memory_used_bytes{area=\"heap\"} / (jvm_memory_max_bytes{area=\"heap\"} > 0))"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0.85
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 5m
+          annotations:
+            summary: "The heap is nearly exhausted"
+            description: "Pools that report no maximum (-1) are left out of the ratio."
+          labels:
+            severity: warning
+          isPaused: false
+        - uid: unihub-refund-required-age-warning
+          title: "A refund has waited over 1 hour"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "unihub_payment_refund_required_oldest_age_seconds"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 3600
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 5m
+          annotations:
+            summary: "A refund is not progressing"
+            description: "payment.md section 9."
+          labels:
+            severity: warning
+          isPaused: false
+        - uid: unihub-refund-required-age-critical
+          title: "A refund has waited over 24 hours"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "unihub_payment_refund_required_oldest_age_seconds"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 86400
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 5m
+          annotations:
+            summary: "A refund has not progressed for a day"
+            description: "payment.md section 9."
+          labels:
+            severity: critical
+          isPaused: false
+        - uid: unihub-seat-hold-lock-unavailable
+          title: "Seat holds waiting on Redis to be released"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "sum(rate(unihub_seat_hold_expiry_lock_unavailable_total[5m]))"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 5m
+          annotations:
+            summary: "Seat-hold expiry cannot take its lock"
+            description: "INV-07 and INV-08: seats stay held while Redis is unavailable."
+          labels:
+            severity: warning
+          isPaused: false
+        - uid: unihub-outbox-age-warning
+          title: "Outbox relay behind by over 60 s"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "unihub_outbox_oldest_pending_age_seconds"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 60
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 5m
+          annotations:
+            summary: "The oldest pending outbox row is over a minute old"
+            description: "The relay runs every second, so this is dozens of missed cycles."
+          labels:
+            severity: warning
+          isPaused: false
+        - uid: unihub-outbox-age-critical
+          title: "Outbox relay behind by over 300 s"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "unihub_outbox_oldest_pending_age_seconds"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 300
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 5m
+          annotations:
+            summary: "The oldest pending outbox row is over five minutes old"
+            description: "The relay is stalled; events are not leaving the database."
+          labels:
+            severity: critical
+          isPaused: false
+        - uid: unihub-notification-pending-age
+          title: "Notifications not leaving"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "unihub_notification_pending_oldest_age_seconds"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 300
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 5m
+          annotations:
+            summary: "The oldest pending notification is over five minutes old"
+            description: "notification.md."
+          labels:
+            severity: warning
+          isPaused: false
+        - uid: unihub-dependency-down
+          title: "Redis or RabbitMQ down"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "unihub_dependency_up"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 1
+                        type: lt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 1m
+          annotations:
+            summary: "A dependency is down (P1)"
+            description: "test-plan.md P1: a Redis or RabbitMQ outage is invisible to readiness by design. The dependency label says which."
+          labels:
+            severity: critical
+          isPaused: false
+        - uid: unihub-rabbitmq-target-down
+          title: "RabbitMQ metrics target down"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "up{job=\"rabbitmq\"}"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 1
+                        type: lt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 1m
+          annotations:
+            summary: "Prometheus cannot scrape the broker"
+            description: "The broker's own scrape target is gone."
+          labels:
+            severity: critical
+          isPaused: false

@@ -17,6 +17,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.Message;
@@ -55,6 +56,17 @@ class RabbitTopologyIT extends IntegrationTestSupport {
         return Topology.queuesOf(Topology.declarables()).stream()
                 .map(org.springframework.amqp.core.Queue::getName)
                 .toList();
+    }
+
+    /**
+     * Empty before as well as after: every audited operation of every earlier class publishes to
+     * this shared broker's {@code unihub.audit.queue}, where nothing consumes it, so a count of
+     * "exactly one message" starts from whatever those left (232 in the run of 2026-11-04).
+     */
+    @BeforeEach
+    void emptyFirst() {
+        admin.initialize();
+        allQueues().forEach(admin::purgeQueue);
     }
 
     @AfterEach
