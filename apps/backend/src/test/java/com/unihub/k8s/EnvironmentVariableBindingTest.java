@@ -105,12 +105,16 @@ class EnvironmentVariableBindingTest {
 
         var bound = Binder.get(environment).bind("unihub.payment.stripe.secret-key", String.class);
 
-        // The first draft of the manifests assumed this did NOT bind (and wrote SECRETKEY,
-        // APIBASE); it does, by
-        // the legacy mapping in Boot's SystemEnvironmentPropertyMapper. The manifests keep the
-        // documented form (the
-        // dashes dropped), which binds in every Boot version, and this test notices if the legacy
-        // one goes away.
+        // The first draft of the manifests assumed this did NOT bind. It does, by the legacy
+        // mapping in Boot's
+        // SystemEnvironmentPropertyMapper, and most of the manifest relies on it: only
+        // ...STRIPE_SECRETKEY and
+        // ...STRIPE_APIBASE are in the dash-dropped form; UNIHUB_DEV_SEED_*_PASSWORD,
+        // UNIHUB_OBJECT_STORAGE_*,
+        // UNIHUB_AI_SUMMARIZATION_BASE_URL, UNIHUB_TICKET_SIGNING_KEY and UNIHUB_WEB_BASE_URL bind
+        // only this way.
+        // plainVariablesBind() pins those names; this test says why they work, and goes red if Boot
+        // drops it.
         assertThat(bound.isBound()).isTrue();
     }
 

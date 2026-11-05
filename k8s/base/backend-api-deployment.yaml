@@ -34,9 +34,9 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: ["ALL"] }
-          # Measured 2026-11-05 on the image of 1d689d8 with this Deployment's environment (Docker, no sidecar): 583 MiB
-          # right after start-up and 621 MiB after one paid registration. The image's heap is 75% of the limit
-          # (JAVA_TOOL_OPTIONS), so 768 Mi left no room for the rest of the process: 1 Gi does.
+          # One measurement informed this, task 5.7 confirms it: 2026-11-05, image of 1d689d8, this environment, Docker,
+          # under a 768 Mi limit, no sidecar: 583 MiB after start-up, 621 MiB after one paid registration. The heap is
+          # at most 75% of the limit (JAVA_TOOL_OPTIONS), so 768 Mi left little room and the heap grows with 1 Gi.
           resources:
             requests: { cpu: 200m, memory: 512Mi }
             limits: { cpu: 500m, memory: 1Gi }

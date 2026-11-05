@@ -42,6 +42,7 @@ jobs:
       - name: Render the Kubernetes overlays
         working-directory: .
         run: |
+          kubectl version --client
           for profile in dev loadtest; do
             make render PROFILE="$profile" TAG=0000000000000000000000000000000000000000 > "$RUNNER_TEMP/render-$profile.yaml"
             if grep -q '@IMAGE_TAG@' "$RUNNER_TEMP/render-$profile.yaml"; then
