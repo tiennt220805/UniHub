@@ -1,0 +1,20 @@
+TooManyRequests:
+  description: >-
+    The caller's request budget is spent
+    (`../../../docs/technical-design/platform/distributed-coordination.md` §3). Every operation can
+    answer this except the payment-gateway webhook, which is exempt (its body is signature-verified
+    and the gateway retries from few addresses). The general budget is **100 requests / 60 s per
+    identity**: the user when the request carries a valid token, the client address otherwise —
+    login, the public catalog, and any request whose token is missing, expired or invalid (a bad
+    token never skips the budget: it is answered `429`, not `401`, once the address is over). Two
+    users behind one address do not share a budget. `Retry-After` is the number of seconds to wait
+    (the window: an upper bound). A rate-limited request is only asked to slow down; it says
+    nothing about whether a seat was reserved. If the limiter's Redis does not answer the request
+    is let through (fail open), never answered `429`.
+  headers:
+    Retry-After:
+      $ref: './headers.yaml#/RetryAfter'
+  content:
+    application/problem+json:
+      schema:
+        $ref: './error.yaml'

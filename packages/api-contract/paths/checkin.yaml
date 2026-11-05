@@ -13,6 +13,8 @@ verificationKey:
     tags: [Check-in]
     x-required-permission: CHECKIN_SCAN
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: The current active ECDSA public key.
         headers:
@@ -96,6 +98,8 @@ sync:
           schema:
             $ref: '../schemas/checkin.yaml#/SyncScanBatchRequest'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Per-scan outcomes, keyed by the client-generated scan id.
         headers:
@@ -155,6 +159,8 @@ workshopAttendances:
       - $ref: '../common/pagination.yaml#/PageParam'
       - $ref: '../common/pagination.yaml#/SizeParam'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Attendances for the given workshop.
         headers:
@@ -213,6 +219,8 @@ workshopReport:
     parameters:
       - $ref: '../paths/registration.yaml#/RegistrationWorkshopIdParam'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: The report of the given workshop.
         headers:

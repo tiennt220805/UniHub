@@ -59,8 +59,9 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code type} and body. A key reused with another body is 422, one still being processed is 409
  * (both exceptions with their own {@code type}).
  *
- * <p>The annotations on the method only DESCRIBE the contract for contract-diff. 429 (rate limit)
- * is documented only: no rate limiter exists yet.
+ * <p>The annotations on the method only DESCRIBE the contract for contract-diff. 429 (the 5 / 10 s
+ * registration budget, or the general budget) is real and is added to every operation by {@code
+ * RateLimitedResponses}, so it is not annotated here.
  */
 @RestController
 @RequestMapping("/api/v1/registrations")
@@ -119,13 +120,6 @@ class RegistrationController {
     @ApiProblems.Conflict
     @ApiResponse(
             responseCode = "422",
-            content =
-                    @Content(
-                            mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
-                            schema = @Schema(implementation = ProblemSchema.class)))
-    @ApiResponse(
-            responseCode = "429",
-            headers = @Header(name = "Retry-After", schema = @Schema(types = {"integer"})),
             content =
                     @Content(
                             mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,

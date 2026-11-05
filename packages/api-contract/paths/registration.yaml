@@ -119,9 +119,11 @@ registrations:
               $ref: '../common/error.yaml'
       '429':
         description: >-
-          Per-user registration-attempt rate limit exceeded
-          (`../../../docs/technical-design/platform/distributed-coordination.md` §3 — 5 requests /
-          10s, key `unihub:ratelimit:registration:{userId}`). Distinct from
+          A request budget is spent
+          (`../../../docs/technical-design/platform/distributed-coordination.md` §3): the
+          **registration budget** — 5 requests / 10s per user, key
+          `unihub:ratelimit:registration:{userId}` — or the general budget every operation has
+          (`../common/responses.yaml#/TooManyRequests`). Distinct from
           the `503` below: this is the caller's own request budget, not
           contention over a specific workshop's seat.
         headers:
@@ -162,6 +164,8 @@ registrations:
       - $ref: '../common/pagination.yaml#/PageParam'
       - $ref: '../common/pagination.yaml#/SizeParam'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: The caller's registrations.
         headers:
@@ -201,6 +205,8 @@ registrationById:
     parameters:
       - $ref: '#/RegistrationIdParam'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Full registration detail.
         headers:
@@ -260,6 +266,8 @@ registrationCancel:
     parameters:
       - $ref: '#/RegistrationIdParam'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Registration is now CANCELLED, seat released.
         headers:
@@ -328,6 +336,8 @@ workshopRegistrations:
       - $ref: '../common/pagination.yaml#/PageParam'
       - $ref: '../common/pagination.yaml#/SizeParam'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Registrations for the given workshop.
         headers:

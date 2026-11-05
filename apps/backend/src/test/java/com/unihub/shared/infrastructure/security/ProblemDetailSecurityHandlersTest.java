@@ -29,7 +29,7 @@ class ProblemDetailSecurityHandlersTest {
     @Test
     @DisplayName("401: problem+json with type, title, status, instance and a Bearer challenge")
     void authenticationEntryPoint_writesProblem() throws Exception {
-        new ProblemDetailAuthenticationEntryPoint(JSON)
+        new ProblemDetailAuthenticationEntryPoint(JSON, null)
                 .commence(request, response, new BadCredentialsException("secret internal reason"));
 
         assertThat(response.getStatus()).isEqualTo(401);
@@ -47,7 +47,7 @@ class ProblemDetailSecurityHandlersTest {
     @DisplayName(
             "401 for an invalid bearer token keeps the error code in the challenge, not the body")
     void authenticationEntryPoint_invalidToken_challengeCarriesErrorCode() throws Exception {
-        new ProblemDetailAuthenticationEntryPoint(JSON)
+        new ProblemDetailAuthenticationEntryPoint(JSON, null)
                 .commence(request, response, new InvalidBearerTokenException("decoder said no"));
 
         assertThat(response.getHeader(HttpHeaders.WWW_AUTHENTICATE)).contains("invalid_token");

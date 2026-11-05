@@ -42,6 +42,8 @@ notifications:
       - $ref: '../common/pagination.yaml#/PageParam'
       - $ref: '../common/pagination.yaml#/SizeParam'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: The caller's in-app notifications, newest first.
         headers:

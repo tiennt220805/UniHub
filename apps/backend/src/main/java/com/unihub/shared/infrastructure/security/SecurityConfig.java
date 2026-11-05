@@ -1,10 +1,13 @@
 package com.unihub.shared.infrastructure.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.unihub.shared.application.port.in.ConsumeRateLimitBudgetUseCase;
 import jakarta.servlet.DispatcherType;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,6 +27,7 @@ import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
@@ -35,7 +39,7 @@ import org.springframework.security.web.SecurityFilterChain;
  */
 @Configuration
 @EnableMethodSecurity
-@EnableConfigurationProperties(AuthJwtProperties.class)
+@EnableConfigurationProperties({AuthJwtProperties.class, RateLimitProperties.class})
 public class SecurityConfig {
 
     @Bean
@@ -43,7 +47,8 @@ public class SecurityConfig {
             HttpSecurity http,
             ProblemDetailAuthenticationEntryPoint authenticationEntryPoint,
             ProblemDetailAccessDeniedHandler accessDeniedHandler,
-            JwtAuthenticationConverter permissionsAuthenticationConverter)
+            JwtAuthenticationConverter permissionsAuthenticationConverter,
+            ObjectProvider<RateLimitGate> rateLimit)
             throws Exception {
         http.csrf(AbstractHttpConfigurer::disable) // bearer tokens, no cookies: nothing to ride
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -89,12 +94,40 @@ public class SecurityConfig {
                                                 jwt ->
                                                         jwt.jwtAuthenticationConverter(
                                                                 permissionsAuthenticationConverter)));
+        // Rate limits (distributed-coordination.md §3): after the bearer filter, so the user is
+        // known,
+        // and before authorization. Not beans: see RateLimitFilters.
+        rateLimit.ifAvailable(
+                gate -> {
+                    var general = new RateLimitFilters.General(gate);
+                    http.addFilterAfter(general, BearerTokenAuthenticationFilter.class);
+                    http.addFilterAfter(
+                            new RateLimitFilters.Registration(gate), general.getClass());
+                });
         return http.build();
     }
 
+    /**
+     * The rate limiter's single charging point (RateLimitGate). Absent when {@code
+     * unihub.rate-limit.enabled} is false: the filters and the entry point then charge nothing.
+     */
     @Bean
-    ProblemDetailAuthenticationEntryPoint problemDetailAuthenticationEntryPoint(ObjectMapper json) {
-        return new ProblemDetailAuthenticationEntryPoint(json);
+    @ConditionalOnProperty(
+            prefix = "unihub.rate-limit",
+            name = "enabled",
+            havingValue = "true",
+            matchIfMissing = true)
+    RateLimitGate rateLimitGate(
+            ConsumeRateLimitBudgetUseCase budgets,
+            RateLimitProperties properties,
+            ObjectMapper json) {
+        return new RateLimitGate(budgets, properties, json);
+    }
+
+    @Bean
+    ProblemDetailAuthenticationEntryPoint problemDetailAuthenticationEntryPoint(
+            ObjectMapper json, ObjectProvider<RateLimitGate> rateLimit) {
+        return new ProblemDetailAuthenticationEntryPoint(json, rateLimit.getIfAvailable());
     }
 
     @Bean

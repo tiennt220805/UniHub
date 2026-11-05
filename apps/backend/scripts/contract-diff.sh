@@ -16,6 +16,8 @@
 #                          spec and never verifies a token, so a throwaway placeholder is enough (not a credential).
 #   UNIHUB_REDIS_ADDRESS   Redis is required configuration (the app will not start without it), but the client is
 #                          lazy and generateOpenApiDocs never issues a command, so a dead address is enough.
+#   UNIHUB_RATE_LIMIT_ENABLED  false: reading the spec is one request to a Redis that is not there; the limiter would only
+#                          fail open after its timeout. Switched off here so the run does not depend on that path.
 #   UNIHUB_NOTIFICATION_SMTP_HOST  the EMAIL channel's SMTP host is required configuration (the app will not start
 #                          without it), but nothing connects while the spec is read, so a dead address is enough.
 #   UNIHUB_TICKET_SIGNING_KEY  the QR e-ticket signing key is required configuration (the app will not start
@@ -65,6 +67,7 @@ TICKET_KEY="${UNIHUB_TICKET_SIGNING_KEY:-$(scripts/generate-ticket-key.sh)}"
 SPRING_DATASOURCE_URL="${SPRING_DATASOURCE_URL:-jdbc:postgresql://127.0.0.1:5432/unihub}" \
 UNIHUB_SECURITY_JWT_SECRET="${UNIHUB_SECURITY_JWT_SECRET:-contract-diff-placeholder-not-a-credential-0123456789abcdef}" \
 UNIHUB_REDIS_ADDRESS="${UNIHUB_REDIS_ADDRESS:-redis://127.0.0.1:1}" \
+UNIHUB_RATE_LIMIT_ENABLED=false \
 UNIHUB_NOTIFICATION_SMTP_HOST="${UNIHUB_NOTIFICATION_SMTP_HOST:-127.0.0.1}" \
 UNIHUB_TICKET_SIGNING_KEY="$TICKET_KEY" \
 MANAGEMENT_SERVER_PORT=-1 \

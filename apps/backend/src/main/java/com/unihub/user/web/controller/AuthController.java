@@ -1,7 +1,6 @@
 package com.unihub.user.web.controller;
 
 import com.unihub.shared.web.ApiProblems;
-import com.unihub.shared.web.dto.ProblemSchema;
 import com.unihub.user.application.port.in.LoginUseCase;
 import com.unihub.user.application.result.LoginResult;
 import com.unihub.user.web.dto.LoginRequest;
@@ -38,8 +37,10 @@ class AuthController {
         this.login = login;
     }
 
-    // 429 + Retry-After is documented only, as on the workshop endpoints: no rate limiter (INV-17,
-    // Phase 7) exists yet. X-Correlation-Id is written by CorrelationIdFilter.
+    // 429 + Retry-After is real (INV-17: login is charged to the caller's address, 100 / 60 s) and
+    // is
+    // added to every operation by RateLimitedResponses. X-Correlation-Id is written by
+    // CorrelationIdFilter.
     @Operation(
             operationId = "login",
             tags = {"User"})
@@ -59,13 +60,6 @@ class AuthController {
                             schema = @Schema(implementation = LoginResponse.class)))
     @ApiProblems.BadRequest
     @ApiProblems.Unauthorized
-    @ApiResponse(
-            responseCode = "429",
-            headers = @Header(name = "Retry-After", schema = @Schema(types = {"integer"})),
-            content =
-                    @Content(
-                            mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
-                            schema = @Schema(implementation = ProblemSchema.class)))
     @PostMapping(
             path = "/login",
             consumes = MediaType.APPLICATION_JSON_VALUE,

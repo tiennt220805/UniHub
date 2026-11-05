@@ -164,7 +164,14 @@ public final class MultiInstanceHarness implements AutoCloseable {
         properties.add("server.port=0");
         // a job runs when the test says so, never on its own schedule
         properties.add("unihub.jobs.idempotency-cleanup.interval=PT1H");
-        properties.addAll(List.of(extra));
+        // The caller's properties go in as command-line arguments, not builder properties: the
+        // system
+        // properties of IntegrationTestSupport (rate limits off, listeners off) outrank the latter,
+        // so a builder property could not turn any of them back on.
+        var arguments = new ArrayList<String>();
+        for (var property : extra) {
+            arguments.add("--" + property);
+        }
         return new SpringApplicationBuilder(UniHubApplication.class)
                 .web(WebApplicationType.SERVLET)
                 .properties(properties.toArray(String[]::new))
@@ -189,7 +196,7 @@ public final class MultiInstanceHarness implements AutoCloseable {
                                                     seatHoldPadding,
                                                     log));
                         })
-                .run();
+                .run(arguments.toArray(String[]::new));
     }
 
     private static Class<?> testTypeExcludeFilter() {

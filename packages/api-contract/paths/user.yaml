@@ -74,6 +74,8 @@ login:
           schema:
             $ref: '../schemas/user.yaml#/LoginRequest'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Authenticated.
         headers:
@@ -91,21 +93,6 @@ login:
               $ref: '../common/error.yaml'
       '401':
         description: Invalid credentials, or the account is `SUSPENDED` (`../../../docs/technical-design/platform/database-schema.md` §2.1) — deliberately indistinguishable, see above.
-        content:
-          application/problem+json:
-            schema:
-              $ref: '../common/error.yaml'
-      '429':
-        description: >-
-          Per-IP global rate limit exceeded
-          (`../../../docs/technical-design/platform/distributed-coordination.md` §3 — 100 requests /
-          60s, key `unihub:ratelimit:global-ip:{ipAddress}`), explicitly
-          named there as the limiter catching "credential-stuffing against
-          login" — unauthenticated abuse a per-user limiter can't see
-          because there's no authenticated user yet.
-        headers:
-          Retry-After:
-            $ref: '../common/headers.yaml#/RetryAfter'
         content:
           application/problem+json:
             schema:
@@ -131,6 +118,8 @@ syncRuns:
       - $ref: '../common/pagination.yaml#/PageParam'
       - $ref: '../common/pagination.yaml#/SizeParam'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Sync run history.
         headers:
@@ -162,6 +151,8 @@ syncRunById:
     parameters:
       - $ref: '#/SyncRunIdParam'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Sync run detail.
         headers:
@@ -216,6 +207,8 @@ syncErrors:
       - $ref: '../common/pagination.yaml#/PageParam'
       - $ref: '../common/pagination.yaml#/SizeParam'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Quarantined records.
         headers:
@@ -259,6 +252,8 @@ syncErrorById:
           schema:
             $ref: '../schemas/user.yaml#/ResolveLegacySyncErrorRequest'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Updated record.
         headers:

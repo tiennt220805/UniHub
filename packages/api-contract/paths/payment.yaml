@@ -60,6 +60,8 @@ payments:
           schema:
             $ref: '../schemas/payment.yaml#/CreatePaymentChargeRequest'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '201':
         description: Charge processed — the body carries the payment's status when the charge step completed (`SUCCEEDED`, `FAILED` or `PENDING`). A declined card, and a payment method token the gateway refuses, are both `FAILED`. While `PENDING`, poll `getPayment`.
         headers:
@@ -173,6 +175,8 @@ paymentById:
     parameters:
       - $ref: '#/PaymentIdParam'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Current payment status.
         headers:

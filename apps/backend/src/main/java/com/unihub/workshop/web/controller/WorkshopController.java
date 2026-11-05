@@ -82,8 +82,9 @@ class WorkshopController {
     // listWorkshops) so contract-diff can compare shapes. Behaviour behind them, today:
     //  - page/size bounds (@Min/@Max): real — a violation is a 400 problem+json via
     // GlobalProblemHandler.
-    //  - 429 + Retry-After: documented only — no rate limiter exists (distributed-coordination.md
-    // §3).
+    //  - 429 + Retry-After: real — the rate limiter (shared RateLimitGate,
+    // distributed-coordination.md
+    // §3); the response is added to every operation by RateLimitedResponses, not annotated here.
     //  - X-Correlation-Id (200 header): real — written by CorrelationIdFilter (Phase 6 task 3.1).
     //    There is no request parameter: a header sent by the client is ignored (D65).
     @Operation(
@@ -108,13 +109,6 @@ class WorkshopController {
                     @Content(
                             mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
                             schema = @Schema(implementation = ProblemSchema.class)))
-    @ApiResponse(
-            responseCode = "429",
-            headers = @Header(name = "Retry-After", schema = @Schema(types = {"integer"})),
-            content =
-                    @Content(
-                            mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
-                            schema = @Schema(implementation = ProblemSchema.class)))
     @SecurityRequirements // public: the contract says `security: []`, overriding the global
     // bearerAuth
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
@@ -134,8 +128,9 @@ class WorkshopController {
 
     // Public like the list (contract: security: []), but the bearer token is optional input: a
     // caller holding WORKSHOP_CREATE/WORKSHOP_EDIT may see a DRAFT, anyone else gets 404 for it.
-    // 429 is documented only, as on the list endpoint; X-Correlation-Id is written by
-    // CorrelationIdFilter on every response.
+    // 429 comes from the rate limiter and is added by RateLimitedResponses, as on the list
+    // endpoint;
+    // X-Correlation-Id is written by CorrelationIdFilter on every response.
     @Operation(
             operationId = "getWorkshop",
             tags = {"Workshop"},
@@ -163,13 +158,6 @@ class WorkshopController {
                             mediaType = MediaType.APPLICATION_JSON_VALUE,
                             schema = @Schema(implementation = Workshop.class)))
     @ApiProblems.NotFound
-    @ApiResponse(
-            responseCode = "429",
-            headers = @Header(name = "Retry-After", schema = @Schema(types = {"integer"})),
-            content =
-                    @Content(
-                            mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
-                            schema = @Schema(implementation = ProblemSchema.class)))
     @SecurityRequirements
     @GetMapping(path = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     Workshop detail(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) {

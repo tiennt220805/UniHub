@@ -2,6 +2,7 @@ package com.unihub.payment.web.controller;
 
 import com.unihub.payment.application.port.in.ReceivePaymentWebhookUseCase;
 import com.unihub.shared.web.ApiProblems;
+import com.unihub.shared.web.RateLimitExempt;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
@@ -58,6 +59,8 @@ class PaymentWebhookController {
                                             types = {"string"},
                                             pattern = CORRELATION_ID_PATTERN)))
     @ApiProblems.BadRequest
+    @RateLimitExempt // signature-verified body; the limiter never charges it
+    // (distributed-coordination.md §3)
     @PostMapping(path = "/payment-gateway", consumes = MediaType.APPLICATION_JSON_VALUE)
     ResponseEntity<Void> handle(
             @Parameter(

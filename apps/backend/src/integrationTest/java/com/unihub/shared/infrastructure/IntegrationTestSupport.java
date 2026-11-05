@@ -159,6 +159,13 @@ public abstract class IntegrationTestSupport {
         // reads it with @LocalManagementPort.
         System.setProperty("management.server.port", "0");
 
+        // The rate limiter is on by default (Phase 7 checklist D90), but every test of the shared
+        // suite calls from one address (127.0.0.1) and would spend the 100 / 60 s budget of that
+        // address together. Off here; RateLimitIT and the multi-instance limiter tests turn it on
+        // for themselves (a @SpringBootTest property, or a command-line argument for a harness
+        // context: system properties outrank builder properties).
+        System.setProperty("unihub.rate-limit.enabled", "false");
+
         // The gauges that read PostgreSQL and the Redis/RabbitMQ probe of unihub_dependency_up run
         // in
         // the background (Phase 6 checklist 4.1, 4.2). Spring keeps one context per test

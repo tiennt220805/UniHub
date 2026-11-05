@@ -70,6 +70,8 @@ workshops:
       - $ref: '../common/pagination.yaml#/PageParam'
       - $ref: '../common/pagination.yaml#/SizeParam'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Paginated catalog results.
         headers:
@@ -81,22 +83,6 @@ workshops:
               $ref: '../schemas/workshop.yaml#/WorkshopListResponse'
       '400':
         description: Invalid query parameters (e.g. `dateFrom` after `dateTo`, `size` above the cap).
-        content:
-          application/problem+json:
-            schema:
-              $ref: '../common/error.yaml'
-      '429':
-        description: >-
-          Per-IP global rate limit exceeded
-          (`../../../docs/technical-design/platform/distributed-coordination.md` §3 — 100 requests /
-          60s, key `unihub:ratelimit:global-ip:{ipAddress}`), explicitly
-          named there as the limiter catching "catalog scraping." Applies
-          even though this endpoint requires no authentication — the
-          per-IP limiter is exactly the layer that covers an unauthenticated
-          caller.
-        headers:
-          Retry-After:
-            $ref: '../common/headers.yaml#/RetryAfter'
         content:
           application/problem+json:
             schema:
@@ -118,6 +104,8 @@ workshops:
           schema:
             $ref: '../schemas/workshop.yaml#/CreateWorkshopRequest'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '201':
         description: Workshop created, status DRAFT.
         headers:
@@ -171,6 +159,8 @@ workshopById:
     parameters:
       - $ref: '#/WorkshopIdParam'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Workshop detail.
         headers:
@@ -185,23 +175,6 @@ workshopById:
           No workshop with this id — or the workshop is `DRAFT` and the
           caller (unauthenticated, or authenticated without
           `WORKSHOP_CREATE`/`WORKSHOP_EDIT`) isn't permitted to see it.
-        content:
-          application/problem+json:
-            schema:
-              $ref: '../common/error.yaml'
-      '429':
-        description: >-
-          Per-IP global rate limit exceeded
-          (`../../../docs/technical-design/platform/distributed-coordination.md` §3 — 100 requests /
-          60s). **Endpoint-level scope inferred — flagged as an
-          assumption:** `distributed-coordination.md` §3 names "catalog
-          scraping" as the limiter's target without distinguishing the
-          list endpoint from the detail endpoint; this file treats
-          repeatedly fetching workshop details as part of the same
-          scraping surface `listWorkshops` is explicitly named for.
-        headers:
-          Retry-After:
-            $ref: '../common/headers.yaml#/RetryAfter'
         content:
           application/problem+json:
             schema:
@@ -229,6 +202,8 @@ workshopById:
           schema:
             $ref: '../schemas/workshop.yaml#/UpdateWorkshopRequest'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Updated workshop.
         headers:
@@ -299,6 +274,8 @@ workshopPublish:
     parameters:
       - $ref: '#/WorkshopIdParam'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Workshop is now PUBLISHED.
         headers:
@@ -350,6 +327,8 @@ workshopCancel:
     parameters:
       - $ref: '#/WorkshopIdParam'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Workshop is now CANCELLED.
         headers:
@@ -413,6 +392,8 @@ workshopBrochureUploadUrl:
                 type: string
                 enum: [application/pdf]
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: >-
           Presigned PUT URL issued. The URL authorizes exactly one `PUT` of a PDF (it is signed for
@@ -475,6 +456,8 @@ workshopBrochureUploadConfirm:
     parameters:
       - $ref: '#/WorkshopIdParam'
     responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
       '200':
         description: Object confirmed to exist; brochure_s3_key persisted, summarization requested.
         headers:
