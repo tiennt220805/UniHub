@@ -232,10 +232,36 @@ public final class RegistrationFixtures {
         workshops.forEach(id -> jdbc.update("DELETE FROM workshops WHERE id = ?", id));
         // A context with the audit consumer running writes audit_events rows for the operations
         // the test performed, and they reference the user (Phase 6 checklist 2.4).
-        users.forEach(
-                user -> jdbc.update("DELETE FROM audit_events WHERE actor_user_id = ?", user));
-        users.forEach(user -> jdbc.update("DELETE FROM users WHERE id = ?", user));
+        users.forEach(RegistrationFixtures.this::deleteUserAndItsAuditEvents);
         users.clear();
         workshops.clear();
+    }
+
+    /**
+     * The audit consumer of a cached context is asynchronous: its row for an operation the test
+     * performed can land between the delete of the user's audit rows and the delete of the user,
+     * and the foreign key then refuses the second (seen in CI, run 41984714320, in {@code
+     * PaymentConfirmationIT}). The user row it leaves behind is then counted by {@code
+     * UserSchemaIT}, which counts every password-less user. The pair is therefore retried: a row
+     * that arrives is deleted on the next pass.
+     */
+    private void deleteUserAndItsAuditEvents(UUID user) {
+        for (int attempt = 1; ; attempt++) {
+            jdbc.update("DELETE FROM audit_events WHERE actor_user_id = ?", user);
+            try {
+                jdbc.update("DELETE FROM users WHERE id = ?", user);
+                return;
+            } catch (org.springframework.dao.DataIntegrityViolationException lateAuditRow) {
+                if (attempt == 5) {
+                    throw lateAuditRow;
+                }
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw lateAuditRow;
+                }
+            }
+        }
     }
 }
