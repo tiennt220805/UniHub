@@ -69,6 +69,18 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
       - run: ./gradlew integrationTest --no-daemon
+      # Reports are kept even when the run is red (`if: always()`): the failing test's own output is the
+      # evidence M-38 (`Flaky — investigate`) has been missing. Workflow artifacts, never committed
+      # (test-strategy.md §6).
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-reports
+          path: |
+            apps/backend/build/reports/tests
+            apps/backend/build/test-results
+          retention-days: 14
+          if-no-files-found: warn
 
   # The Web Application's gate (apps/web): types from the contract, typecheck, lint (oxlint + the ESLint
   # import-boundary rules of web-coding-standards.md §2) and Vitest. Independent of the backend chain
@@ -139,6 +151,77 @@ jobs:
         with:
           node-version: '22'
       - run: bash apps/backend/scripts/contract-diff.sh
+
+  # Stage 5 (deployment-and-cicd.md §5; Phase 7 checklist Q23, D84, D85, D103): build both images for
+  # linux/amd64 and linux/arm64 and push them to Docker Hub, tagged with the commit SHA (what the cluster
+  # references) and `latest` (a convenience pointer only). No deployment step: deploying to Minikube is a
+  # local Makefile action (CI/CD Automation Boundary ADR).
+  #
+  # `needs:` lists the three direct gates: contract-diff (which itself waits for lint, unit-test and
+  # integration-test), Gitleaks (INV-18) and the Web job (the Web image is built here). A push to `main` is
+  # the only event that gets this far: pull requests never run it, so they never see the Docker Hub secrets.
+  build-and-push:
+    needs: [contract-diff, secret-scan-gitleaks, web]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      # The Docker Hub namespace the images live under. Not a secret: it is in every image name.
+      DOCKERHUB_NAMESPACE: thanhtien2208
+    steps:
+      - uses: actions/checkout@v4
+      # QEMU is only for the RUN steps of the runtime stage of the backend image (a user is created per
+      # architecture). Both builder stages run on the runner's own architecture (--platform=$BUILDPLATFORM).
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # provenance/sbom off: with them on, buildx adds an "unknown/unknown" attestation entry to the image
+      # index, and AC84.1 expects the index to list exactly the two platforms.
+      - id: backend
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/backend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+          tags: |
+            ${{ env.DOCKERHUB_NAMESPACE }}/unihub-backend:${{ github.sha }}
+            ${{ env.DOCKERHUB_NAMESPACE }}/unihub-backend:latest
+      # Repository root as context: the build generates its API types from packages/api-contract.
+      # VITE_PAYMENT_TEST_MODE=true because the payment gateway in the cluster is a stub (D85); the image
+      # offers the Stripe test-token dropdown and is not a production build.
+      - id: web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          sbom: false
+          build-args: |
+            VITE_PAYMENT_TEST_MODE=true
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+          tags: |
+            ${{ env.DOCKERHUB_NAMESPACE }}/unihub-web:${{ github.sha }}
+            ${{ env.DOCKERHUB_NAMESPACE }}/unihub-web:latest
+      # The digests are the evidence for M-66 (and what the cluster must run, AC84.2): they go in the run's
+      # summary. They are not secrets.
+      - run: |
+          {
+            echo "### Images pushed for ${GITHUB_SHA}"
+            echo
+            echo "| Image | Digest |"
+            echo "|---|---|"
+            echo "| \`${DOCKERHUB_NAMESPACE}/unihub-backend:${GITHUB_SHA}\` | \`${{ steps.backend.outputs.digest }}\` |"
+            echo "| \`${DOCKERHUB_NAMESPACE}/unihub-web:${GITHUB_SHA}\` | \`${{ steps.web.outputs.digest }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ---- Security scans (deployment-and-cicd.md §5, Security Scan Jobs ADR) ----
   # Semgrep and Dependency-Check: `needs:` nothing and `continue-on-error: true` — they report on every
@@ -216,7 +299,7 @@ jobs:
   # parallel with the gate chain (`needs:` nothing) and is blocking: no `continue-on-error`, so a finding
   # fails the run. Full history (`fetch-depth: 0`): a secret committed and later deleted is still leaked.
   # A justified false positive goes in a committed, reviewed allowlist: `.gitleaksignore` lists exact
-  # findings (commit:file:rule:line), so no rule is switched off. `build-and-push` must `needs:` this job once it exists (Phase 7). The
+  # findings (commit:file:rule:line), so no rule is switched off. `build-and-push` `needs:` this job (Phase 7). The
   # image is pinned (v8.30.1, see the scanner note above): this job is blocking, so an upgrade of the
   # scanner must not be able to turn a run red on its own.
   secret-scan-gitleaks:

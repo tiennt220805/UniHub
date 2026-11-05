@@ -248,7 +248,7 @@ ENTRYPOINT ["java", "-jar", "/app/app.jar"]
 | Non-root `USER` | Dedicated `unihub` system user, numeric uid/gid `10001` (a Pod with `runAsNonRoot` cannot verify a user given by name), no login shell, no home directory | Baseline container hardening; consistent with `architecture.md` §5.4's Zero-Trust posture applied one layer lower, at the process level inside the pod. |
 | JVM container awareness | `-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0` | Modern JDKs (10+) enable container support by default, but pinning it here makes the intent explicit rather than relying on a default that could change; 75% leaves headroom for the JVM's own non-heap memory (metaspace, thread stacks, direct buffers) inside the same container limit (§2/§3). |
 | Health check mechanism | Kubernetes liveness/readiness probes (§2), **not** a Docker `HEALTHCHECK` instruction | Kubernetes never consults `HEALTHCHECK` — it uses its own probe configuration on the Pod spec. Adding one here would be dead configuration; the actual probe design lives in `observability.md`. |
-| Image tag convention | `<dockerhub-namespace>/unihub-backend:<git-sha>` and `<dockerhub-namespace>/unihub-web:<git-sha>`, plus a floating `:latest` on every `main` push; each a multi-architecture manifest (`linux/amd64`, `linux/arm64`) | The immutable `git-sha` tag is what Kubernetes manifests actually reference (§2) — a floating tag alone would make "which commit is running" unanswerable from the cluster; `:latest` remains only as a convenience pointer for manual local use. `arm64` because the Minikube PoC runs on Apple Silicon; the cluster pulls the digest CI built, so the image that runs is the image CI checked (Phase 7 checklist D84). The namespace is the owner's Docker Hub account, set when `DOCKERHUB_USERNAME` is created. During day-to-day work an image built locally with `minikube image build` may be tagged `dev-<git-sha>`, never `latest`. |
+| Image tag convention | `<dockerhub-namespace>/unihub-backend:<git-sha>` and `<dockerhub-namespace>/unihub-web:<git-sha>`, plus a floating `:latest` on every `main` push; each a multi-architecture manifest (`linux/amd64`, `linux/arm64`) | The immutable `git-sha` tag is what Kubernetes manifests actually reference (§2) — a floating tag alone would make "which commit is running" unanswerable from the cluster; `:latest` remains only as a convenience pointer for manual local use. `arm64` because the Minikube PoC runs on Apple Silicon; the cluster pulls the digest CI built, so the image that runs is the image CI checked (Phase 7 checklist D84). The namespace is the owner's Docker Hub account, `thanhtien2208` (stated by the owner 2026-11-05; the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository secrets exist, so login works only if their values are right — the first run of `build-and-push` proves it). During day-to-day work an image built locally with `minikube image build` may be tagged `dev-<git-sha>`, never `latest`. |
 
 **The Web Application image (Phase 7 checklist D85).** `apps/web/Dockerfile`, built with the **repository root** as context (the build generates its API types from `packages/api-contract`; a root `.dockerignore` keeps everything else out): a Node 22 stage on `--platform=$BUILDPLATFORM` (so `npm ci` and the Vite build never run under emulation) runs `npm ci`, `npm run api:types` and `npm run build`, and an `nginxinc/nginx-unprivileged` stage (non-root, listens on 8080) serves `dist/` with an SPA fallback (`apps/web/nginx/default.conf`: `/healthz` for the Pod's probes, content-hashed files under `/assets/` cached for a year and answered with a real 404 when missing, every other path the app shell with `no-cache`). Both base images are pinned by digest (Node 22 on Debian bookworm-slim, glibc like the `web` CI job; nginx 1.28), and `VITE_PAYMENT_TEST_MODE` is a build argument that defaults to `false`. nginx sets the **Content-Security-Policy as an HTTP header** — the same policy as the build's `<meta>` tag plus `frame-ancestors 'none'`, which a `<meta>` tag cannot carry (`web-coding-standards.md` §11; closes the Phase 2 deferral). The Web is served from the **same origin** as the API (§2: the gateway routes `/api/**` to `backend-api` and everything else to `web`), so `VITE_API_BASE_URL` stays empty and no CORS configuration exists. The image for the Minikube PoC is built with `VITE_PAYMENT_TEST_MODE=true`, because the payment gateway in the cluster is a stub (§2); there is no production build of the Web with real payment collection, and none is in scope.
 
@@ -1103,41 +1103,51 @@ jobs:
   build-and-push:
     # `web` too, because the Web image is built here (Phase 7 checklist D85, D103).
     needs: [contract-diff, secret-scan-gitleaks, web]
-    # No separate branch check needed: the workflow's own `on.push.branches`
-    # trigger (above) already restricts every `push` event this job can see
-    # to `main` — `github.event_name == 'push'` is the whole condition.
+    # A `push` event can only come from `main` (the workflow's `on.push.branches`), so that is the whole
+    # condition; pull requests never reach this job or the Docker Hub secrets.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_NAMESPACE: thanhtien2208   # the owner's Docker Hub account; not a secret
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3      # only the runtime stages run per architecture (§1)
+      - uses: docker/setup-qemu-action@v3      # only the backend runtime stage's RUN steps run per architecture (§1)
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - uses: docker/build-push-action@v5
+      - id: backend
+        uses: docker/build-push-action@v6
         with:
           context: apps/backend
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: false   # no "unknown/unknown" attestation entry in the index (AC84.1)
+          sbom: false
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/unihub-backend:${{ github.sha }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/unihub-backend:latest
-      - uses: docker/build-push-action@v5
+            ${{ env.DOCKERHUB_NAMESPACE }}/unihub-backend:${{ github.sha }}
+            ${{ env.DOCKERHUB_NAMESPACE }}/unihub-backend:latest
+      - id: web
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: apps/web/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          build-args: VITE_PAYMENT_TEST_MODE=true
+          provenance: false
+          sbom: false
+          build-args: |
+            VITE_PAYMENT_TEST_MODE=true
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/unihub-web:${{ github.sha }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/unihub-web:latest
+            ${{ env.DOCKERHUB_NAMESPACE }}/unihub-web:${{ github.sha }}
+            ${{ env.DOCKERHUB_NAMESPACE }}/unihub-web:latest
+      # The two digests go in the run summary: they are the evidence for M-66 and what the cluster must run.
+      - run: echo "backend ${{ steps.backend.outputs.digest }}, web ${{ steps.web.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
 
   # ---- Security scans (Security Scan Jobs ADR) ----
   # Semgrep and Dependency-Check: no `needs:` and `continue-on-error: true` — they report on

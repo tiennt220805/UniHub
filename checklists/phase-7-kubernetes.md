@@ -301,8 +301,8 @@ Mỗi mục sửa ở tài liệu được ghi, trước khi code phụ thuộc 
 
 ## 2. CI stage 5 — M-66 (sau Q23; owner đã tạo secret Docker Hub)
 
-- [ ] **2.1** `[→ M-66]` **Owner:** tạo access token Docker Hub, `gh secret set DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN`, báo namespace.
-- [ ] **2.2** `[→ M-66]` Job `build-and-push` theo Q23 (hai image, multi-arch, cache `gha`, `needs: [contract-diff, secret-scan-gitleaks, web]`, chỉ `push`); upload `build/reports/tests` của `integration-test` với `if: always()`.
+- [x] **2.1** `[→ M-66]` **Owner:** tạo access token Docker Hub, `gh secret set DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN`, báo namespace. *(Xong 2026-11-05: `gh secret list` có cả hai (04:49 và 04:51 UTC); namespace `thanhtien2208`. Giá trị secret không đọc được từ ngoài; đúng hay sai chỉ lộ ra ở bước đăng nhập của run đầu tiên.)*
+- [x] **2.2** `[→ M-66]` Job `build-and-push` theo Q23 (hai image, multi-arch, cache `gha`, `needs: [contract-diff, secret-scan-gitleaks, web]`, chỉ `push`); upload `build/reports/tests` của `integration-test` với `if: always()`. *(Viết 2026-11-05, `actionlint` 1.7.7 sạch; **chưa chạy trên GitHub**. Namespace là `env.DOCKERHUB_NAMESPACE: thanhtien2208` (không phải secret), đăng nhập bằng hai secret; `docker/build-push-action@v6` với `provenance: false` và `sbom: false` để index chỉ liệt kê đúng hai nền tảng (nếu bật, buildx thêm một mục `unknown/unknown`, trái AC84.1); image Web build với `VITE_PAYMENT_TEST_MODE=true`; digest hai image ghi vào summary của run. Upload `integration-test-reports` gồm cả `build/reports/tests` và `build/test-results` (XML), giữ 14 ngày. Mẫu ở `deployment-and-cicd.md` §5 đã sửa cho khớp.)*
 - [ ] **2.3** **`[M-66]`** Một run trên `main` có mười job xanh; ghi digest của hai image và thời gian job `build-and-push`.
 
 ## 3. Rate limiter — M-61, M-68 (INV-17) (sau Q10–Q12)
