@@ -75,7 +75,12 @@ class MigrationCompatibilityIT extends IntegrationTestSupport {
     private static final String PASSWORD = "correct-horse-battery";
     private static final Duration READY_WITHIN = Duration.ofSeconds(150);
     private static final List<String> SQL_ERRORS =
-            List.of("PSQLException", "BadSqlGrammarException", "does not exist");
+            List.of(
+                    "PSQLException",
+                    "BadSqlGrammarException",
+                    "ERROR: column \"",
+                    "ERROR: relation \"",
+                    "ERROR: null value in column");
 
     private static PostgreSQLContainer<?> postgres;
     private static GenericContainer<?> redis;
@@ -85,7 +90,7 @@ class MigrationCompatibilityIT extends IntegrationTestSupport {
     private static String headJar;
     private static Path logs;
 
-    private record App(String name, Process process, int port, Path log) {
+    private record App(String name, Process process, int port, Path log, String virtualHost) {
         String url(String path) {
             return "http://localhost:" + port + path;
         }
@@ -413,7 +418,8 @@ class MigrationCompatibilityIT extends IntegrationTestSupport {
         env.put("UNIHUB_OBJECT_STORAGE_ACCESS_KEY", MINIO.getUserName());
         env.put("UNIHUB_OBJECT_STORAGE_SECRET_KEY", MINIO.getPassword());
         env.put("UNIHUB_OBJECT_STORAGE_CREATE_BUCKET", "true");
-        env.put("SPRING_RABBITMQ_VIRTUAL_HOST", newVirtualHost(name));
+        var virtualHost = newVirtualHost(name);
+        env.put("SPRING_RABBITMQ_VIRTUAL_HOST", virtualHost);
         env.put("SPRING_RABBITMQ_HOST", broker.getHost());
         env.put("SPRING_RABBITMQ_PORT", String.valueOf(broker.getAmqpPort()));
         env.put("SPRING_RABBITMQ_USERNAME", broker.getAdminUsername());
@@ -421,7 +427,7 @@ class MigrationCompatibilityIT extends IntegrationTestSupport {
         command.redirectErrorStream(true);
         command.redirectOutput(log.toFile());
         var process = command.start();
-        var app = new App(name, process, port, log);
+        var app = new App(name, process, port, log, virtualHost);
 
         long deadline = System.nanoTime() + READY_WITHIN.toNanos();
         while (System.nanoTime() < deadline) {
@@ -491,13 +497,39 @@ class MigrationCompatibilityIT extends IntegrationTestSupport {
         return String.join("\n", lines.subList(Math.max(0, lines.size() - 40), lines.size()));
     }
 
+    /**
+     * A message the application could not process is parked with a WARN and nothing else: no HTTP
+     * status shows it. The parking lot of the run's virtual host must be empty when the run ends,
+     * which also catches a message that leaked in from another run.
+     */
+    private static void assertNothingParked(App app) throws Exception {
+        var queues =
+                broker.execInContainer(
+                        "rabbitmqctl", "list_queues", "-p", app.virtualHost(), "name", "messages");
+        assertThat(queues.getExitCode()).as(queues.getStderr()).isZero();
+        assertThat(queues.getStdout())
+                .as(
+                        "the parking lot exists on the virtual host of %s: an empty listing proves nothing",
+                        app.name())
+                .contains("unihub.parking-lot");
+        var parked =
+                queues.getStdout()
+                        .lines()
+                        .filter(line -> line.startsWith("unihub.parking-lot"))
+                        .map(line -> line.split("\\s+"))
+                        .mapToInt(columns -> Integer.parseInt(columns[1]))
+                        .sum();
+        assertThat(parked).as("messages parked by %s (see %s)", app.name(), app.log()).isZero();
+    }
+
     /** A job that fails against the new schema leaves no HTTP trace; it does leave this. */
-    private static void assertNoSqlErrors(App app) throws IOException {
+    private static void assertNoSqlErrors(App app) throws Exception {
         var log = Files.readString(app.log(), StandardCharsets.UTF_8);
         for (var marker : SQL_ERRORS) {
             assertThat(log)
                     .as("the log of %s (%s) mentions %s", app.name(), app.log(), marker)
                     .doesNotContain(marker);
         }
+        assertNothingParked(app);
     }
 }
