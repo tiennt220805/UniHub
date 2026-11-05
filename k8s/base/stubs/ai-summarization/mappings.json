@@ -1,0 +1,13 @@
+{
+  "mappings": [
+    {
+      "name": "summarize a brochure (multipart upload; any PDF, any key)",
+      "request": { "method": "POST", "urlPath": "/v1/summarize" },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "body": "{\"summary\":\"Tóm tắt do dịch vụ AI giả lập (stub) trong cluster tạo ra; chưa có nhà cung cấp AI thật.\"}"
+      }
+    }
+  ]
+}

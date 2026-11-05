@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: unihub
+  labels: { app: rabbitmq }
+spec:
+  selector: { app: rabbitmq }
+  ports:
+    - { name: tcp-amqp, port: 5672, targetPort: tcp-amqp }
+    - { name: http-management, port: 15672, targetPort: http-management }
+    # rabbitmq_prometheus, scraped by Prometheus (C51)
+    - { name: http-prometheus, port: 15692, targetPort: http-prometheus }

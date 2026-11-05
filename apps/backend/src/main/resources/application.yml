@@ -1,3 +1,11 @@
+# Graceful shutdown (Phase 7 checklist D89, deployment-and-cicd.md §2). On SIGTERM Tomcat stops taking new
+# connections and finishes the requests already in flight, for at most the time below; readiness turns
+# OUT_OF_SERVICE at once. The Kubernetes pod waits 5 s in a preStop hook first, so the Service and the gateway have
+# stopped sending traffic by then: 5 + 20 stays inside terminationGracePeriodSeconds (30). A request that
+# outlives the phase is cut, which is the one case a deploy may cost a client a connection error.
+server:
+  shutdown: graceful
+
 # INV-15 (architecture.md §6.2): schema migration runs exactly once, from a single place, before any
 # application instance starts — never from inside the application itself. Locally that place is
 # `./gradlew flywayMigrate` (build.gradle.kts); in Kubernetes it's the flyway-migrate Job
@@ -7,6 +15,10 @@
 spring:
   flyway:
     enabled: false
+
+  # See `server.shutdown` above: the time Tomcat gets to finish requests in flight.
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
 
   # Hibernate backs the Tier A persistence adapters (backend-coding-standards.md §9.2). It never touches
   # the schema: Flyway owns DDL (INV-15), so ddl-auto is pinned to none instead of left to a default.

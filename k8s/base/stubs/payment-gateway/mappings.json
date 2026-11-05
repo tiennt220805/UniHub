@@ -1,0 +1,63 @@
+{
+  "mappings": [
+    {
+      "name": "create a PaymentIntent (unconfirmed)",
+      "request": { "method": "POST", "urlPath": "/v1/payment_intents" },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "transformers": ["response-template"],
+        "body": "{\"id\":\"pi_{{regexExtract request.headers.Idempotency-Key '[0-9a-f-]{36}'}}\",\"object\":\"payment_intent\",\"status\":\"requires_confirmation\"}"
+      }
+    },
+    {
+      "name": "confirm a PaymentIntent: succeeds at once (the charge resolves from this synchronous answer)",
+      "request": { "method": "POST", "urlPathPattern": "/v1/payment_intents/pi_[0-9a-f-]+/confirm" },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "transformers": ["response-template"],
+        "body": "{\"id\":\"{{request.pathSegments.[2]}}\",\"object\":\"payment_intent\",\"status\":\"succeeded\"}"
+      }
+    },
+    {
+      "name": "retrieve a PaymentIntent: the same status the confirm gave (the reconciliation sweep reads this)",
+      "request": { "method": "GET", "urlPathPattern": "/v1/payment_intents/pi_[0-9a-f-]+" },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "transformers": ["response-template"],
+        "body": "{\"id\":\"{{request.pathSegments.[2]}}\",\"object\":\"payment_intent\",\"status\":\"succeeded\"}"
+      }
+    },
+    {
+      "name": "cancel a PaymentIntent",
+      "request": { "method": "POST", "urlPathPattern": "/v1/payment_intents/pi_[0-9a-f-]+/cancel" },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "transformers": ["response-template"],
+        "body": "{\"id\":\"{{request.pathSegments.[2]}}\",\"object\":\"payment_intent\",\"status\":\"canceled\"}"
+      }
+    },
+    {
+      "name": "list refunds: none exist, so the refund consumer creates one (list-then-create)",
+      "request": { "method": "GET", "urlPath": "/v1/refunds" },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "body": "{\"object\":\"list\",\"url\":\"/v1/refunds\",\"has_more\":false,\"data\":[]}"
+      }
+    },
+    {
+      "name": "create a refund",
+      "request": { "method": "POST", "urlPath": "/v1/refunds" },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "transformers": ["response-template"],
+        "body": "{\"id\":\"re_{{regexExtract request.headers.Idempotency-Key '[0-9a-f-]{36}'}}\",\"object\":\"refund\",\"payment_intent\":\"{{formData request.body 'form' urlDecode=true}}{{form.payment_intent}}\",\"status\":\"succeeded\"}"
+      }
+    }
+  ]
+}

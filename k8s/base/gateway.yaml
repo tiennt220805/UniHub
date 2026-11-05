@@ -1,0 +1,32 @@
+# The single external entry point (architecture.md §1.2): Istio's ingress gateway, configured with Istio's own
+# Gateway and VirtualService (D83; ingress-nginx was retired in March 2026). TLS for unihub.local from a local CA
+# (k8s/scripts/make-local-ca.sh, D97); the Secret `unihub-tls` is created BY HAND in the namespace of the gateway
+# workload (istio-system with the default install), where Istio reads `credentialName` from — not in `unihub`.
+# /api/** goes to the API, everything else to the Web, on the same origin. Task 5.6.
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: unihub-gateway
+  namespace: unihub
+spec:
+  selector: { istio: ingressgateway }
+  servers:
+    - port: { number: 443, name: https, protocol: HTTPS }
+      hosts: ["unihub.local"]
+      tls: { mode: SIMPLE, credentialName: unihub-tls, minProtocolVersion: TLSV1_2 }
+    - port: { number: 80, name: http, protocol: HTTP }
+      hosts: ["unihub.local"]
+      tls: { httpsRedirect: true }
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: unihub
+  namespace: unihub
+spec:
+  hosts: ["unihub.local"]
+  gateways: ["unihub-gateway"]
+  http:
+    - match: [{ uri: { prefix: /api/ } }]
+      route: [{ destination: { host: backend-api-service, port: { number: 8080 } } }]
+    - route: [{ destination: { host: web, port: { number: 8080 } } }]

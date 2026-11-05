@@ -1,0 +1,17 @@
+# overlays/dev: one API instance, no Postgres replica (reads go to the Master, as in docker-compose), the
+# base's sizing. deployment-and-cicd.md §3.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+replicas:
+  - name: backend-api
+    count: 1
+  - name: postgres-replica
+    count: 0
+configMapGenerator:
+  - name: backend-api-config
+    behavior: merge
+    literals:
+      # 0 replicas, so the replica datasource still needs a URL (D87): the Master.
+      - UNIHUB_DATASOURCE_REPLICA_URL=jdbc:postgresql://postgres-master:5432/unihub

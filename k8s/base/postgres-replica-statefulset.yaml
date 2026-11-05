@@ -1,0 +1,89 @@
+# PostgreSQL streaming Replica (INV-03, architecture.md §4.1): the mechanism of ReplicaIntegrationTestSupport
+# (C60, D86). An init container on the same image clones the Master with pg_basebackup --write-recovery-conf
+# (which writes standby.signal and primary_conninfo) into the empty volume; the image's own entrypoint then finds
+# an existing data directory, skips initdb and starts a hot standby. The clone runs only on an empty volume, so a
+# restart does not clone again. Under mesh injection the init container needs the proxy running before it, i.e.
+# native sidecars (Mesh ADR (b), D94). The password reaches pg_basebackup as PGPASSWORD.
+# Scaled to 0 in overlays/dev (reads go to the Master there) and to 1 in overlays/loadtest.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-replica
+  namespace: unihub
+  labels: { app: postgres-replica }
+spec:
+  serviceName: postgres-replica
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres-replica }
+  template:
+    metadata:
+      labels: { app: postgres-replica, app.kubernetes.io/part-of: unihub }
+    spec:
+      terminationGracePeriodSeconds: 60
+      initContainers:
+        - name: basebackup
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              if [ -s "$PGDATA/PG_VERSION" ]; then
+                echo "data directory already holds a cluster; not cloning again"
+                exit 0
+              fi
+              until pg_isready -q -h postgres-master -p 5432 -U "$POSTGRES_USER"; do
+                echo "waiting for postgres-master"; sleep 2
+              done
+              mkdir -p "$PGDATA"
+              chown postgres:postgres "$PGDATA"
+              chmod 700 "$PGDATA"
+              su-exec postgres pg_basebackup \
+                --host=postgres-master --port=5432 --username="$POSTGRES_USER" \
+                --pgdata="$PGDATA" --wal-method=stream --write-recovery-conf \
+                --checkpoint=fast --no-password
+          env:
+            - name: POSTGRES_USER
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_USER } }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_PASSWORD } }
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - { name: tcp-postgres, containerPort: 5432 }
+          env:
+            - name: POSTGRES_USER
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_USER } }
+            - name: POSTGRES_DB
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_DB } }
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: 500m, memory: 1Gi }
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", 'pg_isready -q -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", 'pg_isready -q -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 2Gi } }

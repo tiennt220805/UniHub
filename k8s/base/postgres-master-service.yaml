@@ -1,0 +1,13 @@
+# Governing Service of the StatefulSet: headless, it gives the pod the stable DNS name postgres-master that the
+# ConfigMap's datasource URL and the Flyway Job resolve. Port name `tcp-` keeps Istio from sniffing the protocol.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-master
+  namespace: unihub
+  labels: { app: postgres-master, unihub.io/pre-migration: "true" }
+spec:
+  clusterIP: None
+  selector: { app: postgres-master }
+  ports:
+    - { name: tcp-postgres, port: 5432, targetPort: tcp-postgres }

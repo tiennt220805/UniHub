@@ -35,6 +35,21 @@ jobs:
         with:
           node-version: '20'
       - run: ./gradlew spotlessCheck checkstyleMain bundleApiContract --no-daemon
+      # Phase 7 task 5.2: both overlays must render with the kubectl on the runner (Kustomize with
+      # --load-restrictor LoadRestrictionsNone: the generators read files outside k8s/), and no image-tag placeholder
+      # may survive the Makefile's substitution. The manifests' other static checks run in `unit-test`
+      # (KubernetesManifestsTest).
+      - name: Render the Kubernetes overlays
+        working-directory: .
+        run: |
+          for profile in dev loadtest; do
+            make render PROFILE="$profile" TAG=0000000000000000000000000000000000000000 > "$RUNNER_TEMP/render-$profile.yaml"
+            if grep -q '@IMAGE_TAG@' "$RUNNER_TEMP/render-$profile.yaml"; then
+              echo "an image-tag placeholder survived in the $profile overlay" >&2
+              exit 1
+            fi
+            echo "$profile: $(grep -c '^kind:' "$RUNNER_TEMP/render-$profile.yaml") objects"
+          done
 
   # test + jacocoTestCoverageVerification (Coverage Verification Mechanism ADR, deployment-and-cicd.md
   # §5) — Unit only, no Testcontainers/Docker (`integration-test` below is a separate job).

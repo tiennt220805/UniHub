@@ -1,0 +1,45 @@
+# Redis: the seat lock, the job lock, the rate limiter and the catalog cache (distributed-coordination.md §1).
+# A Deployment, not a StatefulSet: it holds nothing durable (persistence off), and every key has a TTL (C52).
+# Same image as docker-compose.yml (C51). Password from the Secret: with one set the server demands it and so
+# do the probe (REDISCLI_AUTH) and the application (UNIHUB_REDIS_PASSWORD); empty means none, as in compose.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: unihub
+  labels: { app: redis, app.kubernetes.io/part-of: unihub }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis, app.kubernetes.io/part-of: unihub }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7
+          command:
+            - sh
+            - -c
+            - exec redis-server --save "" --appendonly no ${REDIS_PASSWORD:+--requirepass "$REDIS_PASSWORD"}
+          ports:
+            - { name: tcp-redis, containerPort: 6379 }
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: UNIHUB_REDIS_PASSWORD } }
+            - name: REDISCLI_AUTH
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: UNIHUB_REDIS_PASSWORD } }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 250m, memory: 256Mi }
+          readinessProbe:
+            exec: { command: ["redis-cli", "ping"] }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            exec: { command: ["redis-cli", "ping"] }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3

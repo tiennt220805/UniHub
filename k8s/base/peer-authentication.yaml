@@ -1,0 +1,12 @@
+# The mesh's mTLS mode for the whole namespace (Mesh mTLS Mode ADR). No `selector`: it applies to every
+# workload in `unihub`. PERMISSIVE for now — Phase 7 task 7.x switches it to STRICT, one line, after the three
+# preconditions of the ADR are met. Under PERMISSIVE plaintext is still accepted, so §5.4's "no plaintext hop"
+# is not yet enforced.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: unihub
+spec:
+  mtls:
+    mode: PERMISSIVE

@@ -1,0 +1,55 @@
+# RabbitMQ (messaging.md), the image of docker-compose.yml (C51). rabbitmq_prometheus is already enabled in the
+# -management image; the mounted file only turns on the per-queue series the dashboards and the parking-lot alert
+# need (observability/rabbitmq/prometheus.conf, one copy for compose and the cluster). Queues are declared by the
+# application at start-up, so emptyDir is enough: nothing here must survive a pod's deletion.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq
+  namespace: unihub
+  labels: { app: rabbitmq, app.kubernetes.io/part-of: unihub }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: rabbitmq }
+  template:
+    metadata:
+      labels: { app: rabbitmq, app.kubernetes.io/part-of: unihub }
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3.13.7-management
+          ports:
+            - { name: tcp-amqp, containerPort: 5672 }
+            - { name: http-management, containerPort: 15672 }
+            - { name: http-prometheus, containerPort: 15692 }
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: SPRING_RABBITMQ_USERNAME } }
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: SPRING_RABBITMQ_PASSWORD } }
+          volumeMounts:
+            - { name: prometheus-conf, mountPath: /etc/rabbitmq/conf.d/20-prometheus.conf, subPath: prometheus.conf, readOnly: true }
+            - { name: data, mountPath: /var/lib/rabbitmq }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 768Mi }
+          readinessProbe:
+            exec: { command: ["rabbitmq-diagnostics", "-q", "ping"] }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            exec: { command: ["rabbitmq-diagnostics", "-q", "ping"] }
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+      volumes:
+        - name: prometheus-conf
+          configMap: { name: rabbitmq-prometheus-conf }
+        - name: data
+          emptyDir: {}

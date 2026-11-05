@@ -1,0 +1,47 @@
+# MinIO stands in for AWS S3 (workshop.md §4); the image is the digest docker-compose.yml pins (Chainguard build,
+# no shell, no curl: the probes are httpGet). The bucket `unihub-brochures` is made by the application at start-up
+# (UNIHUB_OBJECT_STORAGE_CREATE_BUCKET=true in the ConfigMap), which replaces a bucket-creation Job (D86).
+# emptyDir: the PoC keeps no brochure across a pod's deletion.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: unihub
+  labels: { app: minio, app.kubernetes.io/part-of: unihub }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: minio }
+  template:
+    metadata:
+      labels: { app: minio, app.kubernetes.io/part-of: unihub }
+    spec:
+      containers:
+        - name: minio
+          image: cgr.dev/chainguard/minio@sha256:4692462f35d97d7e82c30371d82f057703c5d9489bcae726010594c812f2d285
+          args: ["server", "/data", "--console-address", ":9001"]
+          ports:
+            - { name: http-s3, containerPort: 9000 }
+            - { name: http-console, containerPort: 9001 }
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: UNIHUB_OBJECT_STORAGE_ACCESS_KEY } }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: UNIHUB_OBJECT_STORAGE_SECRET_KEY } }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 384Mi }
+          readinessProbe:
+            httpGet: { path: /minio/health/ready, port: http-s3 }
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /minio/health/live, port: http-s3 }
+            periodSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: data
+          emptyDir: {}

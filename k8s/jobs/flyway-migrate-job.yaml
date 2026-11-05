@@ -1,0 +1,46 @@
+# The one place the schema is migrated in the cluster, before any API pod starts (INV-15, architecture.md §6.2).
+# Applied by `make migrate` with kubectl, not through Kustomize, so it names its ConfigMap literally
+# (flyway-migrations, generated with disableNameSuffixHash). A Job's spec is immutable: the Makefile deletes the
+# old one first. The pod is sidecar-injected like every pod in `unihub`; with native sidecars (Mesh ADR (b), D94) the
+# proxy stops when Flyway exits and the Job completes. The image is the version of the Gradle plugin (C48).
+# The credentials are declared as env (not envFrom) so the $(VAR) expansion in args has an unambiguous source.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flyway-migrate
+  namespace: unihub
+  labels: { app: flyway-migrate, app.kubernetes.io/part-of: unihub }
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels: { app: flyway-migrate, app.kubernetes.io/part-of: unihub }
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: flyway
+          image: flyway/flyway:13.8.0-alpine
+          args:
+            - "-url=jdbc:postgresql://postgres-master.unihub.svc.cluster.local:5432/$(POSTGRES_DB)"
+            - "-user=$(POSTGRES_USER)"
+            - "-password=$(POSTGRES_PASSWORD)"
+            - "-locations=filesystem:/flyway/sql"
+            # The proxy may not be ready for the first connection; a few retries cost nothing.
+            - "-connectRetries=10"
+            - "migrate"
+          env:
+            - name: POSTGRES_USER
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_USER } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_PASSWORD } }
+            - name: POSTGRES_DB
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_DB } }
+          volumeMounts:
+            - { name: migrations, mountPath: /flyway/sql, readOnly: true }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+      volumes:
+        - name: migrations
+          configMap: { name: flyway-migrations }

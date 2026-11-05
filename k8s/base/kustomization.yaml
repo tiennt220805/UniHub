@@ -1,0 +1,90 @@
+# Every manifest is listed explicitly (Kustomize does not glob), EXCEPT secret.example.yaml, which stays out on
+# purpose (see that file). The base is not deployable on its own — it needs an overlay (replica counts, sizing,
+# the replica datasource URL) — a named departure from Kustomize's usual convention (deployment-and-cicd.md §2).
+# Build with `kubectl kustomize --load-restrictor LoadRestrictionsNone`: the generators read files outside this
+# directory (the migrations, the observability content), which Kustomize refuses by default (C49).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: unihub
+resources:
+  - backend-api-deployment.yaml
+  - backend-api-service.yaml
+  - web-deployment.yaml
+  - web-service.yaml
+  - gateway.yaml
+  - postgres-master-statefulset.yaml
+  - postgres-master-service.yaml
+  - postgres-replica-statefulset.yaml
+  - postgres-replica-service.yaml
+  - redis-deployment.yaml
+  - redis-service.yaml
+  - rabbitmq-deployment.yaml
+  - rabbitmq-service.yaml
+  - minio-deployment.yaml
+  - minio-service.yaml
+  - mailpit-deployment.yaml
+  - mailpit-service.yaml
+  - stubs/payment-gateway-stub.yaml
+  - stubs/ai-summarization-stub.yaml
+  - peer-authentication.yaml
+
+configMapGenerator:
+  # The application's configuration, under the names it actually binds (apps/backend/env.example and
+  # application.yml; Spring's relaxed binding drops `-`, so `api-base` is APIBASE, not API_BASE, C46, D87).
+  # No `kubernetes` profile: `dev` turns on only the account seeder (user.md §10), which the cluster's E2E
+  # accounts need (D86). Secrets are in backend-api-secrets, never here.
+  - name: backend-api-config
+    literals:
+      - SPRING_PROFILES_ACTIVE=dev
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-master:5432/unihub
+      # Reads go here. Always needs a URL: overlays/dev (0 replicas) points it at the Master, as docker-compose does.
+      - UNIHUB_DATASOURCE_REPLICA_URL=jdbc:postgresql://postgres-replica:5432/unihub
+      - UNIHUB_REDIS_ADDRESS=redis://redis:6379
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_PORT=5672
+      - UNIHUB_OBJECT_STORAGE_ENDPOINT=http://minio:9000
+      - UNIHUB_OBJECT_STORAGE_CREATE_BUCKET=true
+      - UNIHUB_NOTIFICATION_SMTP_HOST=mailpit
+      - UNIHUB_NOTIFICATION_SMTP_PORT=1025
+      - UNIHUB_PAYMENT_STRIPE_APIBASE=http://payment-gateway-stub:8080
+      - UNIHUB_AI_SUMMARIZATION_BASE_URL=http://ai-summarization-stub:8080
+      # The links in an email point at the gateway's origin (Web and API share it, D85).
+      - UNIHUB_WEB_BASE_URL=https://unihub.local
+      - MANAGEMENT_SERVER_PORT=8081
+      # MANAGEMENT_OTLP_TRACING_ENDPOINT is added with Tempo in Phase 7 Mục 6 (task 6.1): set now, with no Tempo to
+      # receive it, the exporter logs an ERROR every 10 s (seen in the Docker rehearsal of 2026-11-05).
+  # The migration SQL the Flyway Job mounts (§4). Every file of the migration directory (C47); KubernetesManifestsTest
+  # keeps this list and the directory equal. The Job is applied by kubectl, not through Kustomize, and names this
+  # ConfigMap literally, hence no hash suffix.
+  - name: flyway-migrations
+    files:
+      - ../../apps/backend/src/main/resources/db/migration/V1__initial_schema.sql
+      - ../../apps/backend/src/main/resources/db/migration/V1_1__workshop_paid_price_not_null.sql
+      - ../../apps/backend/src/main/resources/db/migration/V1_2__workshop_text_not_blank.sql
+      - ../../apps/backend/src/main/resources/db/migration/V2__seed_default_roles_permissions.sql
+      - ../../apps/backend/src/main/resources/db/migration/V3__phase2_idempotency_and_payments.sql
+      - ../../apps/backend/src/main/resources/db/migration/V4__seed_registration_permission.sql
+      - ../../apps/backend/src/main/resources/db/migration/V5__notification_dedup_claim_and_inbox.sql
+      - ../../apps/backend/src/main/resources/db/migration/V6__checkin_unresolved_scans_and_organizer_reports.sql
+      - ../../apps/backend/src/main/resources/db/migration/V7__workshop_pending_brochure_key.sql
+      - ../../apps/backend/src/main/resources/db/migration/V8__audit_events_source_message_id.sql
+    options:
+      disableNameSuffixHash: true
+      labels:
+        unihub.io/pre-migration: "true"   # so `make pre-migration` applies it ahead of the rest (§4)
+  - name: postgres-master-initdb
+    files:
+      - postgres/10-replication.sh
+    options:
+      disableNameSuffixHash: true
+      labels:
+        unihub.io/pre-migration: "true"   # the Master's StatefulSet mounts it, so it has to exist with the Master
+  - name: rabbitmq-prometheus-conf
+    files:
+      - prometheus.conf=../../observability/rabbitmq/prometheus.conf
+  - name: payment-gateway-stub-mappings
+    files:
+      - stubs/payment-gateway/mappings.json
+  - name: ai-summarization-stub-mappings
+    files:
+      - stubs/ai-summarization/mappings.json

@@ -257,6 +257,10 @@ tasks.withType<Test> {
 // testClassesDirs (src/test/java's output) never contains `*IT` classes to begin with (separate source set).
 tasks.test {
     exclude("**/*IT.class")
+    // KubernetesManifestsTest (Phase 7 task 5.2) reads these files, which are outside the project: without them
+    // as inputs, editing a manifest and running `test` would report the old result as UP-TO-DATE.
+    inputs.dir("../../k8s").withPropertyName("k8s").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file("../../Makefile").withPropertyName("makefile").withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 // INV-15 (Phase 7 checklist D88, 4.2): MigrationCompatibilityIT starts the application of the commit before the
@@ -281,6 +285,8 @@ tasks.register<Test>("integrationTest") {
     // The dashboards, the alert rules and the datasources are read by the provisioning ITs from outside this
     // project; without this Gradle treats a changed rule as "nothing changed" and skips the test (Phase 6 6.4).
     inputs.dir("../../observability").withPropertyName("observability").withPathSensitivity(PathSensitivity.RELATIVE)
+    // StripeStubMappingsIT serves the payment-gateway stub of the cluster from k8s/base/stubs (Phase 7 task 5.2).
+    inputs.dir("../../k8s").withPropertyName("k8s").withPathSensitivity(PathSensitivity.RELATIVE)
     // Spring caches one application context per distinct test configuration for the whole run, and every
     // context keeps a Hikari pool, a Redisson client, a Tomcat and a listener container alive. Phase 4 took the
     // suite past what Gradle's default 512 MB test worker holds (OutOfMemoryError in the netty/Tomcat poller

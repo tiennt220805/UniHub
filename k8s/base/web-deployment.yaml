@@ -1,0 +1,44 @@
+# The Web Application: static files behind nginx-unprivileged, same origin as the API (D85). The image is the
+# one CI built with VITE_PAYMENT_TEST_MODE=true (the payment gateway here is a stub, D86).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: unihub
+  labels: { app: web, app.kubernetes.io/part-of: unihub }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: web }
+  template:
+    metadata:
+      labels: { app: web, app.kubernetes.io/part-of: unihub }
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: web
+          image: thanhtien2208/unihub-web:@IMAGE_TAG@
+          ports:
+            - { name: http, containerPort: 8080 }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec: { command: ["sleep", "5"] }

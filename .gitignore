@@ -39,3 +39,8 @@ Desktop.ini
 # Security scan reports (CI artifacts only, never committed — test-strategy.md §6)
 dc-report/
 dc-data/
+
+# ------------------------------------------
+# Local Kubernetes (Phase 7): the local CA and its private keys, made by k8s/scripts/make-local-ca.sh
+# ------------------------------------------
+k8s/.local-ca/

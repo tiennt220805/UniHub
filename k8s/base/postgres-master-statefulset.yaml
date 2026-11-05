@@ -1,0 +1,65 @@
+# PostgreSQL Master: stable identity and its own volume (requirement.md §3.3). database-schema.md owns the schema.
+# The postgres image reads POSTGRES_* (C57). The initdb script adds the one pg_hba.conf line a standby needs
+# (the image's default has no remote `replication` entry); it runs only when the data directory is first created,
+# so a pod recreated on the same volume keeps its data and its pg_hba.conf.
+# Applied BEFORE the Flyway Job (label unihub.io/pre-migration, deployment-and-cicd.md §4).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-master
+  namespace: unihub
+  labels: { app: postgres-master, unihub.io/pre-migration: "true" }
+spec:
+  serviceName: postgres-master
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres-master }
+  template:
+    metadata:
+      labels: { app: postgres-master, app.kubernetes.io/part-of: unihub }
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - { name: tcp-postgres, containerPort: 5432 }
+          env:
+            - name: POSTGRES_USER
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_USER } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_PASSWORD } }
+            - name: POSTGRES_DB
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_DB } }
+            # A subdirectory of the mount: a freshly provisioned volume can hold lost+found, which initdb refuses.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+            - { name: initdb, mountPath: /docker-entrypoint-initdb.d, readOnly: true }
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: 500m, memory: 1Gi }
+          # The Makefile's `pre-migration` still waits on pg_isready itself; this probe is what keeps the Service
+          # (and so the Flyway Job and the API) from reaching a Master that is not accepting connections yet.
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", 'pg_isready -q -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", 'pg_isready -q -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+      volumes:
+        - name: initdb
+          configMap: { name: postgres-master-initdb, defaultMode: 0755 }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 2Gi } }

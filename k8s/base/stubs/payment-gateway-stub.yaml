@@ -1,0 +1,57 @@
+# Payment Gateway (Stripe) stub: WireMock with the mappings under stubs/payment-gateway (create, confirm,
+# retrieve, cancel, list and create refund — the calls StripePaymentGateway makes). The charge resolves from the
+# synchronous confirm and the reconciliation sweep, so no signed webhook is needed (D86). Response templating is
+# on: the intent id comes from the Idempotency-Key the application sends, so a retried create answers the same
+# object, as Stripe does.
+# Image = the WireMock version of the integration tests (build.gradle.kts), so a mapping that passes there behaves
+# the same here. Mappings are a ConfigMap generated from stubs/payment-gateway/mappings.json.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-gateway-stub
+  namespace: unihub
+  labels: { app: payment-gateway-stub, app.kubernetes.io/part-of: unihub }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: payment-gateway-stub }
+  template:
+    metadata:
+      labels: { app: payment-gateway-stub, app.kubernetes.io/part-of: unihub }
+    spec:
+      containers:
+        - name: wiremock
+          image: wiremock/wiremock:3.13.2
+          args: ["--global-response-templating", "--disable-banner"]
+          ports:
+            - { name: http, containerPort: 8080 }
+          env:
+            - { name: JAVA_OPTS, value: "-Xmx128m" }
+          volumeMounts:
+            - { name: mappings, mountPath: /home/wiremock/mappings, readOnly: true }
+          resources:
+            requests: { cpu: 50m, memory: 192Mi }
+            limits: { cpu: 500m, memory: 320Mi }
+          readinessProbe:
+            httpGet: { path: /__admin/health, port: http }
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: { path: /__admin/health, port: http }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+      volumes:
+        - name: mappings
+          configMap: { name: payment-gateway-stub-mappings }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-gateway-stub
+  namespace: unihub
+  labels: { app: payment-gateway-stub }
+spec:
+  selector: { app: payment-gateway-stub }
+  ports:
+    - { name: http, port: 8080, targetPort: http }

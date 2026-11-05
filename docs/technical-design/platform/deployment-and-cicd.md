@@ -301,54 +301,13 @@ k8s/
 
 **Observability stack — the content exists, the manifests do not (Phase 6 checklist C43, 2026-11-02; content written 2026-11-03/04).** `architecture.md` §1.2 lists the Observability Stack as a Core Component and precondition (c) above assumes Prometheus, Grafana and Tempo run in the cluster, but the tree above has no manifest for them. Their **content** is written (Phase 6) at **`observability/` in the repository root** and used by docker-compose (`observability.md` §8): the Grafana datasources, three dashboards (`observability/grafana/dashboards/`), the 22 alert rules (`observability/grafana/provisioning/alerting/unihub-rules.yml`), Tempo's configuration, the broker's per-queue metrics setting and a compose-only Prometheus scrape configuration. `AuditAlertIT` mounts the same Grafana files into a real Grafana, so the content is proven to load; a Kubernetes cluster has not seen it. **Decided for Phase 7 (checklist D99):** `k8s/observability/` holds the Deployments/Services of Prometheus, Grafana and Tempo in the injected namespace `unihub-observability` (Mesh ADR (c)), a Kubernetes-specific Prometheus scrape configuration (`kubernetes_sd_configs` on pod annotations, mTLS with the sidecar's certificates), and a `configMapGenerator` reading `../../observability/` (allowed by `--load-restrictor LoadRestrictionsNone`, §7) — so one copy of the content serves both. Grafana's admin password comes from a Secret created by hand; no contact point is configured (an owner decision, `observability.md` §6). The backend's `MANAGEMENT_OTLP_TRACING_ENDPOINT` points at Tempo.
 
-`base/kustomization.yaml` is what actually ties the files above into one applied resource set — every manifest is listed explicitly, **except** `secret.example.yaml`, which is deliberately left out — and it also carries the `configMapGenerator` for the Flyway migrations (§4). Kustomize does not glob, so each new migration file is added to that `files:` list as part of adding the migration:
+**Since Phase 7 task 5.2 (2026-11-05) the files under `k8s/` are the authority for the manifests; the blocks in this section show only what explains a decision.** `base/kustomization.yaml` ties the files above into one resource set: every manifest is listed explicitly (Kustomize does not glob), **except** `secret.example.yaml`, which is deliberately left out. A Secret in `resources:` would be applied with the literal placeholder `<injected at runtime>` as its values; leaving it out guarantees `kubectl apply -k` (any overlay) never creates one, and the real Secret only ever comes from `k8s/scripts/create-secrets.sh`. It also carries the generators:
 
-```yaml
-# k8s/base/kustomization.yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-  - backend-api-deployment.yaml
-  - backend-api-service.yaml
-  - ingress.yaml
-  - postgres-master-statefulset.yaml
-  - postgres-master-service.yaml
-  - postgres-replica-statefulset.yaml
-  - postgres-replica-service.yaml
-  - redis-deployment.yaml
-  - redis-service.yaml
-  - rabbitmq-deployment.yaml
-  - rabbitmq-service.yaml
-  - minio-deployment.yaml
-  - minio-service.yaml
-  - peer-authentication.yaml
-  - configmap.yaml
-  # … plus web-*, gateway.yaml, mailpit-*, stubs/ (Phase 7 checklist D83, D85, D86)
-configMapGenerator:                    # the migration SQL the Flyway Job mounts (§4)
-  - name: flyway-migrations
-    files:                             # every file in the migration directory (C47); a static test keeps the two equal
-      - ../../apps/backend/src/main/resources/db/migration/V1__initial_schema.sql
-      - ../../apps/backend/src/main/resources/db/migration/V1_1__workshop_paid_price_not_null.sql
-      - ../../apps/backend/src/main/resources/db/migration/V1_2__workshop_text_not_blank.sql
-      - ../../apps/backend/src/main/resources/db/migration/V2__seed_default_roles_permissions.sql
-      - ../../apps/backend/src/main/resources/db/migration/V3__phase2_idempotency_and_payments.sql
-      - ../../apps/backend/src/main/resources/db/migration/V4__seed_registration_permission.sql
-      - ../../apps/backend/src/main/resources/db/migration/V5__notification_dedup_claim_and_inbox.sql
-      - ../../apps/backend/src/main/resources/db/migration/V6__checkin_unresolved_scans_and_organizer_reports.sql
-      - ../../apps/backend/src/main/resources/db/migration/V7__workshop_pending_brochure_key.sql
-      - ../../apps/backend/src/main/resources/db/migration/V8__audit_events_source_message_id.sql
-    options:
-      disableNameSuffixHash: true      # the Job is applied outside Kustomize and names this ConfigMap literally
-      labels:
-        unihub.io/pre-migration: "true"  # so `make pre-migration` can apply it ahead of the rest (§4)
-# secret.example.yaml is intentionally absent from this list — it is a
-# committed template only (placeholder stringData, shown below). Leaving it
-# out of `resources:` is what guarantees `kubectl apply -k` (any overlay)
-# never creates a Secret whose values are the literal string
-# "<injected at runtime>" — the real Secret only ever comes from the
-# imperative `kubectl create secret generic backend-api-secrets ...`
-# command shown below, never from a file kustomize/kubectl reads.
-```
+- `backend-api-config` — the application's configuration, as literals under the names the application binds (below).
+- `flyway-migrations` — every file of the migration directory (§4), with `disableNameSuffixHash` because the Job is applied by `kubectl` and names the ConfigMap literally. Each new migration file is added to this `files:` list as part of adding the migration; `KubernetesManifestsTest` fails until it is (C47).
+- `postgres-master-initdb` (the one `pg_hba.conf` line a standby needs), `rabbitmq-prometheus-conf` (read from `observability/rabbitmq/prometheus.conf`: one copy for compose and the cluster) and the two stubs' mappings.
+
+Build with `kubectl kustomize --load-restrictor LoadRestrictionsNone`: the generators read files outside `k8s/`, which Kustomize refuses by default (C49). **Images:** ours are `thanhtien2208/unihub-backend:@IMAGE_TAG@` and `thanhtien2208/unihub-web:@IMAGE_TAG@` — a placeholder the Makefile replaces with the commit SHA (`make deploy-dev TAG=<sha>`, §4), so a base applied without that step fails (an invalid image name) instead of quietly running `latest` (D84). Third-party images are pinned to a tag or digest and are the ones of `docker-compose.yml` (C51); a static test rejects `latest` and an untagged image.
 
 `namespace.yaml` carries the mesh-injection label required by `architecture.md` §5.4 — every pod created inside this namespace picks up an Envoy sidecar automatically, with no per-Deployment annotation needed:
 
@@ -376,191 +335,48 @@ spec:
 
 Injection on its own does not decide this: with no object at all Istio's default is also permissive. The object is kept so the intent is explicit and the later switch is one line. Under `PERMISSIVE` plaintext connections are still accepted, so `architecture.md` §5.4's "no plaintext hop" is not yet enforced.
 
-`base/backend-api-deployment.yaml` — the base carries a conservative default; §3's overlays patch `replicas` and `resources` per profile:
+`base/backend-api-deployment.yaml` — the base carries the sizing of `overlays/dev`; `overlays/loadtest` patches replicas and resources (§3). What the file decides:
 
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: backend-api
-  namespace: unihub
-spec:
-  replicas: 1  # base default only — always overridden by an overlay (§3)
-  selector:
-    matchLabels: { app: backend-api }
-  template:
-    metadata:
-      labels: { app: backend-api }
-    spec:
-      containers:
-        - name: backend-api
-          image: unihub/unihub-backend:latest  # tag pinned per-deploy via `kustomize edit set image` (§7)
-          ports:
-            - containerPort: 8080
-            # Actuator is on its own port, never on the API port (Phase 6 checklist D64): the probes and the
-            # Prometheus scrape use it, the Ingress and the API Service do not publish it.
-            - containerPort: 8081
-              name: management
-          envFrom:
-            - configMapRef: { name: backend-api-config }
-            - secretRef: { name: backend-api-secrets }
-          resources:
-            requests: { cpu: "250m", memory: "512Mi" }  # base default only — patched per overlay (§3)
-            limits:   { cpu: "500m", memory: "768Mi" }
-          readinessProbe:
-            httpGet: { path: /actuator/health/readiness, port: management }
-            initialDelaySeconds: 15
-            periodSeconds: 10
-            failureThreshold: 3        # explicit, not the Kubernetes default (Phase 7 checklist D89)
-          livenessProbe:
-            httpGet: { path: /actuator/health/liveness, port: management }
-            initialDelaySeconds: 30
-            periodSeconds: 15
-            failureThreshold: 3
-          lifecycle:
-            # The Endpoint controller and the gateway need a moment to stop sending traffic to a
-            # terminating pod; Tomcat's graceful shutdown (server.shutdown: graceful, 20 s per
-            # phase) then finishes the requests already in flight (D89).
-            preStop:
-              exec: { command: ["sleep", "5"] }
-      terminationGracePeriodSeconds: 30
-```
+- **Ports and Service.** 8080 (`http`) and 8081 (`management`). The Service `backend-api-service` publishes only 8080 (`KubernetesManifestsTest` checks it): no route, inside or outside the mesh, reaches `/actuator` through it; Prometheus will scrape the pod directly (Phase 7 Mục 6).
+- **Probes.** A `startupProbe` on the liveness path (every 5 s, `failureThreshold: 30`, up to 150 s) holds readiness and liveness back, so no `initialDelaySeconds` has to be guessed: a start takes 11–20 s and readiness reads `OUT_OF_SERVICE` for a few seconds before `UP` (task 1.2). Readiness (every 5 s) and liveness (every 10 s) have `failureThreshold: 3`, written down, not defaulted (D89). All three use the `management` port.
+- **Shutdown.** `preStop: sleep 5` lets the Endpoints controller and the gateway stop sending traffic to a terminating pod; `server.shutdown: graceful` and `spring.lifecycle.timeout-per-shutdown-phase: 20s` (in `application.yml`) then let Tomcat finish the requests in flight; `terminationGracePeriodSeconds: 30`. 5 + 20 fits in 30, and the static test checks that inequality against the real values of both files.
+- **Resources.** requests 200m / 512Mi, limits 500m / 1Gi. **Measured** on 2026-11-05 (the image of `1d689d8`, this Deployment's environment, Docker, no sidecar): 583 MiB right after start-up and 621 MiB after one paid registration, with the heap at 75% of the limit (`JAVA_TOOL_OPTIONS`): the 768 Mi this document had before left no room for the rest of the process. Under load it is not measured (task 5.7).
+- **Security context.** Runs as `10001`, `runAsNonRoot`, all capabilities dropped, no privilege escalation, `RuntimeDefault` seccomp. A read-only root filesystem is not set (not tried).
+- **Configuration.** `envFrom` the ConfigMap `backend-api-config` and the Secret `backend-api-secrets`.
 
 Probe paths and the Liveness/Readiness split (process-alive vs. PostgreSQL-Master connectivity — `observability.md`'s Readiness Composition ADR; Redis and RabbitMQ are deliberately not Readiness conditions) are `observability.md`'s design, reused here only as the concrete `httpGet` wiring the Deployment spec needs.
 
-`base/configmap.yaml` and `base/secret.example.yaml` are **shape-only** — key names, never real values, per `CLAUDE.md`'s non-negotiable invariant that secrets are never committed:
+The `backend-api-config` literals in `base/kustomization.yaml` and `base/secret.example.yaml` are **shape-only** — key names, never real values, per `CLAUDE.md`'s non-negotiable invariant that secrets are never committed. The names are the ones the application actually reads (`apps/backend/env.example` and `application.yml`; corrected 2026-11-05, Phase 7 checklist C46, D87 — an earlier draft used `DB_HOST`, `REDIS_HOST`, `S3_ENDPOINT`, which nothing binds):
 
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: backend-api-config
-  namespace: unihub
-# Key names are the ones the application actually reads — apps/backend/env.example and
-# application.yml (corrected 2026-11-05, Phase 7 checklist C46, D87; an earlier version used
-# DB_HOST/REDIS_HOST/S3_ENDPOINT, which nothing binds). No `kubernetes` profile: `dev` turns on
-# only the account seeder (user.md §10), which the cluster's E2E accounts need (D86).
-data:
-  SPRING_PROFILES_ACTIVE: "dev"
-  SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-master:5432/unihub"
-  # The replica datasource always needs a URL: overlays/dev (0 replicas) points it at the Master,
-  # as docker-compose does; overlays/loadtest at postgres-replica.
-  UNIHUB_DATASOURCE_REPLICA_URL: "jdbc:postgresql://postgres-replica:5432/unihub"
-  UNIHUB_REDIS_ADDRESS: "redis://redis:6379"
-  SPRING_RABBITMQ_HOST: "rabbitmq"
-  UNIHUB_OBJECT_STORAGE_ENDPOINT: "http://minio:9000"
-  UNIHUB_OBJECT_STORAGE_CREATE_BUCKET: "true"      # replaces a bucket-creation Job (D86)
-  UNIHUB_NOTIFICATION_SMTP_HOST: "mailpit"         # required; the in-cluster Mailpit (D86)
-  UNIHUB_NOTIFICATION_SMTP_PORT: "1025"
-  UNIHUB_PAYMENT_STRIPE_APIBASE: "http://payment-gateway-stub:8080"    # unihub.payment.stripe.api-base; WireMock (D86)
-  UNIHUB_AI_SUMMARIZATION_BASE_URL: "http://ai-summarization-stub:8080"
-  MANAGEMENT_SERVER_PORT: "8081"
-  MANAGEMENT_OTLP_TRACING_ENDPOINT: "http://tempo.unihub-observability:4318/v1/traces"
-  # Spring's relaxed binding maps an environment variable's `_` to `.` and drops `-`, so
-  # `api-base` is APIBASE, not API_BASE. A static test (Phase 7 task 5.2) checks that every variable
-  # required at startup is in this ConfigMap or secret.example.yaml.
----
-# secret.example.yaml — committed as a template, never as `secret.yaml` with real values;
-# `.gitignore` excludes any locally-generated `secret.yaml`. Real values are created via
-# k8s/scripts/create-secrets.sh, which reads each value from the environment of whoever runs it
-# (the ticket key from apps/backend/scripts/generate-ticket-key.sh) and runs
-# `kubectl create secret generic backend-api-secrets ... -n unihub`; no value is ever written to a
-# file that could be committed (Phase 7 checklist D87).
-apiVersion: v1
-kind: Secret
-metadata:
-  name: backend-api-secrets
-  namespace: unihub
-type: Opaque
-stringData:
-  SPRING_DATASOURCE_USERNAME: "<injected at runtime>"
-  SPRING_DATASOURCE_PASSWORD: "<injected at runtime>"
-  UNIHUB_DATASOURCE_REPLICA_USERNAME: "<injected at runtime>"
-  UNIHUB_DATASOURCE_REPLICA_PASSWORD: "<injected at runtime>"
-  POSTGRES_USER: "<injected at runtime>"        # read by the postgres image (C57)
-  POSTGRES_PASSWORD: "<injected at runtime>"
-  POSTGRES_DB: "unihub"
-  SPRING_RABBITMQ_USERNAME: "<injected at runtime>"
-  SPRING_RABBITMQ_PASSWORD: "<injected at runtime>"
-  UNIHUB_REDIS_PASSWORD: "<injected at runtime>"
-  UNIHUB_SECURITY_JWT_SECRET: "<injected at runtime>"
-  UNIHUB_PAYMENT_STRIPE_SECRETKEY: "<injected at runtime>"    # unihub.payment.stripe.secret-key; any value: the gateway is a stub
-  # UNIHUB_PAYMENT_STRIPE_WEBHOOK_SECRET is deliberately absent on the cluster: with none, every
-  # payment webhook is refused. The charge resolves from the synchronous confirm and the
-  # reconciliation sweep, so the stub needs no signed webhook (D86).
-  UNIHUB_OBJECT_STORAGE_ACCESS_KEY: "<injected at runtime>"
-  UNIHUB_OBJECT_STORAGE_SECRET_KEY: "<injected at runtime>"
-  UNIHUB_DEV_SEED_STUDENT_PASSWORD: "<injected at runtime>"   # seeded accounts (user.md §10)
-  UNIHUB_NOTIFICATION_SMTP_USERNAME: "<injected at runtime>"   # Phase 4 checklist D36
-  UNIHUB_NOTIFICATION_SMTP_PASSWORD: "<injected at runtime>"
-  # Private EC P-256 JWK that signs QR e-tickets; required at startup, read by the Registration
-  # module only (checkin.md §4; Phase 5 checklist D49). Rotation = replace + restart (break-glass).
-  UNIHUB_TICKET_SIGNING_KEY: "<injected at runtime>"
-  UNIHUB_AI_SUMMARIZATION_API_KEY: "<injected at runtime>"   # Phase 5 checklist D60; empty until a provider is chosen
-```
+- **No `kubernetes` profile.** `SPRING_PROFILES_ACTIVE=dev` turns on only the account seeder (`user.md` §10), which the cluster's E2E accounts need (D86); `ProfileGatedBeansTest` keeps `DevStudentSeedRunner` the only bean that profile switches on.
+- **Datasources.** `SPRING_DATASOURCE_URL` is `postgres-master`; `UNIHUB_DATASOURCE_REPLICA_URL` is `postgres-replica` in the base and is merged to `postgres-master` by `overlays/dev` (0 replicas, D87). Username and password are Secret keys for both.
+- **Backing services** by their Service names: `UNIHUB_REDIS_ADDRESS=redis://redis:6379` (password in the Secret), `SPRING_RABBITMQ_HOST=rabbitmq`, `UNIHUB_OBJECT_STORAGE_ENDPOINT=http://minio:9000` with `…_CREATE_BUCKET=true` (replaces a bucket-creation Job, D86), `UNIHUB_NOTIFICATION_SMTP_HOST=mailpit`, `UNIHUB_PAYMENT_STRIPE_APIBASE=http://payment-gateway-stub:8080`, `UNIHUB_AI_SUMMARIZATION_BASE_URL=http://ai-summarization-stub:8080`, `UNIHUB_WEB_BASE_URL=https://unihub.local` (the links in an email point at the gateway's origin).
+- **Spelling.** Spring maps an environment variable's `_` to `.` and drops a `-` of the property name: `secret-key` is `UNIHUB_PAYMENT_STRIPE_SECRETKEY`, `api-base` is `…_APIBASE`; the manifests use that documented form. Measured with Boot 3.3.5 (`EnvironmentVariableBindingTest`, which hands the real manifest names to Spring's own binder): the underscore form (`…_SECRET_KEY`, as `StripeProperties`' Javadoc writes it) binds as well, by Boot's legacy mapping. The first draft of this document said it does not; that was wrong, and the test now pins both facts.
+- **Not set on purpose.** `UNIHUB_PAYMENT_STRIPE_WEBHOOK_SECRET`: with none, every payment webhook is refused; the charge resolves from the synchronous confirm and the reconciliation sweep, so the stub needs no signed webhook (D86). `MANAGEMENT_OTLP_TRACING_ENDPOINT`: set until Tempo exists (task 6.1) it makes the exporter log an `ERROR` every 10 s (seen in the Docker rehearsal of 2026-11-05).
+- **The Secret.** `secret.example.yaml` lists the keys; the real Secret is made by `k8s/scripts/create-secrets.sh` (`make secrets`), which reads each value from the environment of whoever runs it and makes up a random one for a credential that is not set (the ticket key from `apps/backend/scripts/generate-ticket-key.sh`; the Stripe key is `stub-` plus random characters, so no literal that looks like a Stripe key is ever in the repository). No value is printed or written to a file in the repository, and the values reach `kubectl` through a private temporary file, not its command line. It refuses to replace an existing Secret: the postgres image reads `POSTGRES_PASSWORD` only when it first creates its data directory, so a new password would lock the application out of the existing volume, and a new ticket key makes every issued ticket stop verifying (`--replace` exists, with that warning at the top of the script). The seeded accounts' passwords are Secret keys too (`UNIHUB_DEV_SEED_*_PASSWORD`, one per role, `user.md` §10).
+- **Static checks** (`KubernetesManifestsTest`): every variable the application needs at start-up is in the ConfigMap or the template (AC87.1); no name is in both, and the ConfigMap holds no name that looks like a credential; the template holds only placeholders; the script writes exactly the template's keys; every `secretKeyRef` key and ConfigMap a workload refers to exists.
 
-`base/postgres-master-statefulset.yaml` gives PostgreSQL the stable identity and persistent storage `docs/requirement.md` §3.3 requires; `database-schema.md` owns everything about the schema this instance holds, not this document:
-
-```yaml
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: postgres-master
-  namespace: unihub
-  labels: { unihub.io/pre-migration: "true" }   # applied before the Flyway Job runs (§4)
-spec:
-  serviceName: postgres-master
-  replicas: 1
-  selector:
-    matchLabels: { app: postgres-master }
-  template:
-    metadata:
-      labels: { app: postgres-master }
-    spec:
-      containers:
-        - name: postgres
-          image: postgres:16-alpine
-          ports: [{ containerPort: 5432 }]
-          env:                                 # the postgres image reads POSTGRES_* (C57)
-            - name: POSTGRES_USER
-              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_USER } }
-            - name: POSTGRES_PASSWORD
-              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_PASSWORD } }
-            - name: POSTGRES_DB
-              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_DB } }
-          volumeMounts:
-            - name: data
-              mountPath: /var/lib/postgresql/data
-          resources:
-            requests: { cpu: "250m", memory: "512Mi" }  # base default only — patched per overlay (§3)
-            limits:   { cpu: "500m", memory: "1Gi" }
-  volumeClaimTemplates:
-    - metadata: { name: data }
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources: { requests: { storage: "2Gi" } }  # base default only — patched per overlay (§3)
-```
+`base/postgres-master-statefulset.yaml` gives PostgreSQL the stable identity and persistent storage `docs/requirement.md` §3.3 requires; `database-schema.md` owns everything about the schema this instance holds, not this document. It reads `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` from the Secret (the postgres image reads those, C57); `PGDATA` is a subdirectory of the volume (a freshly provisioned volume can hold `lost+found`, which `initdb` refuses); a ConfigMap mounted in `/docker-entrypoint-initdb.d` appends `host replication all all scram-sha-256` to `pg_hba.conf` (the image's default has no remote `replication` entry; the script runs once, when the data directory is created, so a pod recreated on the same volume keeps its data); readiness and liveness are `pg_isready` — readiness keeps the Service, and with it the Flyway Job and the API, from reaching a Master that does not accept connections yet. Requests 250m / 512Mi, limits 500m / 1Gi, a 2 Gi volume. The postgres image starts as root and drops to `postgres` itself, so this pod has no `runAsNonRoot`. It carries the label `unihub.io/pre-migration`: it is applied before the Flyway Job (§4).
 
 `postgres-master`'s `spec.serviceName` above requires a governing Service of that exact name to exist — this is what gives the StatefulSet's pod(s) the stable network identity `docs/requirement.md` §3.3 requires, and it's the same name the Flyway Job (§4) and the ConfigMap's `SPRING_DATASOURCE_URL` (above) resolve against. It's headless (`clusterIP: None`) because a StatefulSet's governing Service exists to provide per-pod DNS records, not a single load-balanced ClusterIP:
 
 ```yaml
-# base/postgres-master-service.yaml
+# Governing Service of the StatefulSet: headless, it gives the pod the stable DNS name postgres-master that the
+# ConfigMap's datasource URL and the Flyway Job resolve. Port name `tcp-` keeps Istio from sniffing the protocol.
 apiVersion: v1
 kind: Service
 metadata:
   name: postgres-master
   namespace: unihub
-  labels: { unihub.io/pre-migration: "true" }   # applied before the Flyway Job runs (§4)
+  labels: { app: postgres-master, unihub.io/pre-migration: "true" }
 spec:
   clusterIP: None
-  selector:
-    app: postgres-master
+  selector: { app: postgres-master }
   ports:
-    - port: 5432
-      targetPort: 5432
+    - { name: tcp-postgres, port: 5432, targetPort: tcp-postgres }
 ```
 
-`base/postgres-replica-statefulset.yaml` mirrors the Master's StatefulSet (same `resources` block, same volume claim shape) with streaming replication against `postgres-master`. **Mechanism (Phase 7 checklist C60, D86):** the same one the integration tests use (`ReplicaIntegrationTestSupport`): an init container on `postgres:16-alpine` clones the Master with `pg_basebackup --write-recovery-conf` (which writes `standby.signal` and `primary_conninfo`) into an empty data volume, and the image's own entrypoint then starts a hot standby; the Master gets a `replication` entry in `pg_hba.conf`. Under mesh injection that init container needs the proxy running before it, i.e. native sidecars (Mesh ADR (b)). The StatefulSet is — present in the base for completeness of the topology, but scaled to zero replicas in `overlays/dev` and to 1+ in `overlays/loadtest` (§3), since a lone developer iterating locally has no read-traffic volume to split. `base/postgres-replica-service.yaml` mirrors the Master's headless Service identically, with `name: postgres-replica` and `selector: { app: postgres-replica }` — the Backend API's read-routing datasource (`architecture.md` §4.1) resolves reads against this name, writes against `postgres-master` above.
+`base/postgres-replica-statefulset.yaml` mirrors the Master's StatefulSet (same resources, same volume claim shape) with streaming replication against `postgres-master`. **Mechanism (Phase 7 checklist C60, D86):** the same one the integration tests use (`ReplicaIntegrationTestSupport`): an init container on `postgres:16-alpine` waits for the Master, then clones it with `pg_basebackup --write-recovery-conf` (which writes `standby.signal` and `primary_conninfo`) into the empty data volume — and does nothing when the volume already holds a cluster, so a restart does not clone again — and the image's own entrypoint then starts a hot standby. The Master has the `replication` entry in `pg_hba.conf` (above). Under mesh injection that init container needs the proxy running before it, i.e. native sidecars (Mesh ADR (b)). **Run under Docker on 2026-11-05 with the committed scripts:** the Master's `pg_stat_replication` shows the standby `streaming`; a row written on the Master is read on the replica; a write on the replica is refused (`cannot execute INSERT in a read-only transaction`); the init container run a second time prints that it will not clone again. In a cluster it is task 5.7. The StatefulSet is present in the base for completeness of the topology, but scaled to zero replicas in `overlays/dev` and to 1 in `overlays/loadtest` (§3), since a lone developer iterating locally has no read-traffic volume to split. `base/postgres-replica-service.yaml` mirrors the Master's headless Service, with `name: postgres-replica` and `selector: { app: postgres-replica }` — the Backend API's read-routing datasource (`architecture.md` §4.1) resolves reads against this name, writes against `postgres-master` above.
 
 `base/gateway.yaml` is the single external entry point (`architecture.md` §1.2). **Corrected 2026-11-05 (Phase 7 checklist D83, C50):** the earlier `Ingress` for ingress-nginx (with the deprecated `kubernetes.io/ingress.class` annotation) is replaced by **Istio's ingress gateway** — ingress-nginx was retired by Kubernetes SIG Network in March 2026 — configured with Istio's own `Gateway` and `VirtualService` (no Gateway API CRDs to install). `requirement.md` §3.3 names "an Ingress (e.g., Nginx Ingress)"; the gateway fills that role. It terminates TLS for `unihub.local` with a certificate from a local CA (`k8s/scripts/make-local-ca.sh`, `openssl`; the Secret is created by hand and never committed — D97), redirects HTTP to HTTPS, and routes `/api/**` to the API and everything else to the Web on the same origin:
 
@@ -598,47 +414,13 @@ The gateway also starts the W3C trace (`traceparent`), sampled at 10% through Is
 
 Redis, RabbitMQ, and MinIO each get a base `Deployment` + `Service` pair (Redis as a `Deployment`: it holds nothing durable — `distributed-coordination.md` §1, corrected C52), each using the same image and version as `apps/backend/docker-compose.yml` (§6's "same images" guarantee, C51), each following `distributed-coordination.md` §1's single-instance-PoC topology, `messaging.md`'s broker configuration, and `../modules/workshop.md`'s MinIO-as-S3-substitute decision respectively — this document only wires them into the same namespace and mesh, it does not redesign any of the three. Their Deployments carry the same `app: <name>` pod-template label the Backend API's Deployment does (§2, above); each Service below selects on that same label, which is what makes the ConfigMap's `UNIHUB_REDIS_ADDRESS`/`SPRING_RABBITMQ_HOST`/`UNIHUB_OBJECT_STORAGE_ENDPOINT` values (above) resolvable at all:
 
-```yaml
-# base/redis-service.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: redis
-  namespace: unihub
-spec:
-  selector: { app: redis }
-  ports:
-    - port: 6379
-      targetPort: 6379
----
-# base/rabbitmq-service.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: rabbitmq
-  namespace: unihub
-spec:
-  selector: { app: rabbitmq }
-  ports:
-    - port: 5672
-      targetPort: 5672
-    - port: 15672
-      targetPort: 15672
-    - port: 15692          # rabbitmq_prometheus, scraped by Prometheus (C51)
-      targetPort: 15692
----
-# base/minio-service.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: minio
-  namespace: unihub
-spec:
-  selector: { app: minio }
-  ports:
-    - port: 9000
-      targetPort: 9000
-```
+Each Service selects on its Deployment's `app: <name>` label and names its ports with Istio's protocol prefix (`tcp-redis`, `tcp-amqp`, `http-management`, `http-prometheus`, `http-s3`, `tcp-smtp`, `tcp-postgres`), so that the sidecar does not have to sniff a protocol; the `rabbitmq` Service has the 15692 port that Prometheus scrapes (C51). Details the files carry, each checked by running the image on 2026-11-05:
+
+- **Redis** starts `redis-server --save "" --appendonly no`, and with `--requirepass` when `UNIHUB_REDIS_PASSWORD` is not empty; the probe is `redis-cli ping` with `REDISCLI_AUTH` from the same Secret key (a probe without it gets `WRONGPASS`).
+- **RabbitMQ** keeps its data in an `emptyDir` (the application declares its queues at start-up; nothing here must outlive the pod) and mounts `observability/rabbitmq/prometheus.conf` for the per-queue series.
+- **MinIO** is the digest `docker-compose.yml` pins, a Chainguard build with no shell, so its probes are `httpGet` on `/minio/health/live` and `/ready`; `emptyDir`.
+- **Mailpit** (`v1.20.7`): `/livez` and `/readyz` answer 200.
+- **The two stubs** are WireMock `3.13.2`, the version of the integration tests, started with the arguments of their Deployments (`JAVA_OPTS=-Xmx128m`, about 110–170 MiB each). The payment gateway stub's mappings (`k8s/base/stubs/payment-gateway/mappings.json`) answer the six calls `StripePaymentGateway` makes — create, confirm, retrieve, cancel, list refunds, create refund — with response templating on: the PaymentIntent id is `pi_` plus the UUID in the `Idempotency-Key` header the adapter sends (and the refund's, `re_` plus the UUID of its key), so a retried create answers the same object, as Stripe does for a replayed key. Confirm and retrieve both answer `succeeded`. **`StripeStubMappingsIT`** runs the real adapter against exactly that file, in the image and with the arguments of the committed Deployment, so a new call in the adapter that the stub no longer answers fails in CI, not in a pod. The AI stub answers `POST /v1/summarize` with a fixed summary.
 
 <div align=center>
 
@@ -694,57 +476,42 @@ flowchart TB
 
 ```
 k8s/overlays/dev/
-├── kustomization.yaml
-└── resource-patch.yaml
+└── kustomization.yaml           # no resource patch: the base's sizing is dev's
 
 k8s/overlays/loadtest/
 ├── kustomization.yaml
 └── resource-patch.yaml
 ```
 
-`overlays/dev/kustomization.yaml`:
+`overlays/dev/kustomization.yaml` (the base's own sizing is dev's, so there is no patch file; the replica datasource still needs a URL with 0 replicas — D87):
 
 ```yaml
+# overlays/dev: one API instance, no Postgres replica (reads go to the Master, as in docker-compose), the
+# base's sizing. deployment-and-cicd.md §3.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../base
-patches:
-  - path: resource-patch.yaml
 replicas:
   - name: backend-api
     count: 1
   - name: postgres-replica
-    count: 0   # same replicas: mechanism overlays/loadtest uses to scale it up — no separate patch file needed
-configMapGenerator:            # 0 replicas, so reads go to the Master, as in docker-compose (Phase 7 checklist D87)
+    count: 0
+configMapGenerator:
   - name: backend-api-config
     behavior: merge
     literals:
+      # 0 replicas, so the replica datasource still needs a URL (D87): the Master.
       - UNIHUB_DATASOURCE_REPLICA_URL=jdbc:postgresql://postgres-master:5432/unihub
-```
-
-(The base `configmap.yaml` then becomes a `configMapGenerator` of the same name, so an overlay can merge into it; checked at Phase 7 task 5.2.)
-
-`overlays/dev/resource-patch.yaml`:
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: backend-api
-spec:
-  template:
-    spec:
-      containers:
-        - name: backend-api
-          resources:
-            requests: { cpu: "200m", memory: "384Mi" }
-            limits:   { cpu: "400m", memory: "512Mi" }
 ```
 
 `overlays/loadtest/kustomization.yaml`:
 
 ```yaml
+# overlays/loadtest: three API instances and a Postgres replica, the topology INV-16 and S-15 need (at least two
+# API pods). The base's replica URL already points at postgres-replica, so no ConfigMap change here.
+# The sizing in resource-patch.yaml is PROVISIONAL: the numbers of the design document do not fit the development
+# machine beside Istio and the observability stack (Resource Profile ADR, D82); task 5.7 measures and replaces them.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -758,54 +525,60 @@ replicas:
     count: 1
 ```
 
-`overlays/loadtest/resource-patch.yaml` — one file, three strategic-merge documents: the `backend-api` Deployment, and both Postgres StatefulSets, since the Resource Profile Strategy ADR's "full-size `resources.requests/limits`" claim covers the whole Master-Replica topology, not the API tier alone:
+`overlays/loadtest/resource-patch.yaml` — one file, three strategic-merge documents: the `backend-api` Deployment and both Postgres StatefulSets. **Provisional** (Resource Profile ADR deviation, D82): not measured on a cluster; the API's limit is the base's 1 Gi because one API process was measured at 621 MiB under Docker, and the Postgres numbers are below the 1000m / 2Gi this document had, which with Istio and Prometheus/Grafana/Tempo do not fit 10 GB of Minikube. Task 5.7 measures and replaces them.
 
 ```yaml
+# PROVISIONAL (D82, task 5.7): not measured on a cluster. The API's 1 Gi limit is what the base already has (an API
+# process measured 621 MiB under Docker, so a smaller limit is not safe); the Postgres numbers are smaller than the
+# design document's 1000m/2Gi, which together with Istio and Prometheus/Grafana/Tempo do not fit 10 GB of Minikube.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend-api
+  namespace: unihub
 spec:
   template:
     spec:
       containers:
         - name: backend-api
           resources:
-            requests: { cpu: "500m", memory: "768Mi" }
-            limits:   { cpu: "1000m", memory: "1Gi" }
+            requests: { cpu: 300m, memory: 512Mi }
+            limits: { cpu: 1000m, memory: 1Gi }
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: postgres-master
+  namespace: unihub
 spec:
   template:
     spec:
       containers:
         - name: postgres
           resources:
-            requests: { cpu: "1000m", memory: "2Gi" }
-            limits:   { cpu: "2000m", memory: "4Gi" }
+            requests: { cpu: 500m, memory: 768Mi }
+            limits: { cpu: 1500m, memory: 1536Mi }
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: postgres-replica
+  namespace: unihub
 spec:
   template:
     spec:
       containers:
         - name: postgres
           resources:
-            requests: { cpu: "1000m", memory: "2Gi" }
-            limits:   { cpu: "2000m", memory: "4Gi" }
+            requests: { cpu: 500m, memory: 768Mi }
+            limits: { cpu: 1500m, memory: 1536Mi }
 ```
 
 | Component | `overlays/dev` | `overlays/loadtest` | Why |
 |---|---|---|---|
 | `backend-api` replicas | 1 | 3 | Dev needs one instance to iterate against; the 12,000-CCU spike target (`docs/requirement.md` §1.4) needs multiple parallel instances behind the Ingress to be meaningfully exercised at all. |
-| `backend-api` CPU/memory request | 200m / 384Mi | 500m / 768Mi | Dev's single instance only needs to serve one developer's manual traffic; load-test instances need headroom under the K6/JMeter-driven surge `docs/requirement.md` §3.2 requires. |
-| `postgres-master`/`postgres-replica` CPU/memory request | Unpatched — base default (250m / 512Mi, §2) | 1000m / 2Gi | A load test's whole point is to exercise the read/write split under real query volume (`architecture.md` §4.1) — running it against a resource-starved Postgres would bottleneck on the database, not on what's actually being measured. Dev's single-developer query volume never approaches the base default. |
+| `backend-api` CPU/memory request → limit | 200m / 512Mi → 500m / 1Gi (the base) | 300m / 512Mi → 1000m / 1Gi (provisional) | Dev's single instance only needs to serve one developer's manual traffic; load-test instances need CPU headroom under the K6/JMeter-driven surge `docs/requirement.md` §3.2 requires. The 1 Gi limit is measured (621 MiB resident under Docker after one paid registration), not chosen. |
+| `postgres-master`/`postgres-replica` CPU/memory request → limit | Unpatched — base (250m / 512Mi → 500m / 1Gi, §2) | 500m / 768Mi → 1500m / 1536Mi (provisional) | A load test's whole point is to exercise the read/write split under real query volume (`architecture.md` §4.1); the design's 1000m / 2Gi does not fit the machine beside Istio and the observability stack (D82). |
 | `postgres-replica` count | 0 | 1 | Dev has no read-traffic volume to split across a Master and a Replica; a load test is specifically what `architecture.md` §4.1's read/write split exists to be validated against. |
 | Istio sidecar resources | Mesh default (unpatched) | Mesh default (unpatched) | The sidecar's own resource footprint is the same per-pod regardless of profile — the *number of pods* carrying one is what the profile split actually controls (fewer pods in dev = fewer sidecars, not smaller sidecars). |
 
@@ -866,90 +639,67 @@ Phase 2 adds `REGISTRATION_CREATE`, bundled into `Student`, as a separate data m
 The migration SQL is bundled into a ConfigMap at deploy time (via the `configMapGenerator` in `base/kustomization.yaml`, §2 — not committed as a static manifest; its content is generated from the source tree's migration files), then mounted into the Flyway Job. The name is fixed (`disableNameSuffixHash`) because this Job is applied by `kubectl` directly, not through Kustomize, so Kustomize could not rewrite a hashed name inside it:
 
 ```yaml
-# k8s/jobs/flyway-migrate-job.yaml
+# The one place the schema is migrated in the cluster, before any API pod starts (INV-15, architecture.md §6.2).
+# Applied by `make migrate` with kubectl, not through Kustomize, so it names its ConfigMap literally
+# (flyway-migrations, generated with disableNameSuffixHash). A Job's spec is immutable: the Makefile deletes the
+# old one first. The pod is sidecar-injected like every pod in `unihub`; with native sidecars (Mesh ADR (b), D94) the
+# proxy stops when Flyway exits and the Job completes. The image is the version of the Gradle plugin (C48).
+# The credentials are declared as env (not envFrom) so the $(VAR) expansion in args has an unambiguous source.
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: flyway-migrate
   namespace: unihub
+  labels: { app: flyway-migrate, app.kubernetes.io/part-of: unihub }
 spec:
   backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
   template:
+    metadata:
+      labels: { app: flyway-migrate, app.kubernetes.io/part-of: unihub }
     spec:
       restartPolicy: Never
       containers:
         - name: flyway
-          image: flyway/flyway:13.8.0-alpine   # same version as the Gradle plugin (C48)
+          image: flyway/flyway:13.8.0-alpine
           args:
-            - "-url=jdbc:postgresql://postgres-master.unihub.svc.cluster.local:5432/unihub"
-            - "-user=$(DB_USER)"
-            - "-password=$(DB_PASSWORD)"
+            - "-url=jdbc:postgresql://postgres-master.unihub.svc.cluster.local:5432/$(POSTGRES_DB)"
+            - "-user=$(POSTGRES_USER)"
+            - "-password=$(POSTGRES_PASSWORD)"
             - "-locations=filesystem:/flyway/sql"
+            # The proxy may not be ready for the first connection; a few retries cost nothing.
+            - "-connectRetries=10"
             - "migrate"
           env:
-            # Declared explicitly (not envFrom) so Kubernetes' $(VAR) expansion
-            # in `args` above has an unambiguous env: source to resolve against —
-            # envFrom-sourced variables participating in that same expansion is
-            # a less-verified path, not worth relying on for the one thing that
-            # must not silently fail.
-            - name: DB_USER
-              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: DB_USER } }
-            - name: DB_PASSWORD
-              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: DB_PASSWORD } }
+            - name: POSTGRES_USER
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_USER } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_PASSWORD } }
+            - name: POSTGRES_DB
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_DB } }
           volumeMounts:
-            - name: migrations
-              mountPath: /flyway/sql
+            - { name: migrations, mountPath: /flyway/sql, readOnly: true }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 512Mi }
       volumes:
         - name: migrations
-          configMap:
-            name: flyway-migrations
+          configMap: { name: flyway-migrations }
 ```
 
-**Phase 7 additions (checklist D86–D87):** the `Makefile` lives at the repository root and also carries `cluster-up` (Minikube with the version and resources of the Resource Profile ADR, then the pinned Istio), `secrets` (`k8s/scripts/create-secrets.sh`) and `smoke`. The Job's pod is sidecar-injected like every pod in `unihub`; it completes only with native sidecars (Mesh ADR (b)).
+**Phase 7 additions (checklist D86–D87):** the `Makefile` carries `secrets` (`k8s/scripts/create-secrets.sh`), `render`, `check-images`, `pre-migration`, `migrate`, `deploy-dev`, `deploy-loadtest` and `rollout`; `cluster-up` (Minikube with the version and resources of the Resource Profile ADR, then the pinned Istio) arrives with task 5.1 and `smoke` with Phase 7 Mục 9. The Job's pod is sidecar-injected like every pod in `unihub`; it completes only with native sidecars (Mesh ADR (b)). It reads `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` from the Secret (the first draft's `DB_USER`/`DB_PASSWORD` were not in it) and retries its connection (`-connectRetries=10`). The same arguments were run against Postgres under Docker on 2026-11-05: `Successfully applied 10 migrations … now at version v8`; the Job in a cluster is task 5.7.
 
 **Assumption:** the database name `unihub` in the JDBC URL above (and implicitly, wherever the Backend API's own datasource config points at `postgres-master`/`postgres-replica`) is introduced in this document for the first time — no other file in the design corpus fixes a database name. Treat it as a starting/tuning value, on the same footing as §3's resource numbers, not as a value already decided elsewhere.
 
-The `Makefile` (introduced fully in §5) enforces the ordering the ADR requires — Job applied and awaited *before* the Deployment:
+The `Makefile` at the repository root enforces the ordering the ADR requires — the Job applied and awaited *before* the Deployment. `k8s/jobs/flyway-migrate-job.yaml` and the `Makefile` are the authority; what they decide:
 
-```makefile
-.PHONY: deploy-dev deploy-loadtest migrate pre-migration
+- `make deploy-dev TAG=<sha>` (and `deploy-loadtest`) = `check-images` → `migrate` → apply the overlay → `rollout`. `TAG` is the commit whose CI run pushed the images; `check-images` stops at once when either image does not exist for it (a commit that has not been pushed has no image) and prints both digests (AC84.2). `latest` is never deployed.
+- `render` prints an overlay with the tag filled in and needs no cluster (`make render PROFILE=loadtest`). The manifests carry `@IMAGE_TAG@` where the tag goes; the CI `lint` job renders both overlays and fails if a placeholder survives.
+- `SHELL := /bin/bash -o pipefail`: a failed `kubectl kustomize` must not be hidden by the `sed` or `kubectl apply` after it (checked: an overlay that does not build makes `make render` exit 2).
+- `kubectl kustomize --load-restrictor LoadRestrictionsNone` is the Kustomize v5.8.1 built into kubectl 1.36 (C49).
+- `rollout` waits for every Deployment and StatefulSet by name (the Postgres replica only in `loadtest`); `KubernetesManifestsTest` fails when that list differs from the base.
 
-PROFILE ?= dev
-
-# Kustomize refuses files outside the kustomization root by default; the migration SQL lives in
-# src/main/resources/db/migration/ (§2's generator), so the build relaxes that restriction.
-# kubectl's built-in Kustomize (v5.8.1 in kubectl 1.36) — no separate kustomize binary (C49).
-KBUILD = kubectl kustomize --load-restrictor LoadRestrictionsNone
-
-deploy-dev: PROFILE = dev
-deploy-dev: migrate
-	$(KBUILD) k8s/overlays/dev | kubectl apply -f -
-
-deploy-loadtest: PROFILE = loadtest
-deploy-loadtest: migrate
-	$(KBUILD) k8s/overlays/loadtest | kubectl apply -f -
-
-# Flyway needs two things the full overlay apply would only create AFTER migrate: a Postgres Master
-# that accepts connections, and the generated flyway-migrations ConfigMap the Job mounts. Applying the
-# whole overlay first would start backend-api against an unmigrated schema (architecture.md §6.2), so
-# pre-migration applies ONLY the objects labeled unihub.io/pre-migration=true — the Postgres Master's
-# StatefulSet and Service, and that ConfigMap — rendered from the same overlay the deploy target applies
-# afterwards (that later full apply then changes nothing). Needs the backend-api-secrets Secret to exist (§2).
-migrate: pre-migration
-	kubectl delete job/flyway-migrate -n unihub --ignore-not-found
-	kubectl apply -f k8s/jobs/flyway-migrate-job.yaml
-	kubectl wait --for=condition=complete --timeout=120s job/flyway-migrate -n unihub
-
-pre-migration:
-	kubectl apply -f k8s/namespace.yaml
-	$(KBUILD) k8s/overlays/$(PROFILE) | kubectl apply -f - -l unihub.io/pre-migration=true
-	@for i in $$(seq 1 60); do \
-	  kubectl exec -n unihub postgres-master-0 -c postgres -- pg_isready -q && exit 0; \
-	  sleep 2; \
-	done; echo "postgres-master did not accept connections within 120s" >&2; exit 1
-```
-
-**Ordering, and why not simply apply the overlay first.** The first version of this target ran Flyway before anything had been deployed, so on a fresh cluster the Job had neither a Postgres to connect to nor the ConfigMap it mounts. Applying the *whole* overlay first would fix both but start `backend-api` pods before the schema exists — the exact thing `architecture.md` §6.2 forbids. `pre-migration` therefore applies only the labeled subset (Postgres Master + the generated ConfigMap), waits for Postgres to accept connections with a bounded `pg_isready` retry loop (`pg_isready` is present in `postgres:16-alpine`; the Master's StatefulSet defines no readiness probe, so a `Running` pod is not yet a pod that accepts connections), and only then lets `migrate` run the Job.
+**Ordering, and why not simply apply the overlay first.** The first version of this target ran Flyway before anything had been deployed, so on a fresh cluster the Job had neither a Postgres to connect to nor the ConfigMap it mounts. Applying the *whole* overlay first would fix both but start `backend-api` pods before the schema exists — the exact thing `architecture.md` §6.2 forbids. `pre-migration` therefore applies only the objects labelled `unihub.io/pre-migration=true` (the Postgres Master's StatefulSet and Service, and the generated `flyway-migrations` and `postgres-master-initdb` ConfigMaps), rendered from the same overlay the deploy applies afterwards, and requires `backend-api-secrets` to exist first. It then waits for Postgres to accept connections with a bounded `pg_isready` loop (the Master has a readiness probe now, but a loop that names its failure — "did not accept connections within 120s" — is what stops a deploy early) and only then lets `migrate` run the Job. `migrate` waits for `Complete` and, when it does not come, prints the Job's log and stops: nothing else is applied.
 
 **Assumption:** the `-l unihub.io/pre-migration=true` filtering, the generator options and the retry loop are inferred from `kubectl`/Kustomize behavior, not exercised against a cluster. The Job's sidecar-exit problem is precondition (b) of the Mesh mTLS Mode ADR and is not addressed by this target.
 

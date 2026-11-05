@@ -1,0 +1,65 @@
+# The Backend API (one stateless deployable, architecture.md §1.2). Sizing is an overlay's business (§3);
+# the image tag is a placeholder the Makefile fills in with a commit SHA (never `latest`, D84).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-api
+  namespace: unihub
+  labels: { app: backend-api, app.kubernetes.io/part-of: unihub }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: backend-api }
+  template:
+    metadata:
+      labels: { app: backend-api, app.kubernetes.io/part-of: unihub }
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: backend-api
+          image: thanhtien2208/unihub-backend:@IMAGE_TAG@
+          ports:
+            - { name: http, containerPort: 8080 }
+            # Actuator is on its own port, never on the API port (Phase 6 D64): the probes and the Prometheus
+            # scrape use it; the Service below and the gateway's route do not publish it.
+            - { name: management, containerPort: 8081 }
+          envFrom:
+            - configMapRef: { name: backend-api-config }
+            - secretRef: { name: backend-api-secrets }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          # Measured 2026-11-05 on the image of 1d689d8 with this Deployment's environment (Docker, no sidecar): 583 MiB
+          # right after start-up and 621 MiB after one paid registration. The image's heap is 75% of the limit
+          # (JAVA_TOOL_OPTIONS), so 768 Mi left no room for the rest of the process: 1 Gi does.
+          resources:
+            requests: { cpu: 200m, memory: 512Mi }
+            limits: { cpu: 500m, memory: 1Gi }
+          # A start takes about 11 s on the development machine (task 1.2) and readiness read OUT_OF_SERVICE for a
+          # few seconds before UP, so liveness and readiness wait for the startup probe (up to 150 s) instead of
+          # an initialDelay that has to be guessed. failureThreshold is written, not left to the default (D89).
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: management }
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: management }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: management }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            # The Endpoints controller and the gateway need a moment to stop sending traffic to a terminating
+            # pod; Tomcat's graceful shutdown (server.shutdown: graceful, 20 s per phase) then finishes the
+            # requests already in flight. 5 + 20 stays inside the 30 s grace period (D89).
+            preStop:
+              exec: { command: ["sleep", "5"] }
