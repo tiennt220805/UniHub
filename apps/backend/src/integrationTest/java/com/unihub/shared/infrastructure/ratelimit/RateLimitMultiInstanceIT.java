@@ -2,6 +2,7 @@ package com.unihub.shared.infrastructure.ratelimit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.unihub.shared.infrastructure.IntegrationTestSupport;
 import com.unihub.shared.infrastructure.MultiInstanceHarness;
 import com.unihub.shared.infrastructure.MultiInstanceHarness.Locking;
 import com.unihub.shared.security.TestJwts;
@@ -27,7 +28,7 @@ import org.redisson.api.RedissonClient;
  * on with a command-line argument, which outranks the system property that switches it off for the
  * shared suite.
  */
-class RateLimitMultiInstanceIT {
+class RateLimitMultiInstanceIT extends IntegrationTestSupport {
 
     private static final String CATALOG = "/api/v1/workshops";
     private static final String REGISTRATIONS = "/api/v1/registrations";
