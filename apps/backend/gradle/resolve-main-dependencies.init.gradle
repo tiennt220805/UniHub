@@ -1,0 +1,16 @@
+// Used only by the Dockerfile's dependency layer (deployment-and-cicd.md §1, Phase 7 checklist C45):
+//
+//   ./gradlew --init-script gradle/resolve-main-dependencies.init.gradle resolveMainDependencies
+//
+// `./gradlew dependencies` resolves each configuration's dependency graph (metadata) but does not download
+// the jars, so a layer built from it is not enough for the later `bootJar --offline`. This task downloads the
+// jars of the classpaths that `bootJar` reads — and nothing of the test source sets, which the image never builds.
+allprojects {
+    tasks.register("resolveMainDependencies") {
+        doLast {
+            ["compileClasspath", "runtimeClasspath", "annotationProcessor"].each { name ->
+                project.configurations.getByName(name).resolve()
+            }
+        }
+    }
+}

@@ -1,0 +1,16 @@
+# Context: apps/backend. Only the Gradle wrapper, the build scripts and src/main are copied by the Dockerfile;
+# this file keeps everything else out of the context sent to the daemon, and keeps secrets out for good.
+build/
+.gradle/
+.idea/
+.env
+.env.*
+!env.example
+src/test/
+src/integrationTest/
+scripts/
+config/
+docker-compose.yml
+Dockerfile
+.dockerignore
+**/*.log

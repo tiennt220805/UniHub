@@ -1,0 +1,13 @@
+# Context of apps/web/Dockerfile (the repository root). An allowlist: everything is out unless named, so the
+# backend, the mobile app, docs, tests, .git and any .env never reach the daemon or an image layer.
+*
+
+!apps/web/
+!packages/api-contract/
+
+# Inside the allowed trees: host-installed and host-built output, local env files, generated types.
+apps/web/node_modules/
+apps/web/dist/
+apps/web/.env*
+apps/web/src/shared/api/schema.gen.ts
+**/.DS_Store

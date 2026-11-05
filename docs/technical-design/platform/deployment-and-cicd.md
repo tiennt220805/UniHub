@@ -207,60 +207,50 @@ Decided in a review of the testing documents.
 
 **Model:**
 
-**Location and build context (corrected 2026-11-05, Phase 7 checklist C45):** the file is `apps/backend/Dockerfile`, built with `apps/backend` as its context (the Gradle project is a single project there, with Kotlin build scripts — `build.gradle.kts`/`settings.gradle.kts` — not the Groovy names an earlier version of this model used). The builder stage runs on the build machine's own architecture (`--platform=$BUILDPLATFORM`) so Gradle never runs under emulation; only the runtime stage is per target architecture, which is what makes the multi-architecture image of §5 cheap (Phase 7 checklist D84). Whether `./gradlew dependencies` resolves every configuration the `bootJar` needs, so the dependency layer really is complete, is verified at Phase 7 task 1.1.
+**Location and build context (corrected 2026-11-05, Phase 7 checklist C45):** the file is `apps/backend/Dockerfile`, built with `apps/backend` as its context (the Gradle project is a single project there, with Kotlin build scripts — `build.gradle.kts`/`settings.gradle.kts` — not the Groovy names an earlier version of this model used). The builder stage runs on the build machine's own architecture (`--platform=$BUILDPLATFORM`) so Gradle never runs under emulation; only the runtime stage is per target architecture, which is what makes the multi-architecture image of §5 cheap (Phase 7 checklist D84). **Verified at Phase 7 task 1.1 (2026-11-05):** `./gradlew dependencies` is *not* enough — it resolves the dependency graph but downloads no jar, and a `bootJar --offline` after it failed (`commons-lang3`, `swagger-annotations-jakarta`: "No cached version available for offline mode"). The dependency layer therefore runs a small Gradle init script, `apps/backend/gradle/resolve-main-dependencies.init.gradle`, that resolves the jars of `compileClasspath`, `runtimeClasspath` and `annotationProcessor`; with it the `bootJar --offline` succeeds, and `--offline` stays in the Dockerfile so an incomplete layer fails loudly instead of re-downloading. Gradle writes two jars to `build/libs` (the boot jar and `-plain`), so the runtime stage copies `unihub-*-SNAPSHOT.jar`, not `*.jar`. The user is numeric (`10001`) so a Pod with `runAsNonRoot` can verify it. A `.dockerignore` in `apps/backend` keeps `build/`, `.gradle/`, every `.env*` (but `env.example`), `src/test` and `src/integrationTest` out of the context.
 
 ```dockerfile
-# apps/backend/Dockerfile — build context: apps/backend
+# apps/backend/Dockerfile — build context: apps/backend (the file in the repository is the authority; this is its shape)
+# Base images pinned by the digest of the tag's multi-platform index (amd64 + arm64).
+
 # ---- Builder stage (native architecture of the build machine) ----
-FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk-jammy AS builder
+FROM --platform=$BUILDPLATFORM eclipse-temurin@sha256:<21-jdk-jammy index> AS builder
 WORKDIR /workspace
 
-# Dependency layer, cached separately from source: Docker only re-runs this
-# RUN when build.gradle.kts/settings.gradle.kts/gradle-wrapper.properties change,
-# never on a plain source edit.
+# Dependency layer, cached separately from source: re-run only when the build scripts or the wrapper change.
 COPY gradlew ./
 COPY gradle gradle
 COPY build.gradle.kts settings.gradle.kts ./
-RUN ./gradlew dependencies --no-daemon
+RUN ./gradlew --no-daemon --init-script gradle/resolve-main-dependencies.init.gradle resolveMainDependencies
 
-# Source layer: invalidates only this and the steps below it on a source edit.
-COPY src src
-RUN ./gradlew bootJar --no-daemon -x test
+# Source layer: main sources only, so a test edit never invalidates it.
+COPY src/main src/main
+RUN ./gradlew bootJar --offline --no-daemon -x test
 
 # ---- Runtime stage ----
-FROM eclipse-temurin:21-jre-jammy AS runtime
-
-# Non-root: the container never runs as root, even though nothing in this
-# image currently requires elevated privileges — defense-in-depth against
-# a future dependency that might.
-RUN groupadd --system unihub && useradd --system --gid unihub unihub
+FROM eclipse-temurin@sha256:<21-jre-jammy index> AS runtime
+RUN groupadd --system --gid 10001 unihub \
+ && useradd --system --uid 10001 --gid unihub --no-create-home --shell /usr/sbin/nologin unihub
 WORKDIR /app
-COPY --from=builder /workspace/build/libs/*.jar app.jar
-USER unihub
-
-# cgroup v2-aware JVM sizing: MaxRAMPercentage bounds heap to a share of the
-# *container's* memory limit (via Deployment resources.limits.memory, §2/§3),
-# not the node's physical RAM — required so a pod's own limit is what the JVM
-# actually respects. InitialRAMPercentage avoids a cold-start heap that's too
-# small to absorb the registration-opening spike (docs/requirement.md §1.4)
-# before the JVM's own heuristics catch up.
+# Not build/libs/*.jar: that also matches the "-plain" jar Gradle writes beside the boot jar.
+COPY --from=builder /workspace/build/libs/unihub-*-SNAPSHOT.jar app.jar
+USER 10001:10001
 ENV JAVA_TOOL_OPTIONS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=50.0"
-
 EXPOSE 8080 8081
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
 ```
 
 | Decision | Value | Why |
 |---|---|---|
-| Builder base image | `eclipse-temurin:21-jdk-jammy` | Matches `CLAUDE.md`'s Java 21 requirement exactly; Temurin is the OpenJDK distribution with the widest CI/Docker Hub support. |
-| Runtime base image | `eclipse-temurin:21-jre-jammy` (not `-jdk`) | The runtime stage never compiles anything — a JRE is the smaller, correct base; shipping a JDK (with `javac`, `jshell`, etc.) into a runtime image is unused attack surface. |
+| Builder base image | `eclipse-temurin:21-jdk-jammy`, pinned by the digest of its multi-platform index (checked 2026-11-05: linux/amd64 and linux/arm64/v8 both listed) | Matches `CLAUDE.md`'s Java 21 requirement exactly; Temurin is the OpenJDK distribution with the widest CI/Docker Hub support. |
+| Runtime base image | `eclipse-temurin:21-jre-jammy` (not `-jdk`), pinned by digest the same way | The runtime stage never compiles anything — a JRE is the smaller, correct base; shipping a JDK (with `javac`, `jshell`, etc.) into a runtime image is unused attack surface. |
 | Layer order | Dependency manifest copied and resolved *before* `src/` is copied | Docker's layer cache invalidates from the first changed layer downward — putting the rarely-changing dependency manifest first means a routine source edit never re-triggers a dependency re-download. |
-| Non-root `USER` | Dedicated `unihub` system user, no shell, no home directory needed | Baseline container hardening; consistent with `architecture.md` §5.4's Zero-Trust posture applied one layer lower, at the process level inside the pod. |
+| Non-root `USER` | Dedicated `unihub` system user, numeric uid/gid `10001` (a Pod with `runAsNonRoot` cannot verify a user given by name), no login shell, no home directory | Baseline container hardening; consistent with `architecture.md` §5.4's Zero-Trust posture applied one layer lower, at the process level inside the pod. |
 | JVM container awareness | `-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0` | Modern JDKs (10+) enable container support by default, but pinning it here makes the intent explicit rather than relying on a default that could change; 75% leaves headroom for the JVM's own non-heap memory (metaspace, thread stacks, direct buffers) inside the same container limit (§2/§3). |
 | Health check mechanism | Kubernetes liveness/readiness probes (§2), **not** a Docker `HEALTHCHECK` instruction | Kubernetes never consults `HEALTHCHECK` — it uses its own probe configuration on the Pod spec. Adding one here would be dead configuration; the actual probe design lives in `observability.md`. |
 | Image tag convention | `<dockerhub-namespace>/unihub-backend:<git-sha>` and `<dockerhub-namespace>/unihub-web:<git-sha>`, plus a floating `:latest` on every `main` push; each a multi-architecture manifest (`linux/amd64`, `linux/arm64`) | The immutable `git-sha` tag is what Kubernetes manifests actually reference (§2) — a floating tag alone would make "which commit is running" unanswerable from the cluster; `:latest` remains only as a convenience pointer for manual local use. `arm64` because the Minikube PoC runs on Apple Silicon; the cluster pulls the digest CI built, so the image that runs is the image CI checked (Phase 7 checklist D84). The namespace is the owner's Docker Hub account, set when `DOCKERHUB_USERNAME` is created. During day-to-day work an image built locally with `minikube image build` may be tagged `dev-<git-sha>`, never `latest`. |
 
-**The Web Application image (Phase 7 checklist D85).** `apps/web/Dockerfile`, built with the **repository root** as context (the build generates its API types from `packages/api-contract`; a root `.dockerignore` keeps everything else out): a Node 22 stage on `--platform=$BUILDPLATFORM` (so `npm ci` and the Vite build never run under emulation) runs `npm ci`, `npm run api:types` and `npm run build`, and an `nginxinc/nginx-unprivileged` stage (non-root, listens on 8080) serves `dist/` with an SPA fallback. nginx sets the **Content-Security-Policy as an HTTP header** — the same policy as the build's `<meta>` tag plus `frame-ancestors 'none'`, which a `<meta>` tag cannot carry (`web-coding-standards.md` §11; closes the Phase 2 deferral). The Web is served from the **same origin** as the API (§2: the gateway routes `/api/**` to `backend-api` and everything else to `web`), so `VITE_API_BASE_URL` stays empty and no CORS configuration exists. The image for the Minikube PoC is built with `VITE_PAYMENT_TEST_MODE=true`, because the payment gateway in the cluster is a stub (§2); there is no production build of the Web with real payment collection, and none is in scope.
+**The Web Application image (Phase 7 checklist D85).** `apps/web/Dockerfile`, built with the **repository root** as context (the build generates its API types from `packages/api-contract`; a root `.dockerignore` keeps everything else out): a Node 22 stage on `--platform=$BUILDPLATFORM` (so `npm ci` and the Vite build never run under emulation) runs `npm ci`, `npm run api:types` and `npm run build`, and an `nginxinc/nginx-unprivileged` stage (non-root, listens on 8080) serves `dist/` with an SPA fallback (`apps/web/nginx/default.conf`: `/healthz` for the Pod's probes, content-hashed files under `/assets/` cached for a year and answered with a real 404 when missing, every other path the app shell with `no-cache`). Both base images are pinned by digest (Node 22 on Debian bookworm-slim, glibc like the `web` CI job; nginx 1.28), and `VITE_PAYMENT_TEST_MODE` is a build argument that defaults to `false`. nginx sets the **Content-Security-Policy as an HTTP header** — the same policy as the build's `<meta>` tag plus `frame-ancestors 'none'`, which a `<meta>` tag cannot carry (`web-coding-standards.md` §11; closes the Phase 2 deferral). The Web is served from the **same origin** as the API (§2: the gateway routes `/api/**` to `backend-api` and everything else to `web`), so `VITE_API_BASE_URL` stays empty and no CORS configuration exists. The image for the Minikube PoC is built with `VITE_PAYMENT_TEST_MODE=true`, because the payment gateway in the cluster is a stub (§2); there is no production build of the Web with real payment collection, and none is in scope.
 
 **Trade-offs:** the two-stage build means the builder stage's full JDK + Gradle toolchain is downloaded and run on every CI build — that cost is accepted because it's paid once per CI run, inside a job whose own stated job (§5) is exactly to verify the code before it can be packaged; it is never paid at runtime, since the final image contains only the JRE and the built jar.
 
