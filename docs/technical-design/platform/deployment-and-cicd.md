@@ -39,7 +39,7 @@ All configuration in this document targets a single Kubernetes namespace, `unihu
 
 **Context:** `docs/requirement.md` §3.3 lists GitHub Actions' CI steps ending at "package the application into a Docker image and push it to Docker Hub" — no deployment step is named anywhere in the corpus. `proposal.md` §14 describes the Minikube-run topology as the runtime target, not something CI is described as driving into. Minikube is inherently local to a developer's machine; a GitHub Actions hosted runner has no network path to reach it without introducing new infrastructure (a self-hosted runner, or a tunnel) that no document in the corpus calls for.
 
-**Decision:** GitHub Actions' automation scope stops at building and pushing the Docker image to Docker Hub. Deployment to the local Minikube cluster is a separate, explicit local action — a Makefile target the developer runs by hand (`kustomize build overlays/<profile> | kubectl apply -f -`) — never a job inside the CI workflow.
+**Decision:** GitHub Actions' automation scope stops at building and pushing the Docker image to Docker Hub. Deployment to the local Minikube cluster is a separate, explicit local action — a Makefile target the developer runs by hand (`kubectl kustomize overlays/<profile> | kubectl apply -f -`) — never a job inside the CI workflow.
 
 **Consequences:**
 - The CI workflow's job graph terminates at `build-and-push`; no `deploy` job exists in `.github/workflows/`.
@@ -68,6 +68,7 @@ All configuration in this document targets a single Kubernetes namespace, `unihu
 **Consequences:**
 - Day-to-day development runs against `overlays/dev` by default — fast iteration, low resource pressure.
 - A dedicated load-test session switches to `overlays/loadtest` by name, matching exactly the "only for dedicated load-test sessions" language in `proposal.md` §16.
+- **Deviation, recorded 2026-11-05 (Phase 7 checklist D82, C59):** the `overlays/loadtest` sizes in §3 do not fit the development machine (16 GB, Apple Silicon) together with Istio and the observability stack. The machine's Docker Desktop is raised to ~12 GB (`minikube start --memory=10g --cpus=6`), and the §3 numbers are **replaced by the values measured at Phase 7 task 5.7**; still two overlays, no third. If the topology is still `OOMKilled` at that size, the owner decides — Istio and the observability stack are never dropped to make it fit. The 12,000-CCU target of Phase 8 is unlikely to be reachable on this machine; that is Phase 8's to settle.
 
 **Trade-offs accepted (user's own reasoning):** a HorizontalPodAutoscaler-only approach was rejected as the sole mechanism — HPA can scale the Backend API Deployment, but does nothing about Postgres replica count or the per-pod Istio sidecar overhead that `proposal.md` §16 actually names as the cost driver; HPA may still be layered inside `overlays/loadtest` for the API tier specifically, but it does not replace the overlay split.
 
@@ -93,7 +94,7 @@ All configuration in this document targets a single Kubernetes namespace, `unihu
 - A failed lint/unit/integration/contract-diff job structurally blocks `build-and-push` via the job dependency graph — not merely step ordering within one job, which could be bypassed by a misplaced `continue-on-error` or a step-reordering mistake.
 - One workflow file remains the single source of truth for the whole pipeline, with no cross-workflow triggering to reason about.
 - The three security-scan jobs (Security Scan Jobs ADR) live in the same file but outside the sequential chain: they `needs:` nothing. Semgrep and Dependency-Check are non-blocking, so nothing waits for them; Gitleaks is blocking, so `build-and-push` `needs:` it alongside `contract-diff`.
-- The Web Application has its own `web` job (Phase 2 checklist 5): `npm ci`, types generated from `packages/api-contract`, typecheck, lint (oxlint plus the import-boundary rules) and Vitest. It `needs:` nothing and is blocking, outside the sequential chain like the scans: it uses no database, Docker or backend, so it neither waits for nor delays the backend jobs. It is not in `build-and-push`'s `needs:` while no web image is built.
+- The Web Application has its own `web` job (Phase 2 checklist 5): `npm ci`, types generated from `packages/api-contract`, typecheck, lint (oxlint plus the import-boundary rules) and Vitest. It `needs:` nothing and is blocking, outside the sequential chain like the scans: it uses no database, Docker or backend, so it neither waits for nor delays the backend jobs. Since Phase 7 (checklist D85, D103) a Web image is built, so `build-and-push` `needs:` `web` as well.
 - `contract-diff` runs after `integration-test`, not in parallel with it — it's cheap relative to the Testcontainers job, and ordering it last among the test-gate jobs means a contract mismatch never wastes the time of a run that was already going to fail on lint/unit/integration anyway.
 
 **Trade-offs accepted (user's own reasoning):** two separate workflow files cross-triggered via `workflow_run` were rejected — that level of pipeline decoupling is disproportionate for one developer maintaining one repository, and adds triggering complexity with no corresponding benefit here.
@@ -155,17 +156,18 @@ The job fails on any reported difference in what steps 3–5 leave. Shape — pa
 
 **Decision:** the target is a namespace-wide `PeerAuthentication` named `default` in `STRICT` mode, so a connection to any pod in `unihub` that does not present a valid mesh identity is refused rather than downgraded to plaintext. **Until the preconditions are met the object is `PERMISSIVE`**: sidecars still negotiate mTLS, plaintext is still accepted, and `architecture.md` §5.4's "no plaintext hop" is a target, not an enforced guarantee. Switching is a one-line change (`mode: STRICT`), made only when all three boxes are ticked.
 
-**Istio version: 1.24.x.** A decision on paper, made so the manifests, the `apiVersion` below and precondition (b) all target one version. It rests on two assertions from the decision-maker that this blueprint has not verified: that 1.24.x is the stable line to standardize on, and that it supports native sidecar termination for Jobs. Both — and compatibility with the Kubernetes/Minikube version actually installed — are checked at implementation; if they turn out wrong, the blueprint is corrected then.
+**Istio version: 1.31.x on Kubernetes 1.35.1 (Minikube 1.38.1's default) — corrected 2026-11-05, Phase 7 checklist D81, C56.** The earlier 1.24.x was a decision on paper; checked against Istio's own supported-releases page (read 2026-11-05) it reached end of life on 2025-06-24 and supports Kubernetes 1.28–1.31 only. That page lists 1.31 (released 2026-08-27, end of life expected ~February 2027) for Kubernetes 1.32–1.37 and 1.30 for 1.32–1.36; 1.29 is past end of life (2026-10-15). The patch version is pinned at Phase 7 task 5.1 (the newest 1.31 patch at least two weeks old) and recorded with the cluster evidence. Installation is by a pinned `istioctl`. **Stop condition:** if `istioctl x precheck` fails on that pair, or native sidecars (precondition (b)) do not work, the owner decides — the Kubernetes version is not changed silently.
 
 **Preconditions — all three before switching to STRICT** (each is currently **not met**):
-- [ ] **(a) Ingress path.** `architecture.md` §5.4's diagram has Ingress → mTLS → sidecar, but this document does not deploy the Ingress controller (Minikube's ingress add-on runs it in its own namespace). Either the `ingress-nginx` namespace is sidecar-injected, or the Ingress → `backend-api` path is covered by its own, narrowly scoped `PeerAuthentication` exception — which weakens "no exempted hop" for that one hop and must be recorded as such. Without one of the two, STRICT refuses every external request.
-- [ ] **(b) Flyway Job exits its sidecar.** The namespace is injected, so the Job's pod carries an `istio-proxy` container that, without help, keeps running after Flyway exits — the Job never reaches `complete` and `kubectl wait --for=condition=complete` (§4) times out. **This affects today's PERMISSIVE deploy too, not only STRICT**, and under STRICT the old workaround — `sidecar.istio.io/inject: "false"` on the Job — no longer works, because a non-meshed client is refused. The blueprint's answer is Istio's **native sidecar termination** (built on Kubernetes sidecar containers, which end the proxy when the Job's main container exits), expected to be available on Istio 1.24.x; there is deliberately **no custom `quitquitquit` fallback** in the blueprint. What stays **unmet** is confirming, at implementation, that it works on that Istio version together with the Kubernetes version Minikube provides, and whether it has to be switched on.
-- [ ] **(c) Observability stack.** Prometheus, Grafana and Tempo scrape and receive from `unihub` pods (Actuator on its own management port **8081** — corrected 2026-11-02, Phase 6 checklist D64, C39 — RabbitMQ's 15692, OTLP), and `architecture.md` §5.4 puts the observability stack in the mesh — but this document does not deploy it (out of scope above). Either it is injected, or the scrape/export ports get a scoped exception. Any other in-cluster client of a `unihub` pod, such as the load-test WireMock stub, falls under the same rule.
+- [ ] **(a) Ingress path.** `architecture.md` §5.4's diagram has Ingress → mTLS → sidecar. **Decided 2026-11-05 (Phase 7 checklist D83, D93, on the owner's delegation, confirmed at sign-off):** the Ingress Controller role is filled by **Istio's ingress gateway** (an Envoy that is itself part of the mesh, configured with Istio's `Gateway` + `VirtualService`), not by ingress-nginx, which Kubernetes SIG Network retired in March 2026 (no further releases or security fixes). The gateway → `backend-api` hop is therefore mutually authenticated by construction, with no `PeerAuthentication` exception. What remains unmet until Phase 7 task 7.2 is the evidence: the hop reported as `mutual_tls` and S-19.
+- [ ] **(b) Flyway Job exits its sidecar.** The namespace is injected, so the Job's pod carries an `istio-proxy` container that, without help, keeps running after Flyway exits — the Job never reaches `complete` and `kubectl wait --for=condition=complete` (§4) times out. **This affects today's PERMISSIVE deploy too, not only STRICT**, and under STRICT the old workaround — `sidecar.istio.io/inject: "false"` on the Job — no longer works, because a non-meshed client is refused. The answer is Istio's **native sidecar** mode (the proxy runs as a Kubernetes sidecar container — an init container with `restartPolicy: Always` — which ends when the Job's main container exits); there is deliberately **no custom `quitquitquit` fallback**. **The same mode is what lets the Postgres replica's `pg_basebackup` init container reach the Master under injection** (§2): an ordinary init container runs before the proxy and has no network under STRICT (Phase 7 checklist D94). What stays **unmet** is confirming at Phase 7 task 7.3, on Istio 1.31.x with Kubernetes 1.35.1, that it works and whether it must be switched on (`values.pilot.env.ENABLE_NATIVE_SIDECARS`).
+- [ ] **(c) Observability stack.** Prometheus, Grafana and Tempo scrape and receive from `unihub` pods (Actuator on its own management port **8081** — corrected 2026-11-02, Phase 6 checklist D64, C39 — RabbitMQ's 15692, OTLP), and `architecture.md` §5.4 puts the observability stack in the mesh. **Decided 2026-11-05 (Phase 7 checklist D95):** the stack runs in its own namespace `unihub-observability`, **injected**; Prometheus scrapes pods over mTLS with the certificates its sidecar writes to a shared volume (Istio's documented pattern), not through its sidecar's outbound path; no `portLevelMtls` exception. The in-cluster stubs (WireMock for the payment gateway and the AI service), Mailpit and MinIO live in `unihub` and are injected like every other pod. **Stop condition:** if Prometheus cannot scrape with the sidecar's certificates on the pinned Istio, the owner decides — no exception is added silently.
 
 **Consequences:**
 - While the mesh is PERMISSIVE, INV-20 (`docs/testing/strategy/test-strategy.md` §2) is pending, the mTLS test S-19 cannot pass, and it must not be reported as Covered in the OWASP map (`docs/testing/non-functional/security-testing.md`).
 - Kubelet `httpGet` probes are expected to keep working under STRICT because Istio rewrites application probes to go through the sidecar by default — verify against the installed version.
-- `PeerAuthentication` uses `apiVersion: security.istio.io/v1`, which Istio 1.22+ serves — covered by the chosen 1.24.x.
+- `PeerAuthentication` uses `apiVersion: security.istio.io/v1`, which Istio 1.22+ serves — covered by the chosen 1.31.x.
+- **Order of the switch (Phase 7 checklist D96):** (a)–(c) met → `mode: STRICT` → every cluster check (smoke, Playwright, kill-pod, the Kubernetes halves of scenarios 1 and 2, P1, S-19) is **re-run under STRICT**; only those runs are sign-off evidence.
 
 **Trade-offs accepted:** enforcing STRICT now was rejected — with (a)–(c) unmet it would refuse the Ingress, the observability stack and the migration Job. The interim leaves the guarantee unenforced, and says so openly rather than presenting a manifest that looks strict. The default mode without any object was rejected only in the sense that an explicit `PERMISSIVE` object makes the intent visible and the later switch a single line. STRICT's eventual cost is on the same footing as `architecture.md` §5.4's stated trade-off that "the mesh is now a dependency of everything."
 
@@ -205,17 +207,20 @@ Decided in a review of the testing documents.
 
 **Model:**
 
+**Location and build context (corrected 2026-11-05, Phase 7 checklist C45):** the file is `apps/backend/Dockerfile`, built with `apps/backend` as its context (the Gradle project is a single project there, with Kotlin build scripts — `build.gradle.kts`/`settings.gradle.kts` — not the Groovy names an earlier version of this model used). The builder stage runs on the build machine's own architecture (`--platform=$BUILDPLATFORM`) so Gradle never runs under emulation; only the runtime stage is per target architecture, which is what makes the multi-architecture image of §5 cheap (Phase 7 checklist D84). Whether `./gradlew dependencies` resolves every configuration the `bootJar` needs, so the dependency layer really is complete, is verified at Phase 7 task 1.1.
+
 ```dockerfile
-# ---- Builder stage ----
-FROM eclipse-temurin:21-jdk-jammy AS builder
+# apps/backend/Dockerfile — build context: apps/backend
+# ---- Builder stage (native architecture of the build machine) ----
+FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk-jammy AS builder
 WORKDIR /workspace
 
 # Dependency layer, cached separately from source: Docker only re-runs this
-# RUN when build.gradle/settings.gradle/gradle-wrapper.properties change,
+# RUN when build.gradle.kts/settings.gradle.kts/gradle-wrapper.properties change,
 # never on a plain source edit.
 COPY gradlew ./
 COPY gradle gradle
-COPY build.gradle settings.gradle ./
+COPY build.gradle.kts settings.gradle.kts ./
 RUN ./gradlew dependencies --no-daemon
 
 # Source layer: invalidates only this and the steps below it on a source edit.
@@ -253,7 +258,9 @@ ENTRYPOINT ["java", "-jar", "/app/app.jar"]
 | Non-root `USER` | Dedicated `unihub` system user, no shell, no home directory needed | Baseline container hardening; consistent with `architecture.md` §5.4's Zero-Trust posture applied one layer lower, at the process level inside the pod. |
 | JVM container awareness | `-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0` | Modern JDKs (10+) enable container support by default, but pinning it here makes the intent explicit rather than relying on a default that could change; 75% leaves headroom for the JVM's own non-heap memory (metaspace, thread stacks, direct buffers) inside the same container limit (§2/§3). |
 | Health check mechanism | Kubernetes liveness/readiness probes (§2), **not** a Docker `HEALTHCHECK` instruction | Kubernetes never consults `HEALTHCHECK` — it uses its own probe configuration on the Pod spec. Adding one here would be dead configuration; the actual probe design lives in `observability.md`. |
-| Image tag convention | `<dockerhub-namespace>/unihub-backend:<git-sha>`, plus a floating `:latest` on every `main` push | The immutable `git-sha` tag is what Kubernetes manifests actually reference (§2) — a floating tag alone would make "which commit is running" unanswerable from the cluster; `:latest` remains only as a convenience pointer for manual local use. |
+| Image tag convention | `<dockerhub-namespace>/unihub-backend:<git-sha>` and `<dockerhub-namespace>/unihub-web:<git-sha>`, plus a floating `:latest` on every `main` push; each a multi-architecture manifest (`linux/amd64`, `linux/arm64`) | The immutable `git-sha` tag is what Kubernetes manifests actually reference (§2) — a floating tag alone would make "which commit is running" unanswerable from the cluster; `:latest` remains only as a convenience pointer for manual local use. `arm64` because the Minikube PoC runs on Apple Silicon; the cluster pulls the digest CI built, so the image that runs is the image CI checked (Phase 7 checklist D84). The namespace is the owner's Docker Hub account, set when `DOCKERHUB_USERNAME` is created. During day-to-day work an image built locally with `minikube image build` may be tagged `dev-<git-sha>`, never `latest`. |
+
+**The Web Application image (Phase 7 checklist D85).** `apps/web/Dockerfile`, built with the **repository root** as context (the build generates its API types from `packages/api-contract`; a root `.dockerignore` keeps everything else out): a Node 22 stage on `--platform=$BUILDPLATFORM` (so `npm ci` and the Vite build never run under emulation) runs `npm ci`, `npm run api:types` and `npm run build`, and an `nginxinc/nginx-unprivileged` stage (non-root, listens on 8080) serves `dist/` with an SPA fallback. nginx sets the **Content-Security-Policy as an HTTP header** — the same policy as the build's `<meta>` tag plus `frame-ancestors 'none'`, which a `<meta>` tag cannot carry (`web-coding-standards.md` §11; closes the Phase 2 deferral). The Web is served from the **same origin** as the API (§2: the gateway routes `/api/**` to `backend-api` and everything else to `web`), so `VITE_API_BASE_URL` stays empty and no CORS configuration exists. The image for the Minikube PoC is built with `VITE_PAYMENT_TEST_MODE=true`, because the payment gateway in the cluster is a stub (§2); there is no production build of the Web with real payment collection, and none is in scope.
 
 **Trade-offs:** the two-stage build means the builder stage's full JDK + Gradle toolchain is downloaded and run on every CI build — that cost is accepted because it's paid once per CI run, inside a job whose own stated job (§5) is exactly to verify the code before it can be packaged; it is never paid at runtime, since the final image contains only the JRE and the built jar.
 
@@ -274,7 +281,9 @@ k8s/
 │   ├── kustomization.yaml
 │   ├── backend-api-deployment.yaml
 │   ├── backend-api-service.yaml
-│   ├── ingress.yaml
+│   ├── web-deployment.yaml            # Phase 7 checklist D85
+│   ├── web-service.yaml
+│   ├── gateway.yaml                   # Istio Gateway + VirtualService (D83), replaces ingress.yaml
 │   ├── postgres-master-statefulset.yaml
 │   ├── postgres-master-service.yaml
 │   ├── postgres-replica-statefulset.yaml
@@ -285,17 +294,22 @@ k8s/
 │   ├── rabbitmq-service.yaml
 │   ├── minio-deployment.yaml
 │   ├── minio-service.yaml
+│   ├── mailpit-deployment.yaml        # SMTP for the notification module (D86)
+│   ├── mailpit-service.yaml
+│   ├── stubs/                         # WireMock payment gateway + AI service, with mappings (D86)
 │   ├── peer-authentication.yaml
 │   ├── configmap.yaml
 │   └── secret.example.yaml
 ├── overlays/
 │   ├── dev/
 │   └── loadtest/
-└── jobs/
-    └── flyway-migrate-job.yaml
+├── observability/                     # Prometheus, Grafana, Tempo in unihub-observability (D95, D99)
+├── jobs/
+│   └── flyway-migrate-job.yaml
+└── scripts/                           # create-secrets.sh, make-local-ca.sh, smoke.sh, kill-pod.sh, check-mtls.sh
 ```
 
-**Observability stack — the content exists, the manifests do not (Phase 6 checklist C43, 2026-11-02; content written 2026-11-03/04).** `architecture.md` §1.2 lists the Observability Stack as a Core Component and precondition (c) above assumes Prometheus, Grafana and Tempo run in the cluster, but the tree above has no manifest for them. Their **content** is written (Phase 6) at **`observability/` in the repository root** and used by docker-compose (`observability.md` §8): the Grafana datasources, three dashboards (`observability/grafana/dashboards/`), the 22 alert rules (`observability/grafana/provisioning/alerting/unihub-rules.yml`), Tempo's configuration, the broker's per-queue metrics setting and a compose-only Prometheus scrape configuration. `AuditAlertIT` mounts the same Grafana files into a real Grafana, so the content is proven to load; a Kubernetes cluster has not seen it. Phase 7 adds the manifests — suggested: `k8s/observability/` with the Deployments/Services, a Kubernetes-specific Prometheus scrape configuration (service discovery), and a `configMapGenerator` reading `../../observability/` (allowed by `--load-restrictor LoadRestrictionsNone`, §7) — so one copy of the content serves both. Phase 6 creates no `k8s/` directory.
+**Observability stack — the content exists, the manifests do not (Phase 6 checklist C43, 2026-11-02; content written 2026-11-03/04).** `architecture.md` §1.2 lists the Observability Stack as a Core Component and precondition (c) above assumes Prometheus, Grafana and Tempo run in the cluster, but the tree above has no manifest for them. Their **content** is written (Phase 6) at **`observability/` in the repository root** and used by docker-compose (`observability.md` §8): the Grafana datasources, three dashboards (`observability/grafana/dashboards/`), the 22 alert rules (`observability/grafana/provisioning/alerting/unihub-rules.yml`), Tempo's configuration, the broker's per-queue metrics setting and a compose-only Prometheus scrape configuration. `AuditAlertIT` mounts the same Grafana files into a real Grafana, so the content is proven to load; a Kubernetes cluster has not seen it. **Decided for Phase 7 (checklist D99):** `k8s/observability/` holds the Deployments/Services of Prometheus, Grafana and Tempo in the injected namespace `unihub-observability` (Mesh ADR (c)), a Kubernetes-specific Prometheus scrape configuration (`kubernetes_sd_configs` on pod annotations, mTLS with the sidecar's certificates), and a `configMapGenerator` reading `../../observability/` (allowed by `--load-restrictor LoadRestrictionsNone`, §7) — so one copy of the content serves both. Grafana's admin password comes from a Secret created by hand; no contact point is configured (an owner decision, `observability.md` §6). The backend's `MANAGEMENT_OTLP_TRACING_ENDPOINT` points at Tempo.
 
 `base/kustomization.yaml` is what actually ties the files above into one applied resource set — every manifest is listed explicitly, **except** `secret.example.yaml`, which is deliberately left out — and it also carries the `configMapGenerator` for the Flyway migrations (§4). Kustomize does not glob, so each new migration file is added to that `files:` list as part of adding the migration:
 
@@ -319,11 +333,20 @@ resources:
   - minio-service.yaml
   - peer-authentication.yaml
   - configmap.yaml
+  # … plus web-*, gateway.yaml, mailpit-*, stubs/ (Phase 7 checklist D83, D85, D86)
 configMapGenerator:                    # the migration SQL the Flyway Job mounts (§4)
   - name: flyway-migrations
-    files:
-      - ../../src/main/resources/db/migration/V1__initial_schema.sql
-      - ../../src/main/resources/db/migration/V2__seed_default_roles_permissions.sql
+    files:                             # every file in the migration directory (C47); a static test keeps the two equal
+      - ../../apps/backend/src/main/resources/db/migration/V1__initial_schema.sql
+      - ../../apps/backend/src/main/resources/db/migration/V1_1__workshop_paid_price_not_null.sql
+      - ../../apps/backend/src/main/resources/db/migration/V1_2__workshop_text_not_blank.sql
+      - ../../apps/backend/src/main/resources/db/migration/V2__seed_default_roles_permissions.sql
+      - ../../apps/backend/src/main/resources/db/migration/V3__phase2_idempotency_and_payments.sql
+      - ../../apps/backend/src/main/resources/db/migration/V4__seed_registration_permission.sql
+      - ../../apps/backend/src/main/resources/db/migration/V5__notification_dedup_claim_and_inbox.sql
+      - ../../apps/backend/src/main/resources/db/migration/V6__checkin_unresolved_scans_and_organizer_reports.sql
+      - ../../apps/backend/src/main/resources/db/migration/V7__workshop_pending_brochure_key.sql
+      - ../../apps/backend/src/main/resources/db/migration/V8__audit_events_source_message_id.sql
     options:
       disableNameSuffixHash: true      # the Job is applied outside Kustomize and names this ConfigMap literally
       labels:
@@ -398,10 +421,19 @@ spec:
             httpGet: { path: /actuator/health/readiness, port: management }
             initialDelaySeconds: 15
             periodSeconds: 10
+            failureThreshold: 3        # explicit, not the Kubernetes default (Phase 7 checklist D89)
           livenessProbe:
             httpGet: { path: /actuator/health/liveness, port: management }
             initialDelaySeconds: 30
             periodSeconds: 15
+            failureThreshold: 3
+          lifecycle:
+            # The Endpoint controller and the gateway need a moment to stop sending traffic to a
+            # terminating pod; Tomcat's graceful shutdown (server.shutdown: graceful, 20 s per
+            # phase) then finishes the requests already in flight (D89).
+            preStop:
+              exec: { command: ["sleep", "5"] }
+      terminationGracePeriodSeconds: 30
 ```
 
 Probe paths and the Liveness/Readiness split (process-alive vs. PostgreSQL-Master connectivity — `observability.md`'s Readiness Composition ADR; Redis and RabbitMQ are deliberately not Readiness conditions) are `observability.md`'s design, reused here only as the concrete `httpGet` wiring the Deployment spec needs.
@@ -414,26 +446,36 @@ kind: ConfigMap
 metadata:
   name: backend-api-config
   namespace: unihub
+# Key names are the ones the application actually reads — apps/backend/env.example and
+# application.yml (corrected 2026-11-05, Phase 7 checklist C46, D87; an earlier version used
+# DB_HOST/REDIS_HOST/S3_ENDPOINT, which nothing binds). No `kubernetes` profile: `dev` turns on
+# only the account seeder (user.md §10), which the cluster's E2E accounts need (D86).
 data:
-  SPRING_PROFILES_ACTIVE: "kubernetes"
-  DB_HOST: "postgres-master"
-  DB_PORT: "5432"
-  REDIS_HOST: "redis"
-  RABBITMQ_HOST: "rabbitmq"
-  S3_ENDPOINT: "http://minio:9000"
-  # UNIHUB_NOTIFICATION_SMTP_HOST is required (blank stops startup, notification.md §2) and has
-  # no placeholder here on purpose: a non-blank dummy value would pass that check and silently
-  # turn every email into UNAVAILABLE. Each overlay sets the real SMTP host.
-  UNIHUB_NOTIFICATION_SMTP_PORT: "587"
-  # Optional: the summarization flow is off the critical path, so a blank base URL does not stop
-  # startup (workshop.md §9; Phase 5 checklist D60). No real AI provider is chosen yet.
-  UNIHUB_AI_SUMMARIZATION_BASE_URL: ""
+  SPRING_PROFILES_ACTIVE: "dev"
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-master:5432/unihub"
+  # The replica datasource always needs a URL: overlays/dev (0 replicas) points it at the Master,
+  # as docker-compose does; overlays/loadtest at postgres-replica.
+  UNIHUB_DATASOURCE_REPLICA_URL: "jdbc:postgresql://postgres-replica:5432/unihub"
+  UNIHUB_REDIS_ADDRESS: "redis://redis:6379"
+  SPRING_RABBITMQ_HOST: "rabbitmq"
+  UNIHUB_OBJECT_STORAGE_ENDPOINT: "http://minio:9000"
+  UNIHUB_OBJECT_STORAGE_CREATE_BUCKET: "true"      # replaces a bucket-creation Job (D86)
+  UNIHUB_NOTIFICATION_SMTP_HOST: "mailpit"         # required; the in-cluster Mailpit (D86)
+  UNIHUB_NOTIFICATION_SMTP_PORT: "1025"
+  UNIHUB_PAYMENT_STRIPE_APIBASE: "http://payment-gateway-stub:8080"    # unihub.payment.stripe.api-base; WireMock (D86)
+  UNIHUB_AI_SUMMARIZATION_BASE_URL: "http://ai-summarization-stub:8080"
+  MANAGEMENT_SERVER_PORT: "8081"
+  MANAGEMENT_OTLP_TRACING_ENDPOINT: "http://tempo.unihub-observability:4318/v1/traces"
+  # Spring's relaxed binding maps an environment variable's `_` to `.` and drops `-`, so
+  # `api-base` is APIBASE, not API_BASE. A static test (Phase 7 task 5.2) checks that every variable
+  # required at startup is in this ConfigMap or secret.example.yaml.
 ---
 # secret.example.yaml — committed as a template, never as `secret.yaml` with real values;
 # `.gitignore` excludes any locally-generated `secret.yaml`. Real values are created via
-# `kubectl create secret generic backend-api-secrets --from-literal=DB_PASSWORD=... \
-#   --from-literal=JWT_SIGNING_KEY=... -n unihub` and are never written to a file that
-# could be committed.
+# k8s/scripts/create-secrets.sh, which reads each value from the environment of whoever runs it
+# (the ticket key from apps/backend/scripts/generate-ticket-key.sh) and runs
+# `kubectl create secret generic backend-api-secrets ... -n unihub`; no value is ever written to a
+# file that could be committed (Phase 7 checklist D87).
 apiVersion: v1
 kind: Secret
 metadata:
@@ -441,10 +483,24 @@ metadata:
   namespace: unihub
 type: Opaque
 stringData:
-  DB_USER: "<injected at runtime>"
-  DB_PASSWORD: "<injected at runtime>"
-  JWT_SIGNING_KEY: "<injected at runtime>"
-  PAYMENT_GATEWAY_API_KEY: "<injected at runtime>"
+  SPRING_DATASOURCE_USERNAME: "<injected at runtime>"
+  SPRING_DATASOURCE_PASSWORD: "<injected at runtime>"
+  UNIHUB_DATASOURCE_REPLICA_USERNAME: "<injected at runtime>"
+  UNIHUB_DATASOURCE_REPLICA_PASSWORD: "<injected at runtime>"
+  POSTGRES_USER: "<injected at runtime>"        # read by the postgres image (C57)
+  POSTGRES_PASSWORD: "<injected at runtime>"
+  POSTGRES_DB: "unihub"
+  SPRING_RABBITMQ_USERNAME: "<injected at runtime>"
+  SPRING_RABBITMQ_PASSWORD: "<injected at runtime>"
+  UNIHUB_REDIS_PASSWORD: "<injected at runtime>"
+  UNIHUB_SECURITY_JWT_SECRET: "<injected at runtime>"
+  UNIHUB_PAYMENT_STRIPE_SECRETKEY: "<injected at runtime>"    # unihub.payment.stripe.secret-key; any value: the gateway is a stub
+  # UNIHUB_PAYMENT_STRIPE_WEBHOOK_SECRET is deliberately absent on the cluster: with none, every
+  # payment webhook is refused. The charge resolves from the synchronous confirm and the
+  # reconciliation sweep, so the stub needs no signed webhook (D86).
+  UNIHUB_OBJECT_STORAGE_ACCESS_KEY: "<injected at runtime>"
+  UNIHUB_OBJECT_STORAGE_SECRET_KEY: "<injected at runtime>"
+  UNIHUB_DEV_SEED_STUDENT_PASSWORD: "<injected at runtime>"   # seeded accounts (user.md §10)
   UNIHUB_NOTIFICATION_SMTP_USERNAME: "<injected at runtime>"   # Phase 4 checklist D36
   UNIHUB_NOTIFICATION_SMTP_PASSWORD: "<injected at runtime>"
   # Private EC P-256 JWK that signs QR e-tickets; required at startup, read by the Registration
@@ -475,8 +531,13 @@ spec:
         - name: postgres
           image: postgres:16-alpine
           ports: [{ containerPort: 5432 }]
-          envFrom:
-            - secretRef: { name: backend-api-secrets }
+          env:                                 # the postgres image reads POSTGRES_* (C57)
+            - name: POSTGRES_USER
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_USER } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_PASSWORD } }
+            - name: POSTGRES_DB
+              valueFrom: { secretKeyRef: { name: backend-api-secrets, key: POSTGRES_DB } }
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
@@ -490,7 +551,7 @@ spec:
         resources: { requests: { storage: "2Gi" } }  # base default only — patched per overlay (§3)
 ```
 
-`postgres-master`'s `spec.serviceName` above requires a governing Service of that exact name to exist — this is what gives the StatefulSet's pod(s) the stable network identity `docs/requirement.md` §3.3 requires, and it's the same name the Flyway Job (§4) and the ConfigMap's `DB_HOST` (above) resolve against. It's headless (`clusterIP: None`) because a StatefulSet's governing Service exists to provide per-pod DNS records, not a single load-balanced ClusterIP:
+`postgres-master`'s `spec.serviceName` above requires a governing Service of that exact name to exist — this is what gives the StatefulSet's pod(s) the stable network identity `docs/requirement.md` §3.3 requires, and it's the same name the Flyway Job (§4) and the ConfigMap's `SPRING_DATASOURCE_URL` (above) resolve against. It's headless (`clusterIP: None`) because a StatefulSet's governing Service exists to provide per-pod DNS records, not a single load-balanced ClusterIP:
 
 ```yaml
 # base/postgres-master-service.yaml
@@ -509,35 +570,43 @@ spec:
       targetPort: 5432
 ```
 
-`base/postgres-replica-statefulset.yaml` mirrors the Master's StatefulSet (same `resources` block, same volume claim shape) with streaming replication configured against `postgres-master` — present in the base for completeness of the topology, but scaled to zero replicas in `overlays/dev` and to 1+ in `overlays/loadtest` (§3), since a lone developer iterating locally has no read-traffic volume to split. `base/postgres-replica-service.yaml` mirrors the Master's headless Service identically, with `name: postgres-replica` and `selector: { app: postgres-replica }` — the Backend API's read-routing datasource (`architecture.md` §4.1) resolves reads against this name, writes against `postgres-master` above.
+`base/postgres-replica-statefulset.yaml` mirrors the Master's StatefulSet (same `resources` block, same volume claim shape) with streaming replication against `postgres-master`. **Mechanism (Phase 7 checklist C60, D86):** the same one the integration tests use (`ReplicaIntegrationTestSupport`): an init container on `postgres:16-alpine` clones the Master with `pg_basebackup --write-recovery-conf` (which writes `standby.signal` and `primary_conninfo`) into an empty data volume, and the image's own entrypoint then starts a hot standby; the Master gets a `replication` entry in `pg_hba.conf`. Under mesh injection that init container needs the proxy running before it, i.e. native sidecars (Mesh ADR (b)). The StatefulSet is — present in the base for completeness of the topology, but scaled to zero replicas in `overlays/dev` and to 1+ in `overlays/loadtest` (§3), since a lone developer iterating locally has no read-traffic volume to split. `base/postgres-replica-service.yaml` mirrors the Master's headless Service identically, with `name: postgres-replica` and `selector: { app: postgres-replica }` — the Backend API's read-routing datasource (`architecture.md` §4.1) resolves reads against this name, writes against `postgres-master` above.
 
-`base/ingress.yaml` is the single external entry point (`architecture.md` §1.2), TLS-terminating and routing to `backend-api-service`:
+`base/gateway.yaml` is the single external entry point (`architecture.md` §1.2). **Corrected 2026-11-05 (Phase 7 checklist D83, C50):** the earlier `Ingress` for ingress-nginx (with the deprecated `kubernetes.io/ingress.class` annotation) is replaced by **Istio's ingress gateway** — ingress-nginx was retired by Kubernetes SIG Network in March 2026 — configured with Istio's own `Gateway` and `VirtualService` (no Gateway API CRDs to install). `requirement.md` §3.3 names "an Ingress (e.g., Nginx Ingress)"; the gateway fills that role. It terminates TLS for `unihub.local` with a certificate from a local CA (`k8s/scripts/make-local-ca.sh`, `openssl`; the Secret is created by hand and never committed — D97), redirects HTTP to HTTPS, and routes `/api/**` to the API and everything else to the Web on the same origin:
 
 ```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: networking.istio.io/v1
+kind: Gateway
 metadata:
-  name: unihub-ingress
+  name: unihub-gateway
   namespace: unihub
-  annotations:
-    kubernetes.io/ingress.class: nginx
 spec:
-  tls:
-    - hosts: ["unihub.local"]
-      secretName: unihub-tls
-  rules:
-    - host: unihub.local
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: backend-api-service
-                port: { number: 8080 }
+  selector: { istio: ingressgateway }
+  servers:
+    - port: { number: 443, name: https, protocol: HTTPS }
+      hosts: ["unihub.local"]
+      tls: { mode: SIMPLE, credentialName: unihub-tls, minProtocolVersion: TLSV1_2 }
+    - port: { number: 80, name: http, protocol: HTTP }
+      hosts: ["unihub.local"]
+      tls: { httpsRedirect: true }
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: unihub
+  namespace: unihub
+spec:
+  hosts: ["unihub.local"]
+  gateways: ["unihub-gateway"]
+  http:
+    - match: [{ uri: { prefix: /api/ } }]
+      route: [{ destination: { host: backend-api-service, port: { number: 8080 } } }]
+    - route: [{ destination: { host: web, port: { number: 8080 } } }]
 ```
 
-Redis, RabbitMQ, and MinIO each get a base `Deployment` + `Service` pair, each following `distributed-coordination.md` §1's single-instance-PoC topology, `messaging.md`'s broker configuration, and `../modules/workshop.md`'s MinIO-as-S3-substitute decision respectively — this document only wires them into the same namespace and mesh, it does not redesign any of the three. Their Deployments carry the same `app: <name>` pod-template label the Backend API's Deployment does (§2, above); each Service below selects on that same label, which is what makes the ConfigMap's `REDIS_HOST`/`RABBITMQ_HOST`/`S3_ENDPOINT` values (above) resolvable at all:
+The gateway also starts the W3C trace (`traceparent`), sampled at 10% through Istio's Telemetry API so the application's `ParentBased` sampler follows the same decision, and exports its spans to Tempo — so the correlation ID, which is the trace ID (`observability.md` §1), is now minted at the Ingress as `requirement.md` §3.1 asks (D98). The client address the rate limiter uses is the gateway's `X-Envoy-External-Address`, read only behind the pod's own sidecar; `numTrustedProxies` stays 0 (`distributed-coordination.md` §3, D91). The TLS Secret `unihub-tls` is created in the namespace of the gateway **workload** (`istio-system` with the default install), which is where Istio reads `credentialName` from — not in `unihub`. The exact field names above are checked against Istio 1.31 at Phase 7 task 5.6. Reaching it from the host: `minikube tunnel` and an `/etc/hosts` entry for `unihub.local`.
+
+Redis, RabbitMQ, and MinIO each get a base `Deployment` + `Service` pair (Redis as a `Deployment`: it holds nothing durable — `distributed-coordination.md` §1, corrected C52), each using the same image and version as `apps/backend/docker-compose.yml` (§6's "same images" guarantee, C51), each following `distributed-coordination.md` §1's single-instance-PoC topology, `messaging.md`'s broker configuration, and `../modules/workshop.md`'s MinIO-as-S3-substitute decision respectively — this document only wires them into the same namespace and mesh, it does not redesign any of the three. Their Deployments carry the same `app: <name>` pod-template label the Backend API's Deployment does (§2, above); each Service below selects on that same label, which is what makes the ConfigMap's `UNIHUB_REDIS_ADDRESS`/`SPRING_RABBITMQ_HOST`/`UNIHUB_OBJECT_STORAGE_ENDPOINT` values (above) resolvable at all:
 
 ```yaml
 # base/redis-service.yaml
@@ -565,6 +634,8 @@ spec:
       targetPort: 5672
     - port: 15672
       targetPort: 15672
+    - port: 15692          # rabbitmq_prometheus, scraped by Prometheus (C51)
+      targetPort: 15692
 ---
 # base/minio-service.yaml
 apiVersion: v1
@@ -584,7 +655,8 @@ spec:
 ```mermaid
 flowchart TB
     subgraph NS["Namespace: unihub — istio-injection: enabled"]
-        Ingress["Ingress\n(nginx)"]
+        Ingress["Istio ingress gateway\n(TLS, same origin)"]
+        Web["web\nDeployment (nginx)"]
         API["backend-api\nDeployment"]
         PGM[("postgres-master\nStatefulSet")]
         PGR[("postgres-replica\nStatefulSet")]
@@ -596,6 +668,7 @@ flowchart TB
     end
 
     Ingress --> API
+    Ingress --> Web
     API --> PGM
     API --> PGR
     API --> Redis
@@ -609,7 +682,7 @@ flowchart TB
     classDef edgeStyle fill:#E3F2FD,stroke:#1565C0,color:#0D47A1
     classDef secretStyle fill:#FFF3E0,stroke:#E65100,color:#E65100
 
-    class API,Redis,RMQ,MinIO apiStyle
+    class API,Web,Redis,RMQ,MinIO apiStyle
     class PGM,PGR pgStyle
     class Ingress edgeStyle
     class CM,Sec secretStyle
@@ -653,7 +726,14 @@ replicas:
     count: 1
   - name: postgres-replica
     count: 0   # same replicas: mechanism overlays/loadtest uses to scale it up — no separate patch file needed
+configMapGenerator:            # 0 replicas, so reads go to the Master, as in docker-compose (Phase 7 checklist D87)
+  - name: backend-api-config
+    behavior: merge
+    literals:
+      - UNIHUB_DATASOURCE_REPLICA_URL=jdbc:postgresql://postgres-master:5432/unihub
 ```
+
+(The base `configmap.yaml` then becomes a `configMapGenerator` of the same name, so an overlay can merge into it; checked at Phase 7 task 5.2.)
 
 `overlays/dev/resource-patch.yaml`:
 
@@ -739,7 +819,7 @@ spec:
 | `postgres-replica` count | 0 | 1 | Dev has no read-traffic volume to split across a Master and a Replica; a load test is specifically what `architecture.md` §4.1's read/write split exists to be validated against. |
 | Istio sidecar resources | Mesh default (unpatched) | Mesh default (unpatched) | The sidecar's own resource footprint is the same per-pod regardless of profile — the *number of pods* carrying one is what the profile split actually controls (fewer pods in dev = fewer sidecars, not smaller sidecars). |
 
-Both values above are starting/tuning numbers, not derived from a load test that hasn't been run yet — expected to be revised once `docs/requirement.md` §3.2's K6/JMeter scenario produces real numbers.
+Both values above are starting/tuning numbers, not derived from a load test that hasn't been run yet — expected to be revised once `docs/requirement.md` §3.2's K6/JMeter scenario produces real numbers. **The `overlays/loadtest` numbers do not fit the development machine** together with Istio and the observability stack (Resource Profile ADR, deviation of 2026-11-05, Phase 7 checklist D82): they are replaced by the values measured at Phase 7 task 5.7, which are recorded in `docs/testing/reports/phase-7-cluster-checks.md`. In `overlays/dev` the replica datasource points at `postgres-master` (0 replicas; §2 ConfigMap).
 
 **Trade-offs:** maintaining two overlays means any new resource ever added to the base (say, a future component) needs a conscious decision about whether it needs a per-profile patch too — a small ongoing maintenance cost, accepted in exchange for the base staying a single source of truth for every component's *shape*, with only *sizing* diverging per environment.
 
@@ -809,7 +889,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: flyway
-          image: flyway/flyway:10-alpine
+          image: flyway/flyway:13.8.0-alpine   # same version as the Gradle plugin (C48)
           args:
             - "-url=jdbc:postgresql://postgres-master.unihub.svc.cluster.local:5432/unihub"
             - "-user=$(DB_USER)"
@@ -835,6 +915,8 @@ spec:
             name: flyway-migrations
 ```
 
+**Phase 7 additions (checklist D86–D87):** the `Makefile` lives at the repository root and also carries `cluster-up` (Minikube with the version and resources of the Resource Profile ADR, then the pinned Istio), `secrets` (`k8s/scripts/create-secrets.sh`) and `smoke`. The Job's pod is sidecar-injected like every pod in `unihub`; it completes only with native sidecars (Mesh ADR (b)).
+
 **Assumption:** the database name `unihub` in the JDBC URL above (and implicitly, wherever the Backend API's own datasource config points at `postgres-master`/`postgres-replica`) is introduced in this document for the first time — no other file in the design corpus fixes a database name. Treat it as a starting/tuning value, on the same footing as §3's resource numbers, not as a value already decided elsewhere.
 
 The `Makefile` (introduced fully in §5) enforces the ordering the ADR requires — Job applied and awaited *before* the Deployment:
@@ -846,7 +928,8 @@ PROFILE ?= dev
 
 # Kustomize refuses files outside the kustomization root by default; the migration SQL lives in
 # src/main/resources/db/migration/ (§2's generator), so the build relaxes that restriction.
-KBUILD = kustomize build --load-restrictor LoadRestrictionsNone
+# kubectl's built-in Kustomize (v5.8.1 in kubectl 1.36) — no separate kustomize binary (C49).
+KBUILD = kubectl kustomize --load-restrictor LoadRestrictionsNone
 
 deploy-dev: PROFILE = dev
 deploy-dev: migrate
@@ -893,7 +976,7 @@ flowchart LR
     DelJob --> ApplyJob["kubectl apply\nflyway-migrate-job.yaml"]
     ApplyJob --> Wait["kubectl wait\n--for=condition=complete"]
     Wait -->|"Job failed"| Halt["Halt — Deployment\nnever applied"]
-    Wait -->|"Job succeeded"| ApplyOverlay["kustomize build overlays/dev\n| kubectl apply -f -"]
+    Wait -->|"Job succeeded"| ApplyOverlay["kubectl kustomize overlays/dev\n| kubectl apply -f -"]
     ApplyOverlay --> Rollout["Backend API Deployment\nrolls out against\nalready-migrated schema"]
 
     classDef stepStyle fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
@@ -962,6 +1045,11 @@ jobs:
       # against the Docker daemon already present on ubuntu-latest — no
       # `services:` stanza is needed, unlike a fixed-sidecar-container setup.
       - run: ./gradlew integrationTest --no-daemon
+      # Test reports, uploaded even when the job fails: a failure is diagnosable without a rerun
+      # (Phase 6 sign-off §5 row 10; Phase 7 checklist D103).
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: integration-test-reports, path: apps/backend/build/reports/tests }
 
   # The Web Application (apps/web): outside the chain, `needs:` nothing, blocking. No database or Docker.
   # schema.gen.ts is gitignored, so the types are generated before typecheck, lint and test.
@@ -1023,7 +1111,8 @@ jobs:
       - run: bash apps/backend/scripts/contract-diff.sh
 
   build-and-push:
-    needs: [contract-diff, secret-scan-gitleaks]
+    # `web` too, because the Web image is built here (Phase 7 checklist D85, D103).
+    needs: [contract-diff, secret-scan-gitleaks, web]
     # No separate branch check needed: the workflow's own `on.push.branches`
     # trigger (above) already restricts every `push` event this job can see
     # to `main` — `github.event_name == 'push'` is the whole condition.
@@ -1031,6 +1120,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3      # only the runtime stages run per architecture (§1)
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -1038,11 +1128,26 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: docker/build-push-action@v5
         with:
-          context: .
+          context: apps/backend
+          platforms: linux/amd64,linux/arm64
           push: true
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
           tags: |
-            unihub/unihub-backend:${{ github.sha }}
-            unihub/unihub-backend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/unihub-backend:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/unihub-backend:latest
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: VITE_PAYMENT_TEST_MODE=true
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/unihub-web:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/unihub-web:latest
 
   # ---- Security scans (Security Scan Jobs ADR) ----
   # Semgrep and Dependency-Check: no `needs:` and `continue-on-error: true` — they report on
@@ -1095,7 +1200,7 @@ jobs:
 | `unit-test` | Every push + PR | `lint` success | Fast, no-infrastructure tests, plus JaCoCo coverage verification (≥80% on core business-logic packages — Coverage Verification Mechanism ADR above). |
 | `integration-test` | Every push + PR | `unit-test` success | Testcontainers-backed Postgres (plus a streaming replica for INV-03)/Redis/RabbitMQ/MinIO — real infrastructure, per `CLAUDE.md`. |
 | `contract-diff` | Every push + PR | `integration-test` success | Diffs the `springdoc`-generated spec against `packages/api-contract`'s hand-written one, filtered to already-implemented operations (path + method) and compared as fully resolved shape (prose excluded); fails on any shape difference in an implemented operation or on any undocumented endpoint, per that package's README (Contract-Diff Mechanism ADR above). |
-| `build-and-push` | **Only** `push` to `main` | `contract-diff` and `secret-scan-gitleaks` success | The only job that can publish an artifact — structurally unreachable from a PR or from any failed upstream job. |
+| `build-and-push` | **Only** `push` to `main` | `contract-diff`, `secret-scan-gitleaks` and `web` success | The only job that can publish an artifact — structurally unreachable from a PR or from any failed upstream job. Builds and pushes the backend and Web images, multi-architecture (§1). |
 | `sast-semgrep` | Every push + PR | — (parallel, non-blocking) | SAST. Findings reported, never gating (Security Scan Jobs ADR). |
 | `dependency-check` | Every push + PR | — (parallel, non-blocking) | Dependency vulnerabilities (OWASP Dependency-Check): the npm lockfile plus the backend's runtime dependencies, read from the boot jar the job builds first (Gradle has no lockfile); HTML/JSON report uploaded as a workflow artifact. |
 | `secret-scan-gitleaks` | Every push + PR | — (parallel; **blocking** — `build-and-push` `needs:` it) | Secret scanning over full history — INV-18's enforcement (Security Scan Jobs ADR). |
@@ -1106,7 +1211,7 @@ jobs:
 
 **Guarantees:** `build-and-push` cannot execute unless every job ahead of it in the `needs:` graph succeeded, and never executes at all on a pull request — there is no path by which an untested change reaches Docker Hub. Core business-logic coverage below 80% and any contract drift on an already-implemented endpoint each independently block that path — neither is a promise left unenforced in this pipeline. Gitleaks is an additional gate on `build-and-push` (INV-18). Semgrep and Dependency-Check are the deliberate exception: they report but do not block, until each meets the promotion conditions in the Security Scan Jobs ADR.
 
-**Branch protection (manual, one-time setup — not a CI job).** On the `main` branch, GitHub branch protection requires these five status checks to pass before a pull request can merge: **`lint`**, **`unit-test`**, **`integration-test`**, **`contract-diff`** and **`secret-scan-gitleaks`**. This is configured once, in the repository's GitHub settings, when the repository is initialized at implementation; it is not something this blueprint or the workflow file can automate or express. Until it is done no job gates a merge (the workflow still gates `build-and-push` through `needs:`, above). All of the gate chain is required directly, not just its last link: a job skipped because an upstream `needs:` failed is typically counted as satisfied by branch protection, so requiring only `contract-diff` would not stop a pull request whose lint or tests fail.
+**Branch protection — not applied, deliberately (corrected 2026-11-05, Phase 7 checklist C53).** This is a solo project that pushes straight to `main` with branch protection off (`docs/testing/reports/test-matrix.md` §4.4); the gate is the `needs:` graph above, and a failure is reported on the commit that caused it. The paragraph below is kept as the setup to use if the project ever takes pull requests: on the `main` branch, GitHub branch protection would require these five status checks to pass before a pull request can merge: **`lint`**, **`unit-test`**, **`integration-test`**, **`contract-diff`** and **`secret-scan-gitleaks`**. This is configured once, in the repository's GitHub settings, when the repository is initialized at implementation; it is not something this blueprint or the workflow file can automate or express. Until it is done no job gates a merge (the workflow still gates `build-and-push` through `needs:`, above). All of the gate chain is required directly, not just its last link: a job skipped because an upstream `needs:` failed is typically counted as satisfied by branch protection, so requiring only `contract-diff` would not stop a pull request whose lint or tests fail.
 
 ---
 
@@ -1126,6 +1231,7 @@ jobs:
 | Mesh (Istio) | Not present — mTLS is a cluster-only concern | Not present | Present via namespace-level `istio-injection` label (§2) |
 | E2E verification (Playwright) | Not run — no deployed stack to point it at in this environment | Not run — `.github/workflows/ci.yml` (§5) has no `e2e` job; `docs/testing/test-levels/e2e-testing.md` §3 keeps this off the per-push path deliberately | The only environment the full Playwright suite runs against — manually, immediately after `make deploy-dev`/`make deploy-loadtest` succeeds, as part of the phase-7-onward smoke-test deliverable (`docs/testing/strategy/test-plan.md` §1) |
 | Security scans (Semgrep / Dependency-Check / Gitleaks) | Not part of the inner loop (the same container commands can be run by hand) | Run on every push/PR — Gitleaks blocking, Semgrep and Dependency-Check non-blocking (§5) | Not applicable |
+| External providers | Mailpit; Stripe sandbox or WireMock; AI stub | WireMock (`mocking-guidelines.md` §1) | In-cluster Mailpit and WireMock stubs for the payment gateway and the AI service (§2, Phase 7 checklist D86) |
 | Triggered by | Developer, manually | `push`/`pull_request` to `main` (§5) | Developer running `make deploy-dev` / `make deploy-loadtest` (§4), manually, per the CI/CD Automation Boundary ADR |
 
 **Guarantees:** no environment silently diverges in *mechanism* — every environment that runs a migration uses Flyway; every environment that needs Postgres/Redis/RabbitMQ/MinIO uses the same images the others do (Testcontainers and the Kustomize base both pull the same `postgres:16-alpine`, etc.); only *scale* and *automation trigger* differ, per the table above. E2E verification is the one row that isn't a *mechanism* difference so much as a *presence* difference — Minikube PoC is the only environment with a full deployed stack (frontend + backend + all four infra containers together) for a real browser to exercise at all.
@@ -1138,22 +1244,26 @@ Every manifest file, overlay, workflow job, and script target in one place, mirr
 
 | Artifact | Path / Name | Purpose |
 |---|---|---|
-| Dockerfile | `Dockerfile` (repo root) | Multi-stage build: `eclipse-temurin:21-jdk-jammy` builder → `eclipse-temurin:21-jre-jammy` runtime (§1) |
-| Image tag convention | `unihub/unihub-backend:<git-sha>` (+ floating `:latest`) | Immutable, traceable deploy target referenced by manifests (§1/§2) |
+| Dockerfile (backend) | `apps/backend/Dockerfile`, context `apps/backend` | Multi-stage build: `eclipse-temurin:21-jdk-jammy` builder on `$BUILDPLATFORM` → `eclipse-temurin:21-jre-jammy` runtime (§1) |
+| Dockerfile (Web) | `apps/web/Dockerfile`, context repository root | Node 22 build → `nginx-unprivileged`, CSP as an HTTP header, same origin as the API (§1) |
+| Image tag convention | `<namespace>/unihub-backend:<git-sha>`, `<namespace>/unihub-web:<git-sha>` (+ floating `:latest`), `linux/amd64` + `linux/arm64` | Immutable, traceable deploy target referenced by manifests (§1/§2) |
 | Namespace manifest | `k8s/namespace.yaml` | Declares `unihub` namespace with `istio-injection: enabled` (§2) |
 | Kustomize base | `k8s/base/` | Canonical manifests for every Core Component (§2) |
 | Mesh mTLS mode | `k8s/base/peer-authentication.yaml` | Namespace-wide `PeerAuthentication`, currently `PERMISSIVE`; STRICT is the target, gated by three preconditions (§2, Mesh mTLS Mode ADR; Phase 7 exit criteria in `test-plan.md`) |
-| Istio version | 1.24.x — a decision on paper, not yet verified against a real install or the Kubernetes/Minikube version (Mesh mTLS Mode ADR) | Single version target for the mesh manifests and precondition (b) |
+| Istio version | 1.31.x on Kubernetes 1.35.1 (patch pinned at Phase 7 task 5.1; Mesh mTLS Mode ADR, D81) | Single version target for the mesh manifests and precondition (b) |
+| Ingress | `k8s/base/gateway.yaml` — Istio ingress gateway (`Gateway` + `VirtualService`), TLS from a local CA | Single external entry point; replaces ingress-nginx (§2, D83) |
+| Observability manifests | `k8s/observability/` (namespace `unihub-observability`, injected) | Prometheus, Grafana, Tempo built from `observability/` (§2, D95, D99) |
+| Cluster scripts | `k8s/scripts/` (`create-secrets.sh`, `make-local-ca.sh`, `smoke.sh`, `kill-pod.sh`, `check-mtls.sh`) | Secrets, TLS and the manual Phase 7 checks (§2, §4) |
 | Dev overlay | `k8s/overlays/dev/` | 1 API replica, 0 Postgres replicas, minimal resources (§3) |
 | Load-test overlay | `k8s/overlays/loadtest/` | 3 API replicas, 1 Postgres replica, full-size resources (§3) |
-| Migration Job manifest | `k8s/jobs/flyway-migrate-job.yaml` | One-shot Flyway container, gates Deployment rollout (§4) |
+| Migration Job manifest | `k8s/jobs/flyway-migrate-job.yaml` (`flyway/flyway:13.8.0-alpine`) | One-shot Flyway container, gates Deployment rollout (§4) |
 | Seed migration file | `src/main/resources/db/migration/V2__seed_default_roles_permissions.sql` | Idempotent default roles/permissions (§4) |
 | Deploy automation | `Makefile` (`migrate`, `deploy-dev`, `deploy-loadtest` targets) | The only place deployment to Minikube happens (§4, CI/CD Automation Boundary ADR) |
 | E2E verification | Playwright, run manually against Minikube PoC after `make deploy-dev`/`make deploy-loadtest` | Phase 7-onward smoke-test evidence gate — deliberately **not** a `.github/workflows/ci.yml` job (`docs/testing/strategy/test-strategy.md` §4, `docs/testing/test-levels/e2e-testing.md` §3) |
-| CI workflow | `.github/workflows/ci.yml` | `lint` → `unit-test` → `integration-test` → `contract-diff` → `build-and-push` job graph (§5), plus three parallel security-scan jobs outside that chain (`build-and-push` also `needs:` the Gitleaks one; Semgrep and Dependency-Check are non-blocking) — no `e2e` job, by the decision above |
+| CI workflow | `.github/workflows/ci.yml` | `lint` → `unit-test` → `integration-test` → `contract-diff` → `build-and-push` (which also `needs:` `web`) job graph (§5), plus three parallel security-scan jobs outside that chain (`build-and-push` also `needs:` the Gitleaks one; Semgrep and Dependency-Check are non-blocking) — no `e2e` job, by the decision above |
 | Coverage verification | JaCoCo, `jacocoTestCoverageVerification` (≥80% line, `com.unihub.*.application.usecase`/`com.unihub.*.domain.*`) | Second step of `unit-test`, enforces `docs/requirement.md` §3.2's coverage figure (§5, Coverage Verification Mechanism ADR) |
 | Contract-diff script | `apps/backend/scripts/contract-diff.sh` (run by the `contract-diff` job and locally) | Generate → bundle → keep implemented operations → dereference/prune/normalise both sides → `oasdiff diff --flatten-allof --exclude-elements description,examples,summary,title --fail-on-diff` (§5, Contract-Diff Mechanism ADR) |
 | CI secrets | `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `NVD_API_KEY` (GitHub Actions repository secrets) | Docker Hub authentication for `build-and-push`; vulnerability-database access for `dependency-check`; never committed (§5) |
-| Branch protection | GitHub repository settings on `main` — manual, one-time, at repository initialization | Required status checks `lint`, `unit-test`, `integration-test`, `contract-diff`, `secret-scan-gitleaks`; not a workflow job (§5) |
+| Branch protection | Not applied, deliberately (solo project, `test-matrix.md` §4.4) | The setup to use if pull requests are ever taken is in §5 |
 | Security scan jobs | `sast-semgrep`, `dependency-check`, `secret-scan-gitleaks` in `.github/workflows/ci.yml` | Gitleaks blocking (INV-18); Semgrep and Dependency-Check non-blocking, outside the gate chain (§5, Security Scan Jobs ADR) |
 | Runtime Secret template | `k8s/base/secret.example.yaml` | Shape-only reference; real Secret created via `kubectl create secret generic` (§2) |

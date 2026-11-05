@@ -622,6 +622,10 @@ Event Publication, Idempotency Key and Audit Event are *Technical Pattern Entiti
 
 Keep `shared` small. A type goes into `shared` only if at least two modules need to agree on it. Convenience helpers do not qualify.
 
+**Rate limiter (Phase 7 checklist D90, not built yet).** Rate limiting is applied to endpoints of several modules (`distributed-coordination.md` §3), so it lives in `shared`: a port in `shared.application.port.out` with its Redisson adapter in `shared.infrastructure.out`, and the two filters in `shared.web`. Rules: (1) the general budget is keyed by the authenticated user, else by the client address the edge gateway sets and overwrites (`X-Envoy-External-Address`, read only when the peer is the pod's own sidecar `127.0.0.6`; otherwise the socket's remote address) — never by `X-Forwarded-For`, and no `RemoteIpValve` (`distributed-coordination.md` §3); an unauthenticated or invalid-token request is charged to its address in the authentication entry point; (2) every Redis call has a short timeout and, on failure, the request goes through (fail open) **and** `unihub_rate_limit_bypassed_total{reason}` is incremented — a bypass is never silent; (3) a `429` is a problem body with `correlationId` and `Retry-After`, and every operation that can return it declares it in the contract — the payment webhook is exempt; (4) no in-memory, per-pod limiter, not even as a fallback (INV-17).
+
+**Migrations (Phase 7 checklist D88, INV-15).** A new migration only expands the schema; the contract step ships one release later (`database-schema.md` §10). `MigrationLintTest` enforces it.
+
 ### 13.1 Shared kernel signatures
 
 Every type this document uses from `shared` has exactly this shape. Implement it this way; do not invent a variant. Method bodies are omitted only where they are obvious.

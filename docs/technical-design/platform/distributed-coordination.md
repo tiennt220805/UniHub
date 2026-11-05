@@ -30,7 +30,7 @@ All configuration in this document targets Redis via the Redisson client (per `C
 
 | Decision | Value | Why |
 |---|---|---|
-| Topology | Single Redis instance (Kubernetes `StatefulSet`, one pod) | `CLAUDE.md` frames this deployment as a local Minikube proof-of-concept, not a cloud production rollout — Sentinel/Cluster HA is a deliberate future revisit, not something this design builds toward now. |
+| Topology | Single Redis instance (Kubernetes `Deployment`, one pod — it holds nothing durable, see Persistence below; corrected 2026-11-05 from `StatefulSet`, Phase 7 checklist C52) | `CLAUDE.md` frames this deployment as a local Minikube proof-of-concept, not a cloud production rollout — Sentinel/Cluster HA is a deliberate future revisit, not something this design builds toward now. |
 | Client | Redisson, single-server mode (`SingleServerConfig`) | Mandated client per `CLAUDE.md`'s tech stack; single-server mode matches the single-instance topology above — Sentinel/Cluster client modes aren't applicable yet. |
 | Connection pool | Redisson defaults (`connectionPoolSize` 64, `connectionMinimumIdleSize` 24) | No load-test evidence yet justifies overriding the client's own defaults; revisit once K6/JMeter load testing (`docs/requirement.md` §3.2) produces a number. |
 | Required configuration (Phase 3 checklist D21) | `unihub.redis.address` must be set; without it the application does not start. An address that is set but unreachable still starts the application (lazy initialization) | The seat lock and the job lock have no in-process fallback in production: a fallback would run uncoordinated on more than one pod without anyone noticing (INV-08). An unreachable Redis is a runtime fault with a documented direction for each subsystem (§4), not a configuration error, and Redis stays out of Readiness (`observability.md` §5). |
@@ -123,29 +123,39 @@ try {
 
 **Model:**
 
+**Scope — by identity (decided 2026-11-05, Phase 7 checklist D90, on the owner's delegation).** `docs/requirement.md` §2.5 limits "a given user/device". A per-IP budget on all traffic would throttle students behind one campus NAT and several check-in devices behind one venue NAT, while a per-IP budget on unauthenticated traffic only would leave a signed-in user unlimited on every endpoint but registration. So the general budget is keyed by **who is calling**: the user when the request carries a valid token, the client address otherwise.
+
 | Scope | Key | Rate | Why |
 |---|---|---|---|
-| Per-user registration attempts | `unihub:ratelimit:registration:{userId}` | 5 requests / 10s | Generous enough for legitimate retry-on-failure UX (a student whose first attempt got a transient 503 from `../modules/registration.md`'s seat lock should be able to retry within seconds), tight enough to block a scripted hammering loop aimed at one workshop's seats. |
-| Per-IP general API traffic | `unihub:ratelimit:global-ip:{ipAddress}` | 100 requests / 60s | Coarser, catches unauthenticated abuse (catalog scraping, credential-stuffing against login) that a per-user limiter can't see because it has no authenticated user yet. |
+| Per-user registration attempts (`POST /api/v1/registrations`) | `unihub:ratelimit:registration:{userId}` | 5 requests / 10s | Generous enough for legitimate retry-on-failure UX (a student whose first attempt got a transient 503 from `../modules/registration.md`'s seat lock should be able to retry within seconds), tight enough to block a scripted hammering loop aimed at one workshop's seats. |
+| General API traffic, authenticated | `unihub:ratelimit:global-user:{userId}` | 100 requests / 60s | One user, whatever address they come from; users behind a shared NAT do not share a budget. The Web Application's own polling (seat count every 5 s, report every 10 s) stays far below it. |
+| General API traffic, unauthenticated — including login and every request whose token is missing, expired or invalid | `unihub:ratelimit:global-ip:{ipAddress}` | 100 requests / 60s | Catches what a per-user limiter cannot see: catalog scraping, credential stuffing against login, and floods carrying a forged token. |
+| The payment-gateway webhook (`payment.md` §7) | — | exempt | Its body is signature-verified, and the gateway retries from few addresses — in the cluster, from one stub pod. |
+
+**Where the filters sit.** The general limiter runs after bearer-token authentication (so it knows the user) and before authorization; a request that ends unauthenticated — no token, or one the authentication filter rejects with `401` — is charged to its address **in the authentication entry point**, so an invalid token never skips the budget, and over budget it gets `429` instead of `401`. The registration limiter runs on its one operation. Every operation except the webhook can therefore answer `429` with `Retry-After` (seconds, rounded up) and a problem body carrying `correlationId`; the contract declares it on all of them, changed together with the code (Phase 7 task 3.2). A switch, `unihub.rate-limit.enabled`, is on by default and on the cluster, and off in the shared integration-test suite (every test runs from one address), on only in the limiter's own tests.
+
+**The client address (corrected 2026-11-05 before any code, Phase 7 checklist D91).** Behind the Istio ingress gateway (`deployment-and-cicd.md` §2) the application takes the client address from **one value the edge gateway sets and overwrites** — `X-Envoy-External-Address`, which Istio's ingress gateway (Envoy, `use_remote_address`) writes from the peer it saw — read only when the request reached the container through its own sidecar (peer `127.0.0.6`, Istio's inbound passthrough address); otherwise (no gateway in front: docker-compose, integration tests) the socket's remote address. No `RemoteIpValve` and no walk through `X-Forwarded-For`: under the sidecar every connection comes from `127.0.0.6`, and the valve's private-range walk would continue into client-written entries (the address appended through `minikube tunnel` is itself private). `numTrustedProxies` stays 0, the default, since nothing stands in front of the gateway on Minikube. Whether 1.31 keeps that header across the sidecar hop and overwrites a client-sent value is checked at Phase 7 task 8.3; if it does not, the owner decides (stop condition) — the fallback is not a header walk. Rotating `X-Forwarded-For`, or sending one's own `X-Envoy-External-Address`, therefore never resets a budget (`security-testing.md` S-16).
 
 ```java
-// Each key is per-identity (per userId/IP), so the rate can't be pre-configured once at
-// startup — it must be set the first time this pod sees a given key. trySetRate() only
-// succeeds that first time (returns false harmlessly afterward), but calling it inline on
-// every request still costs a second Redis round-trip per request for a value that, once
-// set, never changes for that key. A pod-local cache of "keys already configured this
-// pod's lifetime" skips the redundant call on every request after the first:
+// Redisson 3.45.1. Each key is per identity, so its rate is set the first time it is used, with a
+// keep-alive so an idle key expires instead of accumulating (one per address ever seen). When the key
+// has expired, tryAcquire's script fails with "RateLimiter is not initialized" — so there is no
+// pod-local "already configured" cache (it would turn into errors once a key expires): on that
+// error, set the rate and try once more.
 RRateLimiter limiter = redisson.getRateLimiter("unihub:ratelimit:registration:" + userId);
-if (!configuredKeysCache.contains(limiter.getName())) { // e.g. a local Caffeine cache
-    limiter.trySetRate(RateType.OVERALL, 5, 10, RateIntervalUnit.SECONDS);
-    configuredKeysCache.add(limiter.getName());
+boolean acquired;
+try {
+    acquired = limiter.tryAcquire();
+} catch (RedisException notInitialized) {          // the exact exception type is checked at task 3.1
+    limiter.trySetRate(RateType.OVERALL, 5, Duration.ofSeconds(10), Duration.ofSeconds(20));
+    acquired = limiter.tryAcquire();
 }
-
-// Hot path after the first request per key — one Redis round-trip, not two:
-if (!limiter.tryAcquire()) {
+if (!acquired) {
     return HttpStatus.TOO_MANY_REQUESTS; // 429, with a computed Retry-After
 }
 ```
+
+Every Redis call of the limiter has a short timeout, so a hung Redis never holds a request (§4).
 
 **Trade-off — this is abuse prevention, not a correctness mechanism:** rate limiting exists to protect system capacity, not to enforce anti-overbooking — that guarantee is entirely `../modules/registration.md`'s and `database-schema.md`'s. A rate-limited request is simply asked to slow down; it carries no bearing on whether a seat was, or wasn't, correctly reserved.
 
@@ -162,7 +172,7 @@ One consolidated view across every Redis-backed subsystem in this system — eac
 | Workshop-catalog cache-aside (`../modules/workshop.md`) | Fall through to the PostgreSQL Replica directly, uncached. After a failure the cache is left alone for 5s (one failed attempt per 5s, not per request); a `DEL` is still always attempted | The cache is never authoritative (§4.2) — a miss only costs a Replica read, never a correctness problem. Redis client timeouts are 0.5s with no retry (`unihub.redis.*`), so the one failed attempt is cheap. |
 | Seat-reservation lock (`../modules/registration.md`) | **Reject** the registration write (`503`, `Retry-After`); a seat-hold expiry waits in its retry chain, never parked (`../modules/registration.md` §3) | §4.2: coordination unavailable means the write must never proceed uncoordinated. Rejecting protects the anti-overbooking invariant when the advisory layer can't do its job — Postgres's check alone, absent the lock's throughput-shaping role, isn't treated as sufficient under the exact high-contention conditions (`docs/requirement.md` §1.4) this lock exists for. |
 | Scheduled-job lock (§2) | **Skip** this cycle; the next tick retries | §4.6: uncoordinated execution (two instances running the same job at once) is worse than a delayed one. |
-| Rate limiter (§3) | **Fail open** — allow the request through unthrottled | Not covered explicitly by §4.2. Proposed here because the one correctness-critical defense in this system (the seat lock) is already fail-closed during the same outage — failing the rate limiter open too doesn't reopen the overbooking risk, it only means abuse-prevention is temporarily degraded for the duration of the outage, which is an acceptable secondary-layer trade-off rather than a second correctness gap stacked on top of the first. |
+| Rate limiter (§3) | **Fail open** — allow the request through unthrottled, within a short timeout (a hung Redis never holds the request), and **count** every bypass in `unihub_rate_limit_bypassed_total{reason}`, with a Warning alert (`observability.md` §4, §6; Phase 7 checklist D90) — a fail-open path here never fails silently | Not covered explicitly by §4.2. Proposed here because the one correctness-critical defense in this system (the seat lock) is already fail-closed during the same outage — failing the rate limiter open too doesn't reopen the overbooking risk, it only means abuse-prevention is temporarily degraded for the duration of the outage, which is an acceptable secondary-layer trade-off rather than a second correctness gap stacked on top of the first. |
 
 ---
 
@@ -181,5 +191,6 @@ Every Redis key pattern and numeric value across this system, in one place, trac
 | `unihub:lock:job:idempotency-cleanup` | 1min lease, 0s wait | Exactly-one-instance idempotency sweep (§2 above) |
 | `unihub:lock:job:event-publication-cleanup` | 1min lease, 0s wait | Exactly-one-instance outbox cleanup sweep (§2 above) |
 | `unihub:lock:job:outbox-relay` | 30s lease, 0s wait | Exactly-one-instance outbox relay per 1s cycle (§2 above, `messaging.md` §5) |
-| `unihub:ratelimit:registration:{userId}` | 5 req / 10s | Abuse prevention on registration attempts (§3 above) |
-| `unihub:ratelimit:global-ip:{ipAddress}` | 100 req / 60s | Abuse prevention for unauthenticated traffic (§3 above) |
+| `unihub:ratelimit:registration:{userId}` | 5 req / 10s, keep-alive 20s | Abuse prevention on registration attempts (§3 above) |
+| `unihub:ratelimit:global-user:{userId}` | 100 req / 60s, keep-alive 120s | General budget of an authenticated user (§3 above) |
+| `unihub:ratelimit:global-ip:{ipAddress}` | 100 req / 60s, keep-alive 120s | General budget of unauthenticated traffic, including invalid tokens (§3 above) |

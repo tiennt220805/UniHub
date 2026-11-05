@@ -9,8 +9,8 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 | # | Mục | Loại |
 |---|---|---|
 | A1 | P1: alert bù cho Redis/RabbitMQ degraded — **đã định nghĩa 2026-11-02** (Phase 6 D77: `unihub_dependency_up` từ probe nền, rule `== 0` 1m Critical, `observability.md` §4/§6); xây ở Phase 6, đạt khi chạy trên deploy Phase 7 | D |
-| A2 | P2: ingress-nginx được inject, hoặc PeerAuthentication exception hẹp | V |
-| A3 | P3: native Job-termination chạy thật trên Istio 1.24.x + K8s/Minikube (và có phải bật thủ công không); ảnh hưởng cả deploy PERMISSIVE hiện tại | V |
+| A2 | P2: hop Ingress → `backend-api` là mTLS — từ 2026-11-05 Ingress là Istio ingress gateway (Phase 7 checklist D83; ingress-nginx đã ngừng bảo trì), thành viên mesh do thiết kế, không cần exception | V |
+| A3 | P3: native sidecar chạy thật trên Istio 1.31.x + K8s 1.35.1 (Phase 7 checklist D81; 1.24.x đã hết hỗ trợ) cho Job Flyway và init container replica (và có phải bật thủ công không); ảnh hưởng cả deploy PERMISSIVE | V |
 | A4 | P4: dựng stack Prometheus/Grafana/Tempo rồi inject hoặc scoped exception (manifest chưa tồn tại) | V/D |
 
 ## B. Thiết kế còn thiếu
