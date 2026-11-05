@@ -414,6 +414,7 @@ class ObservabilityProvisioningIT extends IntegrationTestSupport {
         var expected =
                 List.of(
                         new Expected("unihub-audit-publish-failures", "gt", 0, "0s", "warning"),
+                        new Expected("unihub-rate-limit-bypassed", "gt", 0, "0s", "warning"),
                         new Expected("unihub-reconciliation-stuck", "gt", 0, "0s", "critical"),
                         new Expected("unihub-refund-parked", "gt", 0, "0s", "critical"),
                         new Expected("unihub-parking-lot", "gt", 0, "0s", "critical"),
@@ -462,6 +463,8 @@ class ObservabilityProvisioningIT extends IntegrationTestSupport {
                 .contains("unihub_payment_reconciliation_stuck_total");
         assertThat(byUid.get("unihub-audit-publish-failures"))
                 .contains("unihub_audit_publish_failures_total");
+        assertThat(byUid.get("unihub-rate-limit-bypassed"))
+                .contains("unihub_rate_limit_bypassed_total");
     }
 
     @Test

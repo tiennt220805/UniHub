@@ -146,14 +146,23 @@ RRateLimiter limiter = redisson.getRateLimiter("unihub:ratelimit:registration:" 
 boolean acquired;
 try {
     acquired = limiter.tryAcquire();
-} catch (RedisException notInitialized) {          // the exact exception type is checked at task 3.1
+} catch (RedisException notInitialized) {          // checked at task 3.1: RedisException, message "RateLimiter is not initialized"
     limiter.trySetRate(RateType.OVERALL, 5, Duration.ofSeconds(10), Duration.ofSeconds(20));
     acquired = limiter.tryAcquire();
 }
 if (!acquired) {
-    return HttpStatus.TOO_MANY_REQUESTS; // 429, with a computed Retry-After
+    return HttpStatus.TOO_MANY_REQUESTS; // 429, Retry-After = the window
 }
 ```
+
+**As built (Phase 7 tasks 3.1–3.5, 2026-11-05)** — `RedissonRateLimiter` behind the `RateLimiter` port, `ConsumeRateLimitBudget` use case, `RateLimitGate` and two filters in `shared.infrastructure.security`:
+
+- **The expired-key failure, measured** (`RedissonRateLimiterIT`, Redisson 3.45.1): a key that was never set or has expired makes `tryAcquire()` throw `org.redisson.client.RedisException` whose message contains `RateLimiter is not initialized`; only that exception gets `trySetRate` and one more try. Any other `RedisException` (a refused connection, a `RedisTimeoutException`) is an outage: no second attempt, so a paused Redis costs one command timeout (0.5 s), not two. An expired key restarts with a clean budget.
+- **`RateType.OVERALL`**, never `PER_CLIENT` (that counts per `RedissonClient`, i.e. per pod — two pods would each admit the whole budget); keep-alive is twice the window.
+- **`Retry-After` is the window** (60 s or 10 s), an upper bound: Redisson 3.45.1 has no public time until the next permit, and its internal keys are not read. A client that waits the whole value always succeeds.
+- **Fail open, quickly.** The client's 0.5 s command timeout is the only timeout; after a failure a pod leaves Redis alone for `unihub.rate-limit.failure-cooldown` (5 s, the catalog cache's own pause) so that an outage does not put 0.5 s on every request. Requests let through during the pause are counted too (`unihub_rate_limit_bypassed_total`, reason of the failure that started it). The pause is per pod on purpose: it only decides when one pod asks again, never a budget.
+- **The switch** `unihub.rate-limit.enabled` (default true): off, no filter charges anything (and the series of the bypass counter still exist at 0). `contract-diff.sh` and the shared integration-test suite turn it off.
+- **Where it sits:** the two filters are added to the API's security chain after `BearerTokenAuthenticationFilter` (they are not `Filter` beans: a servlet `Filter` bean would also run outside the chain, where the token's validity is unknown). A request is charged once: the first charge sets a request attribute and the authentication entry point, which charges the address of a request the bearer filter refused (so a forged token cannot skip the budget), does not charge it again. The management port (8081) has its own chain and is never charged.
 
 Every Redis call of the limiter has a short timeout, so a hung Redis never holds a request (§4).
 

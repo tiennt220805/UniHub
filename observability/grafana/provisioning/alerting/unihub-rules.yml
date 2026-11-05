@@ -56,6 +56,54 @@ groups:
           labels:
             severity: warning
           isPaused: false
+        - uid: unihub-rate-limit-bypassed
+          title: "Rate limiter failing open"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "sum(increase(unihub_rate_limit_bypassed_total[5m]))"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 0s
+          annotations:
+            summary: "Requests are being let through without a rate limit"
+            description: "INV-17 and INV-08: the rate limiter could not reach Redis in the last 5 minutes and let requests through (reason: error or timeout; see the reason label on unihub_rate_limit_bypassed_total). Abuse prevention is degraded; the seat lock is fail-closed during the same outage, so no seat is oversold."
+          labels:
+            severity: warning
+          isPaused: false
         - uid: unihub-reconciliation-stuck
           title: "Payment reconciliation stuck"
           condition: C
