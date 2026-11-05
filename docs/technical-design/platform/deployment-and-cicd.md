@@ -1027,7 +1027,10 @@ jobs:
     needs: unit-test
     runs-on: ubuntu-latest
     steps:
+      # Full history: MigrationCompatibilityIT builds the previous release (the commit before the newest
+      # migration) from it, and scripts/build-previous-release.sh refuses a shallow clone (Phase 7 task 4.2).
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
       - uses: actions/setup-java@v4
         with: { java-version: '21', distribution: 'temurin' }
       # Testcontainers starts Postgres (plus a streaming replica for the INV-03
@@ -1039,7 +1042,12 @@ jobs:
       # (Phase 6 sign-off §5 row 10; Phase 7 checklist D103).
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: integration-test-reports, path: apps/backend/build/reports/tests }
+        with:
+          name: integration-test-reports
+          path: |
+            apps/backend/build/reports/tests
+            apps/backend/build/test-results
+            apps/backend/build/previous-release/logs
 
   # The Web Application (apps/web): outside the chain, `needs:` nothing, blocking. No database or Docker.
   # schema.gen.ts is gitignored, so the types are generated before typecheck, lint and test.

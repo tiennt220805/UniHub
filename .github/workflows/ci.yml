@@ -62,7 +62,12 @@ jobs:
       run:
         working-directory: apps/backend
     steps:
+      # Full history: MigrationCompatibilityIT (INV-15, Phase 7 checklist D88) builds the application of the
+      # commit before the newest migration from git history, and scripts/build-previous-release.sh refuses a
+      # shallow clone (with one commit the "previous release" would be HEAD and the test would pass vacuously).
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           java-version: '21'
@@ -79,6 +84,7 @@ jobs:
           path: |
             apps/backend/build/reports/tests
             apps/backend/build/test-results
+            apps/backend/build/previous-release/logs
           retention-days: 14
           if-no-files-found: warn
 

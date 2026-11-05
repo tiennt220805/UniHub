@@ -259,6 +259,19 @@ tasks.test {
     exclude("**/*IT.class")
 }
 
+// INV-15 (Phase 7 checklist D88, 4.2): MigrationCompatibilityIT starts the application of the commit before the
+// newest migration (N-1) against the schema of HEAD. This resolves that commit from git history and builds its
+// boot jar, once per commit, under build/previous-release/. It always runs (its answer depends on git, not on
+// files Gradle can see) and refuses a shallow clone: CI's integration-test job checks out with fetch-depth: 0.
+val previousReleaseDir = layout.buildDirectory.dir("previous-release")
+val buildPreviousRelease = tasks.register<Exec>("buildPreviousRelease") {
+    description = "Builds the boot jar of the commit before the newest migration (N-1) for MigrationCompatibilityIT."
+    group = "verification"
+    outputs.dir(previousReleaseDir)
+    outputs.upToDateWhen { false }
+    commandLine("scripts/build-previous-release.sh", previousReleaseDir.get().asFile.absolutePath)
+}
+
 tasks.register<Test>("integrationTest") {
     description = "Runs *IT.java integration tests (Testcontainers-backed: Postgres/Redis/RabbitMQ/MinIO)."
     group = "verification"
@@ -279,6 +292,15 @@ tasks.register<Test>("integrationTest") {
     // sequentially-gated CI jobs (`./gradlew test` then `./gradlew integrationTest`), not one Gradle
     // invocation — `check`/`build` must stay fast and never implicitly boot containers.
     shouldRunAfter(tasks.test)
+    // MigrationCompatibilityIT starts two boot jars as child processes: HEAD's and N-1's (above).
+    dependsOn(buildPreviousRelease, tasks.named("bootJar"))
+    doFirst {
+        systemProperty(
+            "unihub.test.previous-release",
+            previousReleaseDir.get().file("previous-release.properties").asFile.absolutePath,
+        )
+        systemProperty("unihub.test.head-jar", tasks.bootJar.get().archiveFile.get().asFile.absolutePath)
+    }
 }
 
 // Formatting (Spotless) and semantic/banned-pattern linting (Checkstyle) are two separate concerns
