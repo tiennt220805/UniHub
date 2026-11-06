@@ -44,3 +44,5 @@ dc-data/
 # Local Kubernetes (Phase 7): the local CA and its private keys, made by k8s/scripts/make-local-ca.sh
 # ------------------------------------------
 k8s/.local-ca/
+# istioctl, fetched at the pinned version by k8s/scripts/cluster-up.sh (the binary is not committed)
+k8s/.tools/

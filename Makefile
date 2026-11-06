@@ -1,6 +1,7 @@
 # Operating the Kubernetes proof of concept (Phase 7; deployment-and-cicd.md §2–§4). Everything runs from the
 # repository root. Kustomize is the one built into kubectl (no separate binary, C49).
 #
+#   make cluster-up               Minikube + Istio at the pinned versions (k8s/scripts/cluster-up.sh)
 #   make secrets                  create the Secret from the environment (k8s/scripts/create-secrets.sh)
 #   make deploy-dev TAG=<sha>     migrate, then deploy overlays/dev with the images built for that commit
 #   make deploy-loadtest TAG=<sha>
@@ -29,6 +30,11 @@ KBUILD = kubectl kustomize --load-restrictor LoadRestrictionsNone
 define RENDER
 $(KBUILD) k8s/overlays/$(1) | sed 's|@IMAGE_TAG@|$(TAG)|g'
 endef
+
+# The local cluster: Minikube and Istio at the pinned versions (k8s/versions.env), task 5.1.
+.PHONY: cluster-up
+cluster-up:
+	k8s/scripts/cluster-up.sh
 
 .PHONY: secrets render check-images pre-migration migrate deploy-dev deploy-loadtest rollout
 
