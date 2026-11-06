@@ -25,48 +25,28 @@ scenario="${1:-}"
 case "$scenario" in 7a|7b) ;; *) echo "usage: $0 7a|7b" >&2; exit 2 ;; esac
 for tool in kubectl curl python3 minikube; do command -v "$tool" >/dev/null || { echo "$tool is not installed" >&2; exit 1; }; done
 
-CA=k8s/.local-ca/ca.crt
-[ -f "$CA" ] || { echo "$CA is missing: run k8s/scripts/make-local-ca.sh --apply" >&2; exit 1; }
-PORT=18444
-BASE="https://unihub.local:$PORT"
+# shellcheck source=k8s/scripts/lib.sh
+. k8s/scripts/lib.sh
 PROFILE="${MINIKUBE_PROFILE:-unihub}"
 work="$(mktemp -d)"
-pids=""
-cleanup() { for p in $pids; do kill "$p" 2>/dev/null || true; wait "$p" 2>/dev/null || true; done; rm -rf "$work"; }
+cleanup() { lib_cleanup; rm -rf "$work"; }
 trap cleanup EXIT
-now() { date -u +%H:%M:%S; }
-secret() { kubectl -n unihub get secret backend-api-secrets -o "jsonpath={.data.$1}" | base64 -d; }
-
-ready_count() { kubectl get pods -n unihub -l app=backend-api -o json | python3 -c '
-import json, sys
-n = 0
-for p in json.load(sys.stdin)["items"]:
-    if p["metadata"].get("deletionTimestamp"):
-        continue
-    if any(c["type"] == "Ready" and c["status"] == "True" for c in p["status"].get("conditions", [])):
-        n += 1
-print(n)'; }
 
 replicas="$(kubectl get deploy backend-api -n unihub -o jsonpath='{.spec.replicas}')"
 [ "$replicas" -ge 2 ] || { echo "backend-api has $replicas replica(s): deploy overlays/loadtest first" >&2; exit 1; }
-[ "$(ready_count)" = "$replicas" ] || { echo "not every API pod is Ready yet" >&2; exit 1; }
+[ "$(api_ready_count)" = "$replicas" ] || { echo "not every API pod is Ready yet" >&2; exit 1; }
+ready_count() { api_ready_count; }
 
-kubectl -n istio-system port-forward svc/istio-ingressgateway "$PORT:443" >/dev/null 2>&1 &
-pids="$pids $!"
-kubectl -n unihub-observability port-forward svc/grafana 13001:3000 >/dev/null 2>&1 &
-pids="$pids $!"
-c() { curl -s --resolve "unihub.local:$PORT:127.0.0.1" --cacert "$CA" "$@"; }
-for _ in $(seq 1 30); do c -o /dev/null "$BASE/" 2>/dev/null && break; sleep 1; done
+gateway_up 18444
+grafana_up
+PORT=$GW_PORT
 
 # ---- tokens of the four seeded accounts ------------------------------------------------------------------------------
 tokens=""
 for pair in "student1:UNIHUB_DEV_SEED_STUDENT_PASSWORD" "organizer1:UNIHUB_DEV_SEED_ORGANIZER_PASSWORD" \
             "admin1:UNIHUB_DEV_SEED_ADMIN_PASSWORD" "staff1:UNIHUB_DEV_SEED_CHECKIN_STAFF_PASSWORD"; do
-  user="${pair%%:*}"; key="${pair#*:}"
-  tok="$(c -X POST "$BASE/api/v1/auth/login" -H 'Content-Type: application/json' \
-        -d "{\"email\":\"$user@dev.unihub.local\",\"password\":\"$(secret "$key")\"}" \
-        | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')"
-  [ -n "$tok" ] || { echo "login of $user failed" >&2; exit 1; }
+  tok="$(login "${pair%%:*}" "${pair#*:}")"
+  [ -n "$tok" ] || { echo "login of ${pair%%:*} failed" >&2; exit 1; }
   tokens="$tokens $tok"
 done
 
@@ -80,19 +60,7 @@ probe_log="$work/probe.log"
     sleep 0.2
   done ) &
 probe_pid=$!
-pids="$pids $probe_pid"
-
-grafana_state() { # rule uid -> state
-  curl -s -u "admin:$(kubectl get secret grafana-admin -n unihub-observability -o jsonpath='{.data.GF_SECURITY_ADMIN_PASSWORD}' | base64 -d)" \
-    http://localhost:13001/api/prometheus/grafana/api/v1/rules | python3 -c '
-import json, sys
-uid = sys.argv[1]
-for g in json.load(sys.stdin)["data"]["groups"]:
-    for r in g["rules"]:
-        if r["uid"] == uid:
-            print(r["state"]); sys.exit()
-print("?")' "$1"
-}
+LIB_PIDS="$LIB_PIDS $probe_pid"
 
 sleep 5
 echo "== scenario $scenario at $(now) UTC; $replicas API pods; probe traffic running ($(wc -l < "$probe_log") requests so far)"
