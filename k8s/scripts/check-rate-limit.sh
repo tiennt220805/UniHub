@@ -57,7 +57,7 @@ c -o /dev/null -X POST "$BASE/api/v1/workshops/$WID/publish" -H "Authorization: 
 pod_counts() { # per API pod: requests its sidecar has answered (destination reporter)
   for pod in $(kubectl get pods -n unihub -l app=backend-api -o name); do
     n="$(kubectl exec "$pod" -n unihub -c istio-proxy -- pilot-agent request GET stats/prometheus 2>/dev/null \
-      | grep '^istio_requests_total' | grep 'reporter="destination"' | sed -E 's/.*\} ([0-9]+)$/\1/' | paste -sd+ - | bc)"
+      | { grep '^istio_requests_total' || true; } | { grep 'reporter="destination"' || true; } | sed -E 's/.*\} ([0-9]+)$/\1/' | paste -sd+ - | bc)"
     echo "${pod#pod/} ${n:-0}"
   done
 }

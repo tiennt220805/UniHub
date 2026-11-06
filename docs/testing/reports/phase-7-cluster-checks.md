@@ -1,4 +1,4 @@
-# Phase 7 — Kiểm tay trên cluster Minikube (task 5.1, 5.3, 5.6, 5.7, 6.1, 6.3, 6.4, 7.1–7.6)
+# Phase 7 — Kiểm tay trên cluster Minikube (task 5.1, 5.3, 5.6, 5.7, 6.1, 6.3, 6.4, 7.1–7.6, 8.1–8.6)
 
 > **Mục đích.** Các IT và test tĩnh của Phase 7 chứng minh từng mảnh (manifest khớp mã, stub trả đúng cái adapter gọi, migration tương thích). Chúng **không** chứng minh rằng các manifest chạy được trong một cluster có Istio. Tài liệu này ghi những gì đã chạy trên cluster, bằng chứng của từng bước, và những gì **chưa** chạy.
 > **Đây là các bản luyện tập:** task 5.x và 6.x chạy dưới `PeerAuthentication` PERMISSIVE (riêng `backend-api` và `rabbitmq` STRICT từ 6.1), task 7.5–7.6 dưới STRICT trong cả hai namespace nhưng trên cluster đã dùng từ 5.7, không phải một lần deploy mới. Bản bằng chứng chính thức chạy lại ở Mục 10, dưới STRICT, trên một lần deploy mới (D96). Một ô trống là một khoảng trống, không phải một lần đạt.
@@ -121,6 +121,63 @@
 - **Hệ quả của STRICT, kiểm ngay trên cluster:** (a) toàn bộ pod giữ `2/2 Ready`; (b) `k8s/scripts/journey.sh` xanh (đăng nhập bốn role, tạo và publish, đăng ký, thanh toán qua stub, `CONFIRMED` sau 1 s); (c) `make migrate` → Job `Complete`, sidecar thoát cùng (**AC94.1 dưới STRICT**); (d) **replica dựng lại từ volume trống** (xóa pod và PVC `data-postgres-replica-0`): `istio-init` → `istio-proxy` → `basebackup` mã 0 trong 2 s, `streaming` — `pg_basebackup` đi qua mesh dưới STRICT; (e) `rollout restart` của API: ba pod mới Ready, probe kubelet đi qua sidecar bình thường; (f) trace của gateway vẫn tới Tempo qua gRPC (6 trên 60 request thành trace, span gateway + span ứng dụng); (g) Prometheus vẫn scrape bằng chứng chỉ sidecar (bốn target `UP`); (h) `check-mesh.sh` OK.
 - **Đây là bản luyện tập, chưa phải bằng chứng đã ký:** do Claude Code chạy, chưa có chấp nhận của chủ dự án (D102); M-63 là `Drafted`; bản được ký là lần chạy lại ở Mục 10 trên một lần deploy mới.
 
+### 8.1, 8.2 — kịch bản 7 (xóa pod, đóng băng pod; `k8s/scripts/kill-pod.sh`)
+
+*Chạy 2026-11-06 14:25–14:31 (UTC+7), `overlays/loadtest` (3 API pod), STRICT, image `a9c1a8f`; traffic thăm dò: `GET /api/v1/workshops` mỗi 0,2 s qua gateway, mỗi lần dùng token của một trong bốn tài khoản seed (limiter tính 100 request / 60 s mỗi user nên bốn user mang ~5 request/s mà không bị `429`).*
+
+| | 7a — xóa pod (lần 1) | 7a (lần 2) | 7b — đóng băng (lần 1) | 7b (lần 2) |
+|---|---|---|---|---|
+| request thăm dò | 236 | 253 | 291 | 248 |
+| `200` | 236 | 253 | 283 | 242 |
+| **5xx** | **0** | **0** | 3 (`503`) | 2 (`503`) |
+| lỗi kết nối / timeout client 3 s (`000`) | 0 | 0 | 5 | 4 |
+| pod biến mất / rời rotation | gone T+8–9 s | gone T+9 s | `Ready=False` T+17–18 s | T+17 s |
+| container restart tại chỗ (Liveness) | — | — | T+28–35 s (`restartCount` 0→1, 1→2) | T+28 s |
+| Deployment / pod Ready lại | 3 pod Ready T+42 s | T+47 s | pod Ready bền T+64–69 s | T+64 s |
+| `unihub-app-restarted` | không bắn (đúng: pod bị xóa là chuỗi mới) | không | **`Firing` T+78 s** (baseline `inactive`) | `Firing` sẵn từ lần 1 (cửa sổ 10 phút) |
+
+- **7a đạt (M-59, D89):** hai lần, **0 phản hồi 5xx và 0 lỗi kết nối**; `preStop` + tắt máy êm làm việc đúng. Rule `unihub-app-target-down` chỉ `Pending` (pod thay thế chưa lắng nghe) rồi về `Normal`.
+- **7b đạt theo định nghĩa của §2.8** (rời rotation, bị restart, traffic tiếp tục ở pod khác, thời gian đo được, `unihub-app-restarted` `Firing` — **AC99.2**; đóng băng bằng `docker pause` qua `minikube ssh`, không công tắc nào trong ứng dụng) **nhưng có hai khoảng lỗi đo được, không giấu:** (i) **~4–5 request timeout** (client 3 s) trong 17–18 s đầu: request tới pod đã đóng băng treo cho tới khi Readiness (3 lần × 5 s + timeout) gỡ nó khỏi rotation — một client không có timeout sẽ treo lâu hơn (Istio không đặt timeout route mặc định); (ii) **2–3 phản hồi `503` trong ~1 s lúc container được restart**: điều kiện `Ready` của pod thoáng `True` ngay khi container mới khởi động (lần 2, đọc mỗi giây: `Ready=False` T+17, `True` T+27, `False` T+28, rồi `True` bền từ T+64) nên gateway gửi request vào ứng dụng chưa lắng nghe và sidecar của pod trả `503`; các retry mặc định của Istio không che được. Đây là hành vi của kubelet với container đã restart (lần chạy đầu cho thấy cùng cửa sổ: sự kiện `Readiness probe failed … 500` 2 s sau `Started`), không phải của ứng dụng; chưa xử lý. **Phát hiện này nên được chủ dự án biết:** "0 5xx" của Q9 áp dụng cho 7a và đạt; 7b có một cửa sổ ~1 s mà hệ thống chưa che được.
+- Cập nhật tài liệu: `resilience-testing.md` §2.8 ghi chu kỳ probe thật (Readiness 5 s, Liveness 10 s, `failureThreshold` 3 mỗi cái), không phải "10 s / 15 s".
+
+### 8.3 — S-15, S-16 (a) qua gateway (`k8s/scripts/check-rate-limit.sh`) — **tìm ra một lỗi thật**
+
+- **S-15 đạt:** sáu lần đăng ký liên tiếp của một user qua `https://unihub.local`: `201 409 409 409 409 429`, lần thứ sáu `429` kèm `Retry-After: 10`; sáu request do **ba pod** khác nhau phục vụ (đếm ở sidecar của từng pod) và ngân sách vẫn dùng chung (Redis).
+- **S-16 (a), phần 1 đạt (điều kiện dừng của Q11 không bị chạm):** một route thăm dò tạm thời tới stub WireMock (journal ghi header nhận được): `X-Envoy-External-Address` do client gửi (`203.0.113.77`) **bị gateway ghi đè** (`127.0.0.1`, địa chỉ gateway thấy qua `port-forward`) và **tới được pod qua hop sidecar**; `X-Forwarded-For` tới pod là `<giá trị client>,<địa chỉ gateway>` (ứng dụng không đọc).
+- **S-16 (a), phần 2 FAIL trên image `a9c1a8f`:** 130 request chưa xác thực trong một lần gửi, mỗi request một `X-Forwarded-For` khác: **130 trên 130 là `200`**, không `429`; các khóa Redis là `unihub:ratelimit:global-ip:198.51.100.N` — **limiter khóa theo `X-Forwarded-For` do client viết**. (Hai lần chạy đầu của script cho cùng kết quả vì một lỗi của chính script — mỗi `curl` riêng làm tốc độ ~1,4 req/s, dưới mức 100/60 s — nên đã gửi dồn trong một kết nối; chạy thường không kèm header giả cho 95 `200` rồi 155 `429`, tức limiter vẫn đúng với một địa chỉ cố định.)
+- **Nguyên nhân gốc:** ứng dụng không đặt `server.forward-headers-strategy`, nên **trên Kubernetes Spring Boot tự nhận ra nền tảng và bật `native`** (Tomcat `RemoteIpValve`): valve thay `remoteAddr` bằng mục không riêng tư cuối cùng của `X-Forwarded-For` do client viết, **trước** `ClientAddress`, nên `127.0.0.6` và `X-Envoy-External-Address` không bao giờ được đọc. `RateLimitIT` (MockMvc, không Tomcat, không nền tảng cloud) không thể thấy; ranh giới INV-17 bị hở chỉ trên cluster. Đúng loại lỗi mà S-16 trên cluster có để bắt.
+- **Sửa (`d509fda`):** `server.forward-headers-strategy: none` trong `application.yml` (bình luận nêu lý do); **`RateLimitForwardedHeadersIT`** khởi động server thật với `spring.main.cloud-platform=kubernetes` và gửi 130 request qua socket thật, mỗi request một `X-Forwarded-For`: **đỏ trước khi sửa** (`AssertionError`), xanh sau; `RateLimitIT` vẫn xanh.
+- **Sau khi sửa, trên cluster** (image build cục bộ từ cây làm việc, nạp vào node bằng `minikube image load`, **chưa phải image CI**): S-15 vẫn đạt; S-16 (a) phần 2: **đúng 100 `200` rồi 30 `429`, cái đầu tiên ở request 101**; `check-rate-limit: OK`. Bằng chứng CI cho bản sửa **chưa có**: Gitleaks đỏ trên `d509fda` (xem "Điều cần chủ dự án quyết" ở cuối mục này), nên `build-and-push` bị chặn.
+
+### 8.4 — diễn tập rollout, N-1 → HEAD (`k8s/scripts/rollout-rehearsal.sh`) — **phần schema đạt, phần topology AMQP là phát hiện**
+
+*Chạy 2026-11-06 15:32 (UTC+7). N-1 = `a58e814` (cha của commit thêm migration V8; image dựng cục bộ từ `git archive` với Dockerfile của HEAD, vì N-1 không có image trên registry), HEAD = cây làm việc `d509fda`+ (image cục bộ). Phá hủy dữ liệu dev: API về 0, hai volume Postgres xóa, Redis và RabbitMQ restart.*
+
+- **Cơ sở dữ liệu rỗng → V7** (Flyway `-target=7`, Job có inject, STRICT) → **N-1 khởi động** (3 pod) → **traffic thăm dò** (ba student, `GET /api/v1/workshops` mỗi 0,25 s).
+- **Migration của HEAD chạy khi N-1 đang phục vụ — đạt (AC88.3):** Job → V8; **110 request, 0 không-2xx** trong lúc chạy và 20 s sau; 3 pod N-1 vẫn Ready trên V8; **đăng nhập `200`** trên schema đã migrate.
+- **Rollout HEAD đè lên N-1 — KHÔNG hoàn tất:** pod HEAD **crash-loop** (Startup probe `500`, bị kubelet giết nhiều lần): `PRECONDITION_FAILED - inequivalent arg 'x-dead-letter-exchange' for queue 'unihub.audit.queue'`. Broker giữ hàng đợi do **N-1** khai báo (không `x-dead-letter-exchange`); HEAD khai báo nó **có** `x-dead-letter-exchange`, `x-max-length`, `x-overflow: reject-publish-dlx`, `x-dead-letter-routing-key` (commit `ab9cd91`, Phase 6 Mục 2, cùng commit với V8 — nên **cặp N-1/HEAD của M-58 luôn đi qua thay đổi này**). Đây là điều đã nhìn thấy một lần bằng tay ở Mục 4 ("AMQP topology không có expand/contract"); lần này đo được:
+  - **Cái cứu:** Deployment giữ nguyên ba pod N-1 (`maxUnavailable` 25% của 3 làm tròn xuống 0): trong lúc rollout kẹt **706 request thăm dò, 0 không-2xx**. Rollout kẹt là **an toàn nhưng không bao giờ xong**.
+  - **Biện pháp 1 (xóa hàng đợi khi pod N-1 còn chạy): không hiệu quả** — các consumer của N-1 khai báo lại hàng đợi cũ ngay.
+  - **Biện pháp 2 (dừng N-1 trước, tức Recreate): hiệu quả nhưng là sự cố ngừng dịch vụ** — HEAD Ready sau **85 s** kể từ lúc N-1 dừng; probe trong lúc đó: **236 `503`** (gateway không có pod).
+  - Sau cùng: hàng đợi có đủ bốn tham số mới, không còn `PRECONDITION_FAILED`, `unihub_audit_publish_failures_total` = 0.
+- **Kết luận có giới hạn:** (i) `INV-15` ở mức **schema** được chứng minh trên cluster (Job dưới STRICT + sidecar, N-1 đọc/ghi trên schema mới, 0 lỗi). (ii) **Một thay đổi tham số của hàng đợi AMQP không đi được qua rolling update** — không có expand/contract cho topology. Với cặp thật (một bản phát hành chưa từng nằm trên cluster này, vì cluster dựng lần đầu ở HEAD của Phase 7) thì chỉ gặp một lần, nhưng quy tắc cần được chủ dự án quyết: (a) ghi nhận là bước vận hành một lần (xóa hàng đợi và dừng bản cũ) cho bản phát hành vượt `ab9cd91`; (b) đổi các tham số giới hạn/DLX của hàng đợi sang **policy của RabbitMQ** (`set_policy`) thay vì `x-arguments` khi khai báo — policy đổi được mà không gây `PRECONDITION_FAILED`; (c) khi đổi tham số, đặt tên hàng đợi mới (expand) rồi bỏ hàng đợi cũ (contract). Tôi **không** chọn thay chủ dự án và không sửa code ở đây.
+- M-58 vẫn `Drafted` (cả vì chờ chấp nhận, D102, cả vì rollout chưa xong).
+
+### 8.5 — stub Stripe chết (kịch bản 1b, M-64; `k8s/scripts/dependency-outage.sh stripe`)
+
+*Chạy 2026-11-06 14:57 (UTC+7), `loadtest`, STRICT, image `a9c1a8f`.* Stub `payment-gateway-stub` scale 0; **42 lần charge → toàn bộ `503`** (không treo, không lỗi khác); breaker mỗi pod cần 10 lần gọi hỏng nên mở theo từng pod (Prometheus, sau 3 vòng): **`resilience4j_circuitbreaker_state{state="open"}` = 1 trên cả ba pod**. Khi breaker mở: **3/3 pod `Ready`**, readiness `200` ở mọi pod (gateway không là điều kiện Readiness), **catalog `200`**, **đăng ký free `201`**, một lần charge bị từ chối **nhanh: `503` trong 0,03 s**. Khôi phục: stub scale 1, sau khi breaker thăm dò lại **charge `201`** và **đăng ký `CONFIRMED`**. `dependency-outage stripe: OK`.
+
+### 8.6 — Redis rồi RabbitMQ scale 0 (kịch bản 2b, M-65; `dependency-outage.sh redis|rabbitmq`)
+
+*Chạy 2026-11-06 14:58–15:03 (UTC+7), cùng điều kiện.* Cả hai: **3/3 pod `Ready`, readiness `200`, nhóm `dependencies` `DEGRADED` ở mọi pod, catalog `200`** (quan sát). **Redis:** đăng ký trả **`503`** (INV-08: khóa chỗ fail-closed); **P1 `unihub-dependency-down` `Firing` sau 80 s**, **`Normal` sau 54 s** kể từ khi Redis về; đăng ký `201` trở lại. **RabbitMQ:** đăng ký free vẫn **`201`** (quan sát: outbox giữ ý định); P1 **`Firing` sau 109 s**, **`Normal` sau 39 s** kể từ khi về; `unihub-rabbitmq-target-down` **`Pending`** lúc đó (chuỗi vắng được đọc là 0, nhưng cho tới lúc kiểm vẫn chưa hết `for: 1m`), đăng ký `201` sau khi về. Hai lần `dependency-outage: OK`. Đây là bản chạy lần hai của P1 (lần đầu: 6.4), lần này từ một kịch bản commit được và dưới STRICT.
+
+### Điều chủ dự án cần quyết (Mục 8)
+
+1. **Gitleaks đang đỏ trên `d509fda`** (rule `curl-auth-user`, `k8s/scripts/kill-pod.sh:86`: `curl -u "admin:$(kubectl get secret … | base64 -d)"`, mật khẩu đọc từ cluster lúc chạy, không nằm trong file — dương tính giả). Dòng đã được thay ở commit sau (header Basic dựng bằng Python trong `lib.sh`), nhưng job quét toàn bộ lịch sử và `build-and-push` phụ thuộc vào nó. Cách theo quy ước (`.gitleaksignore`, có tiền lệ "với sự chấp thuận của chủ dự án" ngày 2026-11-01) cần chủ dự án duyệt; **tôi không tự thêm** và không viết lại lịch sử. Fingerprint: `d509fdad641faacd4353fe76c3cbfa60f52fe733:k8s/scripts/kill-pod.sh:curl-auth-user:86`.
+2. **Topology AMQP không có expand/contract** (8.4): chọn (a), (b) hoặc (c) ở trên.
+3. **Cửa sổ ~1 s `503` khi container restart tại chỗ** (8.2): chấp nhận hay muốn xử lý.
+4. **`unihub-app-target-down` có thể bắn khi rollout** (đã nêu ở Mục 6): trong 8.1 chỉ `Pending` ~40 s (đủ dưới `for: 1m`); vẫn có thể bắn khi kéo image lâu.
+
 ### Đo tài nguyên (thay số tạm của `overlays/loadtest`; ADR Resource Profile, sai lệch có tên của D82)
 
 `kubectl top` khi **rảnh** (không tải), sau khi cả hai overlay đã chạy:
@@ -148,7 +205,7 @@
 
 - **5.5:** `Makefile` có `cluster-up` nhưng **chưa có `smoke`** (Mục 9, D101); `journey.sh` mới là một hành trình, không phải toàn bộ `smoke.sh` (chưa có M-64, M-65).
 - **`/etc/hosts` + `minikube tunnel` + trình duyệt tin CA:** cần `sudo`, không chạy; kiểm bằng `port-forward`. Playwright qua HTTPS (AC97.2) là 9.4.
-**kill-pod, đóng băng pod, M-59, M-62, M-64, M-65, rollout rehearsal M-58** (Mục 8); **S-16 trên cluster** (`X-Envoy-External-Address` thật sau sidecar).
+**S-16 trên cluster** (`X-Envoy-External-Address` thật sau sidecar).
 - Không có tải: không có K6, không đo p95, không đo `OOMKilled` dưới tải.
 - Không kiểm `readOnlyRootFilesystem`, không có NetworkPolicy (không thuộc Phase 7).
 
