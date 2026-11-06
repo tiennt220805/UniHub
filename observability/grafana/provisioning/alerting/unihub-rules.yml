@@ -296,6 +296,54 @@ groups:
           labels:
             severity: warning
           isPaused: false
+        - uid: unihub-app-restarted
+          title: "Application container restarted"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "changes(process_start_time_seconds{job=\"unihub-backend\"}[10m])"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 0s
+          annotations:
+            summary: "A container of the application restarted in place"
+            description: "Phase 7 D99: process_start_time_seconds changed within 10 minutes - a Liveness kill or a JVM crash. It does not see a pod that was deleted: that one comes back with a new name and address, a new series, and shows only as a short dip in the number of targets."
+          labels:
+            severity: warning
+          isPaused: false
     - orgId: 1
       name: unihub-sustained
       folder: UniHub
@@ -681,7 +729,7 @@ groups:
           for: 5m
           annotations:
             summary: "Reads from the replica may be stale"
-            description: "architecture.md section 4.1. NaN on a primary. On a healthy replica this value also grows while the primary has no writes (open question for the owner, Phase 6 Muc 4)."
+            description: "architecture.md section 4.1. NaN on a primary or on a replica that has replayed nothing; 0 when the replica has replayed everything it received (Phase 7 D99), so an idle primary is not lag."
           labels:
             severity: warning
           isPaused: false
@@ -1114,6 +1162,54 @@ groups:
           annotations:
             summary: "Prometheus cannot scrape the broker"
             description: "The broker's own scrape target is gone."
+          labels:
+            severity: critical
+          isPaused: false
+        - uid: unihub-app-target-down
+          title: "Application metrics target down"
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                expr: "up{job=\"unihub-backend\"} or on() vector(0)"
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                settings:
+                    mode: dropNN
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 1
+                        type: lt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Error
+          for: 1m
+          annotations:
+            summary: "Prometheus cannot scrape the application, or finds no application target"
+            description: "Phase 7 D99: without this rule every unihub_* rule goes to no data and stays silent when the application is gone. A target that disappears (a deleted pod, a failed discovery) is read as 0 by the on() vector(0) arm."
           labels:
             severity: critical
           isPaused: false

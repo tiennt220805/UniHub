@@ -1,0 +1,64 @@
+# Prometheus scrape configuration for the Kubernetes deployment ONLY (Phase 7 checklist D95, D99, task 6.1);
+# the docker-compose stack has prometheus.compose.yml. The job names are the ones the alert rules pin
+# (`up{job="unihub-backend"}`, `up{job="rabbitmq"}`): ObservabilityProvisioningIT fails when a rule names a job
+# that is missing from either file.
+#
+# The targets are found by Kubernetes service discovery, one pod at a time (a Service would hide a dead pod behind
+# a live one), by the pod's `app` label and the NAME of the container port: `management` for the API's Actuator
+# (8081) and `http-prometheus` for the broker's plugin (15692). Istio's own `prometheus.io/*` annotations are
+# not used: the injector rewrites them to the sidecar's merged plaintext endpoint on 15020, which would scrape
+# around the mesh.
+#
+# mTLS (Mesh ADR (c), D95, AC95.1): the scrape is made with the certificates of Prometheus's own sidecar. The
+# pod asks that sidecar to write them to /etc/istio-certs (prometheus-deployment.yaml: `OUTPUT_CERTS`, a shared
+# volume), and the scrape presents them to the target's sidecar. `insecure_skip_verify` only skips the host
+# name: the certificate's name is a SPIFFE identity, not the pod's address; the chain is still checked against
+# the mesh's root, which is the same file as `ca_file`.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: unihub-backend
+    metrics_path: /actuator/prometheus
+    scheme: https
+    tls_config:
+      ca_file: /etc/istio-certs/root-cert.pem
+      cert_file: /etc/istio-certs/cert-chain.pem
+      key_file: /etc/istio-certs/key.pem
+      insecure_skip_verify: true
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: [unihub]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        regex: backend-api
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_container_port_name]
+        regex: management
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+
+  # The broker's own rabbitmq_prometheus plugin (observability/rabbitmq/prometheus.conf turns on per-queue series).
+  - job_name: rabbitmq
+    scheme: https
+    tls_config:
+      ca_file: /etc/istio-certs/root-cert.pem
+      cert_file: /etc/istio-certs/cert-chain.pem
+      key_file: /etc/istio-certs/key.pem
+      insecure_skip_verify: true
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: [unihub]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        regex: rabbitmq
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_container_port_name]
+        regex: http-prometheus
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod

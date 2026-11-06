@@ -78,6 +78,12 @@ class ObservabilityProvisioningIT extends IntegrationTestSupport {
     /** Series Prometheus itself writes for every target; not in any application's scrape. */
     private static final Set<String> SYNTHETIC = Set.of("up");
 
+    /**
+     * Labels Prometheus attaches to every sample of a target; not in the scrape body. A pinned
+     * {@code job} is checked against the scrape configurations by {@code pinnedJobsAreScrapeJobs}.
+     */
+    private static final Set<String> TARGET_LABELS = Set.of("job", "instance");
+
     private static final RabbitMQContainer BROKER =
             new RabbitMQContainer("rabbitmq:3.13.7-management")
                     .withFileSystemBind(
@@ -363,6 +369,9 @@ class ObservabilityProvisioningIT extends IntegrationTestSupport {
             var label = matcher.group(1);
             var operator = matcher.group(2);
             var value = matcher.group(3);
+            if (TARGET_LABELS.contains(label)) {
+                continue;
+            }
             var seen = labels.get(label);
             if (seen == null) {
                 problems.add(
@@ -405,6 +414,10 @@ class ObservabilityProvisioningIT extends IntegrationTestSupport {
                                 "sum(rate(a_total{status=~\"5..\"}[5m])) / sum(rate(b_total[5m])) > on() 1"))
                 .containsExactly("a_total", "b_total");
         assertThat(metricNames("vector(1)")).isEmpty();
+        assertThat(metricNames("up{job=\"unihub-backend\"} or on() vector(0)"))
+                .containsExactly("up");
+        assertThat(metricNames("changes(process_start_time_seconds{job=\"x\"}[10m])"))
+                .containsExactly("process_start_time_seconds");
     }
 
     @Test
@@ -441,7 +454,9 @@ class ObservabilityProvisioningIT extends IntegrationTestSupport {
                         new Expected("unihub-outbox-age-critical", "gt", 300, "5m", "critical"),
                         new Expected("unihub-notification-pending-age", "gt", 300, "5m", "warning"),
                         new Expected("unihub-dependency-down", "lt", 1, "1m", "critical"),
-                        new Expected("unihub-rabbitmq-target-down", "lt", 1, "1m", "critical"));
+                        new Expected("unihub-rabbitmq-target-down", "lt", 1, "1m", "critical"),
+                        new Expected("unihub-app-target-down", "lt", 1, "1m", "critical"),
+                        new Expected("unihub-app-restarted", "gt", 0, "0s", "warning"));
 
         var actual =
                 rules().stream()
@@ -465,6 +480,50 @@ class ObservabilityProvisioningIT extends IntegrationTestSupport {
                 .contains("unihub_audit_publish_failures_total");
         assertThat(byUid.get("unihub-rate-limit-bypassed"))
                 .contains("unihub_rate_limit_bypassed_total");
+    }
+
+    @Test
+    @DisplayName(
+            "every job an alert rule pins is a job of both Prometheus configurations, so renaming"
+                    + " one cannot silence a rule")
+    @SuppressWarnings("unchecked")
+    void pinnedJobsAreScrapeJobs() throws Exception {
+        var pinned = new TreeSet<String>();
+        for (var rule : rules()) {
+            var matcher = JOB_MATCHER.matcher(rule.expr());
+            while (matcher.find()) {
+                pinned.add(matcher.group(1));
+            }
+        }
+        assertThat(pinned).containsExactlyInAnyOrder("rabbitmq", "unihub-backend");
+
+        for (var file : List.of("prometheus.compose.yml", "prometheus.k8s.yml")) {
+            Map<String, Object> config =
+                    new Yaml()
+                            .load(
+                                    Files.readString(
+                                            OBSERVABILITY.resolve("prometheus").resolve(file)));
+            var jobs = new TreeSet<String>();
+            for (var job : (List<Map<String, Object>>) config.get("scrape_configs")) {
+                jobs.add((String) job.get("job_name"));
+            }
+            assertThat(jobs).as("jobs of " + file).containsAll(pinned);
+        }
+    }
+
+    private static final Pattern JOB_MATCHER = Pattern.compile("job=\"([a-z-]+)\"");
+
+    @Test
+    @DisplayName("the application target rule reads an absent target as 0, and fires only then")
+    void absentTargetReadsAsZero() throws Exception {
+        var byUid = new TreeMap<String, String>();
+        rules().forEach(r -> byUid.put(r.uid(), r.expr()));
+        // `or on() vector(0)`: the vector joins only when the target set is empty. A plain
+        // `or vector(0)` would always add a 0 and the rule would always fire.
+        assertThat(byUid.get("unihub-app-target-down"))
+                .isEqualTo("up{job=\"unihub-backend\"} or on() vector(0)");
+        assertThat(byUid.get("unihub-app-restarted"))
+                .isEqualTo("changes(process_start_time_seconds{job=\"unihub-backend\"}[10m])");
     }
 
     @Test

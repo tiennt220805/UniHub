@@ -8,7 +8,8 @@ public interface ReplicaLag {
     /**
      * Seconds the Replica's replay is behind, or empty when there is no lag to report: the instance
      * asked is not in recovery (a single-instance local stack reads the Master) or has replayed no
-     * transaction yet. Never 0 for "unknown" ({@code unihub_postgres_replica_lag_seconds}).
+     * transaction yet. 0 when the Replica has replayed everything it received (an idle primary is
+     * not lag). Never 0 for "unknown" ({@code unihub_postgres_replica_lag_seconds}).
      */
     OptionalDouble lagSeconds();
 }

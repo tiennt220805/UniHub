@@ -11,8 +11,9 @@ import org.springframework.stereotype.Component;
  *
  * <ul>
  *   <li>{@code unihub_outbox_oldest_pending_age_seconds}: 0 when nothing waits.
- *   <li>{@code unihub_postgres_replica_lag_seconds}: NaN, never 0, when the instance is not a
- *       Replica or has replayed nothing, so an absent Replica cannot look like a healthy one.
+ *   <li>{@code unihub_postgres_replica_lag_seconds}: NaN, never 0, for "unknown" (the instance is
+ *       not a Replica, or has replayed nothing), so an absent Replica cannot look like a healthy
+ *       one; 0 only when a Replica has replayed all it received, so an idle primary is not lag.
  * </ul>
  */
 @Component
