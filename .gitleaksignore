@@ -9,3 +9,10 @@ eb4728414c64beba3fef26c84768888e1cb92e44:apps/backend/src/test/java/com/unihub/s
 # 2026-11-01. CI scans the full history, so the commit that introduced the line stays flagged without
 # this entry. A new fixture of this shape should be built at run time (apps/mobile/src/testing/tickets.ts).
 ed7dd95041f3980f9ba7703a18cbff06459ba800:apps/backend/src/test/java/com/unihub/notification/infrastructure/out/template/NotificationTemplatesTest.java:jwt:216
+
+# Reviewed false positive, one exact finding. `curl -u "admin:$(kubectl get secret …)"` in an early version of
+# k8s/scripts/kill-pod.sh: the password is read from the cluster's Secret at run time, so no value was ever
+# in the file; the flag shape is what the rule matches. The next commit replaced it with a Python call
+# that builds the header (k8s/scripts/lib.sh, grafana_state). Added with the owner's approval, 2026-11-06.
+# CI scans the full history, so the commit that introduced the line stays flagged without this entry.
+d509fdad641faacd4353fe76c3cbfa60f52fe733:k8s/scripts/kill-pod.sh:curl-auth-user:86
