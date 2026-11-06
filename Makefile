@@ -10,6 +10,10 @@
 #   make render-observability     the same for the observability stack (k8s/observability)
 #   make deploy-observability     Prometheus, Grafana and Tempo in unihub-observability (the deploy-* targets run it)
 #   make check-images TAG=<sha>   check that both images exist for that tag, print their digests
+#   make smoke                    the smoke test of a deployed cluster (k8s/scripts/smoke.sh; SMOKE_ARGS=--resilience
+#                                 adds the dependency outages)
+#   make e2e                      the Playwright suite against the cluster (k8s/scripts/e2e.sh; needs the local CA
+#                                 trusted and unihub.local in /etc/hosts, see tests/e2e/README.md)
 #
 # TAG is the commit whose CI run built and pushed the images (the `build-and-push` job tags them with the full
 # SHA). It defaults to the current commit, which only exists on Docker Hub once that commit has been pushed and
@@ -39,7 +43,13 @@ endef
 cluster-up:
 	k8s/scripts/cluster-up.sh
 
-.PHONY: secrets render render-observability check-images pre-migration migrate deploy-dev deploy-loadtest rollout deploy-observability
+.PHONY: smoke e2e secrets render render-observability check-images pre-migration migrate deploy-dev deploy-loadtest rollout deploy-observability
+
+smoke:
+	k8s/scripts/smoke.sh $(SMOKE_ARGS)
+
+e2e:
+	k8s/scripts/e2e.sh $(E2E_ARGS)
 
 secrets:
 	k8s/scripts/create-secrets.sh

@@ -1,0 +1,16 @@
+{
+  "name": "unihub-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Playwright end-to-end suite for the Minikube deploy (Phase 7, D100). Run by hand after `make deploy-*`: see README.md.",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/node": "24.13.3",
+    "typescript": "6.0.2"
+  }
+}
