@@ -197,7 +197,7 @@
 - **Mẫu số là 10 GiB, không phải 11,67 GiB.** Container node bị giới hạn 10 GiB nhưng kubelet báo allocatable theo VM (11,67 GiB), nên scheduler không dừng ở 10 GiB: ở Mục 6, Prometheus, Grafana và Tempo kèm sidecar có thể không làm pod `Pending` mà đẩy **chính container node** vào OOM killer của Docker — trông khác hẳn một pod `OOMKilled`. Điều kiện dừng của D82 bao gồm cả trường hợp đó.
 - Phần observability (Mục 6): đã đo ở 6.1 — cả container node 5,4 GiB / 10 GiB (54%) với `loadtest` và đủ ba thành phần Prometheus, Grafana, Tempo, lúc rảnh.
 
-## 9.1 — `smoke.sh` và bộ Playwright `tests/e2e/` (Mục 9, viết 2026-11-06; **chưa phải bằng chứng 9.2–9.4**)
+## 9.1 — `smoke.sh` và bộ Playwright `tests/e2e/` (Mục 9, viết 2026-11-06; bằng chứng 9.2–9.4 ở mục ngay sau)
 
 *Chạy 2026-11-06 (UTC) trên cluster `loadtest` đang có, dưới STRICT; `backend-api` là image dựng cục bộ `unihub-backend:local-head` (3 pod), `web` là `thanhtien2208/unihub-web:a9c1a8f…` (CI). **Bản luyện tập**: CI chưa dựng image cho HEAD (Gitleaks đỏ ở `d509fda`, mục `.gitleaksignore` đã duyệt và push ở `8e5e04a`, run 42242416340 còn chạy lúc ghi).*
 
@@ -206,7 +206,29 @@
 - **Một quan sát:** span của ứng dụng mang `service.name` = **`unknown_service`** trong Tempo (ứng dụng không đặt `spring.application.name`/`OTEL_SERVICE_NAME`). Không sửa ở đây (ngoài scope Mục 9); chủ dự án quyết có đặt hay không.
 - **`tests/e2e/`** (Playwright `1.64.1`, xuất bản 2026-10-14; TypeScript `6.0.2` như `apps/web`): ba engine + project `transport`; một Student mỗi engine; mỗi test tự tạo workshop tên duy nhất; `retries: 0`; mật khẩu đọc từ Secret của cluster khi cần, không ghi ra đâu cả; **mọi test trình duyệt thất bại khi có sự kiện `securitypolicyviolation` hoặc lỗi CSP trong console** (đối chứng âm: một `<script>` nội tuyến chèn vào trang bị báo và test đỏ). `k8s/scripts/e2e.sh` (`make e2e`) mở port-forward gateway (HTTPS 8443, HTTP 8080) rồi chạy.
 - **M-70 chỉ là hành trình một phần (chủ dự án chọn "API + trình duyệt", 2026-11-06):** Web không có trang tạo, publish, sửa hay đổi lịch workshop, chỉ có trang báo cáo. Bốn bước đó là lời gọi API qua cùng gateway và HTTPS; trình duyệt đăng nhập Organizer và Admin và đọc trang báo cáo. Ghi vào `phase-7.md` §5.
-- **Đã chạy được cho tới nay (gỡ lỗi, KHÔNG phải bằng chứng):** máy chưa tin CA cục bộ và `unihub.local` chưa có trong `/etc/hosts` (hai lệnh của chủ dự án, `tests/e2e/README.md`). Để gỡ selector, một cấu hình tạm (đã xóa, không commit) cho Chromium và Firefox bỏ qua lỗi chứng chỉ và ánh xạ tên: **3/3 test xanh trên Chromium và 3/3 trên Firefox**; hai lỗi tìm ra và sửa trong lúc đó (mã QR là `img` chứ không phải `title`; sau khi bấm Đăng nhập phải đợi header hiện "Đăng xuất" trước khi chuyển trang, nếu không phiên bị bỏ). Project `transport` chạy được **không** cần cấu hình tạm cho phần Node (`NODE_EXTRA_CA_CERTS` tin CA cục bộ, không `ignoreHTTPSErrors`): 4/4 xanh — TLS 1.2+ xác thực bằng CA cục bộ, TLS 1.1 bị **gateway** từ chối bằng alert 70 `protocol_version` (không phải client không chịu thử), HTTP thường → `301` không JSON, header CSP có `frame-ancestors 'none'` trên `/`, `/workshops`, `/me/registrations`. **WebKit chưa chạy lần nào** (không có cách ánh xạ tên mà không sửa `/etc/hosts`). 9.2, 9.3, 9.4 vẫn mở: chúng cần ba engine qua HTTPS **tin cậy thật**.
+- **Gỡ lỗi trước khi máy tin CA** (cấu hình tạm đã xóa, không commit) chỉ để sửa hai selector; kết quả chính thức của 9.2–9.4 ở mục ngay dưới.
+
+## 9.2–9.4 — Playwright qua HTTPS tin cậy thật, ba engine (chạy 2026-11-06 UTC; **Drafted**, chờ chủ dự án chấp nhận theo D102)
+
+*Điều kiện: Minikube profile `unihub`, overlay `loadtest` (3 pod API, replica Postgres) **dưới `PeerAuthentication` STRICT** ở cả hai namespace; vào bằng `https://unihub.local:8443` (port-forward của gateway Istio, `k8s/scripts/e2e.sh`); CA cục bộ `k8s/.local-ca/ca.crt` đã được chủ dự án thêm vào keychain, `unihub.local` → `127.0.0.1` trong `/etc/hosts`; **không có `ignoreHTTPSErrors`**. `backend-api` là image dựng cục bộ `unihub-backend:local-head` (`sha256:9e8602da…`), `web` là image CI `thanhtien2208/unihub-web@sha256:a81d2f2b…` (commit `a9c1a8f`). Mã của bộ test: HEAD `60a270d` + các sửa ở dưới. **Bản luyện tập**: Mục 10 chạy lại trên bản deploy từ một SHA xanh CI.*
+
+**Kết quả cuối: 13/13 xanh, ba lần chạy liên tiếp (mỗi lần 1,1 phút, `retries: 0`)** — 4 probe `transport`, rồi trên mỗi engine (chromium, firefox, webkit) M-69 free, M-69 trả phí, M-70.
+
+| Mục | Bằng chứng |
+|---|---|
+| 9.2 / M-69 | Mỗi engine: catalog (tải lại tới khi workshop xuất hiện) → chi tiết → "Đăng nhập để đăng ký" → đăng nhập → đăng ký → "Xem vé" → ảnh QR (`role=img`) và mã vé 26 ký tự Crockford; bản trả phí đi qua checkout với `pm_card_visa` tới "Thanh toán thành công." rồi QR. Một Student cho mỗi engine (student1/2/3). |
+| 9.3 / M-70 | **Hành trình một phần (chủ dự án chọn "API + trình duyệt", 2026-11-06; vào `phase-7.md` §5):** tạo DRAFT (khách vãng lai nhận 404), publish, sửa và đổi lịch (`PATCH`), một Student đăng ký là lời gọi API qua cùng gateway; trình duyệt đăng nhập Organizer rồi Admin, thấy tiêu đề, địa điểm, giờ mới và trang báo cáo (sức chứa 5, giữ 1, xác nhận 1). |
+| 9.4 / M-67 | `transport.spec.ts`: TLS ≥ 1.2 với chứng chỉ do CA cục bộ ký (xác minh thật trong Node); chào TLS 1.1 bị từ chối bằng alert của máy chủ (không phải lỗi "không có giao thức" phía client); HTTP cổng 8080 → 301 tới `https://`, không có JSON, cho cả GET workshops và POST login; header `Content-Security-Policy` có `frame-ancestors 'none'` trên `/`, `/workshops`, `/me/registrations`. **CSP guard** (`support/fixtures.ts`): mọi test trình duyệt đỏ nếu có sự kiện `securitypolicyviolation` hoặc lỗi CSP trong console, trên cả ba engine (đã chèn thử một script nội tuyến để thấy guard đỏ). Đây là kiểm CSP lặp lại được của test-matrix §4.5, nếu chủ dự án coi Playwright là kiểm đó. |
+
+**Ba phát hiện trong lúc chạy (hai chưa phải việc của Mục 9):**
+
+1. **WebKit báo `style-src-attr` khi trang có `<select>` gốc** (lần chạy đầu: 12/13, chỉ test trả phí của WebKit đỏ). Nguồn là `createElement('select')` trong bundle ở `/me/checkout/…`, không phải mã của UniHub: một trang tối thiểu có đúng CSP của chúng ta chỉ có `<select>` cũng bị WebKit báo, Chromium và Firefox thì không (trang không `<select>` sạch trên cả ba). `<select>` token thử nghiệm là phần tử `<select>` duy nhất của Web và chỉ có ở bản test-mode. **Quyết định của chủ dự án 2026-11-06: giữ CSP nguyên, guard cho phép đúng một dạng** (project `webkit`, `style-src-attr`, sample rỗng, đường dẫn `/me/checkout/…`, cộng đúng bấy nhiêu thông báo "Refused to apply a stylesheet" trong console); mọi thứ khác trên mọi engine vẫn đỏ, và test đính kèm `tolerated-csp-webkit-select` mỗi khi dùng ngoại lệ. Cần ghi ở `phase-7.md` §5.
+2. **Catalog của Web chỉ hiện trang 0 (20 mục), không có tìm kiếm, không có phân trang** (`WorkshopCatalogPage` gọi `useWorkshops({})`; API sắp theo giờ bắt đầu tăng dần). Khi có hơn 20 workshop sắp tới, các workshop sau đó không thể mở được từ giao diện. Lần chạy thứ hai và các lần sau đỏ 3/3 engine ở bước catalog vì các lần gỡ lỗi trước đã để 40 workshop `E2E …` lấp trang 1, tức là bộ test chạm đúng khoảng trống này. **Không sửa ở đây** (một tính năng Web ngoài Mục 9; chủ dự án quyết có làm không). Bộ test nay tự dọn: mỗi test hủy workshop nó tạo, `globalSetup` hủy mọi workshop `E2E …` còn sót và từ chối chạy khi catalog còn quá 16 workshop khác, với thông báo nói rõ lý do.
+3. **Hủy workshop không xóa cache danh sách** (TTL 30 s, theo thiết kế, `workshop.md`): workshop vừa hủy còn hiện tối đa 30 s. Test chờ catalog tối đa 60 s (hai lần TTL) và `globalSetup` không đọc lại danh sách để đếm.
+
+**Sửa của bộ test trong lần chạy này:** hàm gửi của `OrganizerApi` chờ theo `Retry-After` khi gặp 429 (lượt quét đầu run dùng hết ngân sách của danh tính Organizer, INV-17 hoạt động đúng); `NODE_EXTRA_CA_CERTS` đặt trong `e2e.sh` vì `globalSetup` chạy trong tiến trình chính, nơi biến đặt trong config không còn tác dụng; timeout mỗi test 120 s.
+
+**Chưa chứng minh:** không phải Safari thật (WebKit của Playwright), không có thiết bị di động, không đo tải; backend là image cục bộ chứ chưa phải image CI của HEAD; `smoke.sh --resilience` chưa chạy; chưa có sign-off của chủ dự án cho nhóm bằng chứng này.
 
 ## Quan sát khác
 
@@ -215,7 +237,7 @@
 ## Chưa làm được / chưa chạy
 
 - **5.5:** `make smoke` đã có từ Mục 9 (`k8s/scripts/smoke.sh`, xem 9.1); M-64 và M-65 nằm ở `--resilience`/`dependency-outage.sh`.
-- **`/etc/hosts` + `minikube tunnel` + trình duyệt tin CA:** cần `sudo`, không chạy; kiểm bằng `port-forward`. Playwright qua HTTPS (AC97.2) là 9.4.
+- **`minikube tunnel`:** cần `sudo`, không chạy; gateway được vào bằng `port-forward`. Playwright qua HTTPS với CA tin cậy thật và `unihub.local` đã chạy (mục 9.2–9.4 ở trên).
 **S-16 trên cluster** (`X-Envoy-External-Address` thật sau sidecar).
 - Không có tải: không có K6, không đo p95, không đo `OOMKilled` dưới tải.
 - Không kiểm `readOnlyRootFilesystem`, không có NetworkPolicy (không thuộc Phase 7).

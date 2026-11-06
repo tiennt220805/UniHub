@@ -13,6 +13,7 @@
 # Admin passwords are read from the cluster's Secret by the suite itself and never printed.
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # repository root
+REPO_ROOT="$PWD"
 # shellcheck source=k8s/scripts/lib.sh
 source k8s/scripts/lib.sh
 trap lib_cleanup EXIT
@@ -33,4 +34,6 @@ echo "[$(now)] image of backend-api: $(kubectl -n unihub get deploy backend-api 
 echo "[$(now)] image of web:         $(kubectl -n unihub get deploy web -o jsonpath='{.spec.template.spec.containers[0].image}')"
 echo "[$(now)] API replicas: $(kubectl -n unihub get deploy backend-api -o jsonpath='{.spec.replicas}')"
 cd tests/e2e
-E2E_BASE_URL=https://unihub.local:8443 E2E_HTTP_URL=http://unihub.local:8080 npx playwright test "$@"
+# The CA must be in the environment before Node starts: globalSetup runs in the runner process itself.
+NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$REPO_ROOT/k8s/.local-ca/ca.crt}" \
+  E2E_BASE_URL=https://unihub.local:8443 E2E_HTTP_URL=http://unihub.local:8080 npx playwright test "$@"

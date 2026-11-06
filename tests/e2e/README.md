@@ -34,3 +34,14 @@ Every browser test also fails on a `securitypolicyviolation` event or a CSP erro
   failure and spends rate-limit budget).
 - **Reports:** `playwright-report/` and `test-results/` are not committed. A summary (tests, engines, duration, commit,
   image digests, overlay) goes into `docs/testing/reports/phase-7-cluster-checks.md`.
+
+## Notes from the first runs on three engines
+
+- **Before a run** `support/global-setup.ts` cancels every workshop titled `E2E …` that an earlier run left behind and refuses to
+  start when more than 16 other workshops are published. The Web's catalog page shows only the first 20 (no search, no paging),
+  so a fuller catalog hides the workshops the journeys create. Each test also cancels its own workshops.
+- **WebKit and `<select>`:** with the strict CSP, WebKit reports a `style-src-attr` violation for any native `<select>` (reproduced
+  on a page with nothing else). The guard in `support/fixtures.ts` tolerates exactly that one report, on `/me/checkout/…`, on the
+  `webkit` project (decided by the owner, 2026-11-06); the test attaches `tolerated-csp-webkit-select` whenever it does. Anything
+  else, on any engine, fails the test.
+- **429:** the Organizer helper waits out a `429` as `Retry-After` says (the rate limit is per identity).

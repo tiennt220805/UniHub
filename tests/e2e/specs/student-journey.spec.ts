@@ -10,14 +10,14 @@ test('a Student registers for a free workshop and sees the QR e-ticket', async (
   const workshop = await organizerApi.create({ title, paid: false })
   await organizerApi.publish(workshop.id)
 
-  // Discover: the catalog is public; the new workshop is in it (the catalog is cached, so give it a moment).
+  // Discover: the catalog is public; the new workshop is in it (the list is cached for 30 s, workshop.md, so wait up to twice that).
   await page.goto('/workshops')
   await expect(page.getByRole('heading', { name: 'Workshops' })).toBeVisible()
   const entry = page.getByRole('link', { name: title })
   await expect(async () => {
     await page.reload()
     await expect(entry).toBeVisible({ timeout: 3_000 })
-  }).toPass({ timeout: 30_000 })
+  }).toPass({ timeout: 60_000 })
   await entry.click()
   await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible()
 

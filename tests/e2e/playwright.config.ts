@@ -13,12 +13,13 @@ process.env.NODE_EXTRA_CA_CERTS ??= new URL('../../k8s/.local-ca/ca.crt', import
 
 export default defineConfig({
   testDir: 'specs',
+  globalSetup: './support/global-setup.ts',
   // No retries: a retry would hide a failure and also spend rate-limit budget (INV-17) that the next test needs.
   retries: 0,
   // One worker per engine: each engine has its own Student account (support/accounts.ts).
   workers: 4,
   fullyParallel: false,
-  timeout: 60_000,
+  timeout: 120_000,
   expect: { timeout: 15_000 },
   reporter: [['list'], ['html', { open: 'never' }], ['json', { outputFile: 'test-results/results.json' }]],
   use: { baseURL, trace: 'retain-on-failure' },
