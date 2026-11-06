@@ -1,0 +1,47 @@
+# The observability stack in the cluster (Phase 7 checklist 6.1; deployment-and-cicd.md §2). Its own namespace
+# `unihub-observability`, so there is deliberately NO `namespace:` here: Prometheus's Role and RoleBinding live in
+# `unihub` (they let it read that namespace's pods) and a namespace transformer would move them. Every manifest
+# carries its namespace.
+#
+# The ConfigMaps are built from observability/ at the repository root (one copy serves docker-compose and the
+# cluster, observability.md §8), so this is built with `kubectl kustomize --load-restrictor LoadRestrictionsNone`
+# (the Makefile's KBUILD). The ConfigMap names carry Kustomize's content hash, which Kustomize also writes into the
+# Deployments that mount them: changing a file changes the name and rolls the pod (a fixed name would leave
+# Prometheus, which reads its file at start, on the old scrape configuration).
+# secret.example.yaml is a template and stays out of `resources:`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - prometheus.yaml
+  - tempo.yaml
+  - grafana.yaml
+  - gateway-tracing.yaml
+
+configMapGenerator:
+  - name: prometheus-config
+    namespace: unihub-observability
+    files:
+      - prometheus.yml=../../observability/prometheus/prometheus.k8s.yml
+  - name: tempo-config
+    namespace: unihub-observability
+    files:
+      - tempo.yaml=../../observability/tempo/tempo.yaml
+  - name: grafana-datasources
+    namespace: unihub-observability
+    files:
+      - ../../observability/grafana/provisioning/datasources/datasources.yml
+  - name: grafana-dashboard-providers
+    namespace: unihub-observability
+    files:
+      - ../../observability/grafana/provisioning/dashboards/dashboards.yml
+  - name: grafana-alerting
+    namespace: unihub-observability
+    files:
+      - ../../observability/grafana/provisioning/alerting/unihub-rules.yml
+  - name: grafana-dashboards
+    namespace: unihub-observability
+    files:
+      - ../../observability/grafana/dashboards/api-jvm.json
+      - ../../observability/grafana/dashboards/business.json
+      - ../../observability/grafana/dashboards/messaging-audit.json

@@ -2,10 +2,13 @@
 # repository root. Kustomize is the one built into kubectl (no separate binary, C49).
 #
 #   make cluster-up               Minikube + Istio at the pinned versions (k8s/scripts/cluster-up.sh)
-#   make secrets                  create the Secret from the environment (k8s/scripts/create-secrets.sh)
+#   make secrets                  create the Secrets from the environment (k8s/scripts/create-secrets.sh,
+#                                 k8s/scripts/create-observability-secret.sh)
 #   make deploy-dev TAG=<sha>     migrate, then deploy overlays/dev with the images built for that commit
 #   make deploy-loadtest TAG=<sha>
 #   make render PROFILE=dev       print what would be applied (no cluster needed)
+#   make render-observability     the same for the observability stack (k8s/observability)
+#   make deploy-observability     Prometheus, Grafana and Tempo in unihub-observability (the deploy-* targets run it)
 #   make check-images TAG=<sha>   check that both images exist for that tag, print their digests
 #
 # TAG is the commit whose CI run built and pushed the images (the `build-and-push` job tags them with the full
@@ -36,13 +39,18 @@ endef
 cluster-up:
 	k8s/scripts/cluster-up.sh
 
-.PHONY: secrets render check-images pre-migration migrate deploy-dev deploy-loadtest rollout
+.PHONY: secrets render render-observability check-images pre-migration migrate deploy-dev deploy-loadtest rollout deploy-observability
 
 secrets:
 	k8s/scripts/create-secrets.sh
+	k8s/scripts/create-observability-secret.sh
 
 render:
 	@$(call RENDER,$(PROFILE))
+
+# The observability stack has no image of ours and so no tag to fill in.
+render-observability:
+	@$(KBUILD) k8s/observability
 
 check-images:
 	@case "$(TAG)" in latest|"") echo "TAG must be a commit SHA, not '$(TAG)'" >&2; exit 1;; esac
@@ -76,12 +84,12 @@ migrate: pre-migration
 	       kubectl logs job/flyway-migrate -n $(NAMESPACE) -c flyway --tail=50 >&2; exit 1; }
 
 deploy-dev: PROFILE = dev
-deploy-dev: check-images migrate
+deploy-dev: check-images migrate deploy-observability
 	$(call RENDER,dev) | kubectl apply -f -
 	@$(MAKE) --no-print-directory rollout PROFILE=dev
 
 deploy-loadtest: PROFILE = loadtest
-deploy-loadtest: check-images migrate
+deploy-loadtest: check-images migrate deploy-observability
 	$(call RENDER,loadtest) | kubectl apply -f -
 	@$(MAKE) --no-print-directory rollout PROFILE=loadtest
 
@@ -96,4 +104,17 @@ WORKLOADS_loadtest = $(WORKLOADS_COMMON) statefulset/postgres-replica
 rollout:
 	@for w in $(WORKLOADS_$(PROFILE)); do \
 	  kubectl rollout status $$w -n $(NAMESPACE) --timeout=300s || exit 1; \
+	done
+
+# Prometheus, Grafana and Tempo (task 6.1), applied before the application so that the API's first export of a
+# trace finds Tempo. The Grafana Secret comes from `make secrets`; the API's configuration points at Tempo's Service
+# (MANAGEMENT_OTLP_TRACING_ENDPOINT), so an application deployed without this stack logs an export error every 10 s.
+OBSERVABILITY_WORKLOADS = deployment/prometheus deployment/tempo deployment/grafana
+
+deploy-observability:
+	@kubectl get secret grafana-admin -n unihub-observability >/dev/null 2>&1 \
+	  || { echo "grafana-admin does not exist in unihub-observability: run 'make secrets' first" >&2; exit 1; }
+	@$(KBUILD) k8s/observability | kubectl apply -f -
+	@for w in $(OBSERVABILITY_WORKLOADS); do \
+	  kubectl rollout status $$w -n unihub-observability --timeout=300s || exit 1; \
 	done

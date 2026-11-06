@@ -1,0 +1,82 @@
+# Grafana (task 6.1): the datasources, dashboards and alert rules of observability/ provisioned from ConfigMaps
+# (the same files docker-compose mounts; the datasource URLs `http://prometheus:9090` and `http://tempo:3200` are
+# the Services of this namespace). Unlike compose there is no anonymous access: the admin account's password
+# comes from the Secret `grafana-admin`, made by hand (k8s/scripts/create-observability-secret.sh).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: unihub-observability
+  labels: { app: grafana, app.kubernetes.io/part-of: unihub }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: grafana }
+  template:
+    metadata:
+      labels: { app: grafana, app.kubernetes.io/part-of: unihub }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        runAsGroup: 472
+        fsGroup: 472
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: grafana
+          image: grafana/grafana:13.2.4
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom: { secretKeyRef: { name: grafana-admin, key: GF_SECURITY_ADMIN_USER } }
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: grafana-admin, key: GF_SECURITY_ADMIN_PASSWORD } }
+            - { name: GF_USERS_ALLOW_SIGN_UP, value: "false" }
+            # As docker-compose.yml: Grafana 13 otherwise downloads plugin updates at every start, and the Tempo
+            # datasource answers "plugin not registered" until that finishes.
+            - { name: GF_PLUGINS_PREINSTALL_DISABLED, value: "true" }
+            - { name: GF_ANALYTICS_REPORTING_ENABLED, value: "false" }
+            - { name: GF_ANALYTICS_CHECK_FOR_UPDATES, value: "false" }
+          ports:
+            - { name: http-grafana, containerPort: 3000 }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 768Mi }
+          readinessProbe:
+            httpGet: { path: /api/health, port: http-grafana }
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /api/health, port: http-grafana }
+            periodSeconds: 20
+            failureThreshold: 6
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/grafana }
+            - { name: datasources, mountPath: /etc/grafana/provisioning/datasources, readOnly: true }
+            - { name: dashboard-providers, mountPath: /etc/grafana/provisioning/dashboards, readOnly: true }
+            - { name: alerting, mountPath: /etc/grafana/provisioning/alerting, readOnly: true }
+            - { name: dashboards, mountPath: /var/lib/grafana/dashboards, readOnly: true }
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: datasources
+          configMap: { name: grafana-datasources }
+        - name: dashboard-providers
+          configMap: { name: grafana-dashboard-providers }
+        - name: alerting
+          configMap: { name: grafana-alerting }
+        - name: dashboards
+          configMap: { name: grafana-dashboards }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: unihub-observability
+  labels: { app: grafana, app.kubernetes.io/part-of: unihub }
+spec:
+  selector: { app: grafana }
+  ports:
+    - { name: http-grafana, port: 3000, targetPort: http-grafana }

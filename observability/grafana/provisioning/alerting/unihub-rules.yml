@@ -1127,7 +1127,7 @@ groups:
                 to: 0
               datasourceUid: prometheus
               model:
-                expr: "up{job=\"rabbitmq\"}"
+                expr: "up{job=\"rabbitmq\"} or on() vector(0)"
                 instant: true
                 intervalMs: 1000
                 maxDataPoints: 43200
@@ -1161,7 +1161,7 @@ groups:
           for: 1m
           annotations:
             summary: "Prometheus cannot scrape the broker"
-            description: "The broker's own scrape target is gone."
+            description: "The broker's own scrape target is gone, or absent: under Kubernetes pod discovery a broker scaled to 0 leaves no series, which the on() vector(0) arm reads as 0. Phase 7 task 6.4."
           labels:
             severity: critical
           isPaused: false

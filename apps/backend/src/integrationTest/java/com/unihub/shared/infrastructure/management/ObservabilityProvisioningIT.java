@@ -514,7 +514,7 @@ class ObservabilityProvisioningIT extends IntegrationTestSupport {
     private static final Pattern JOB_MATCHER = Pattern.compile("job=\"([a-z-]+)\"");
 
     @Test
-    @DisplayName("the application target rule reads an absent target as 0, and fires only then")
+    @DisplayName("the target rules read an absent target as 0, and fire only then")
     void absentTargetReadsAsZero() throws Exception {
         var byUid = new TreeMap<String, String>();
         rules().forEach(r -> byUid.put(r.uid(), r.expr()));
@@ -522,6 +522,9 @@ class ObservabilityProvisioningIT extends IntegrationTestSupport {
         // `or vector(0)` would always add a 0 and the rule would always fire.
         assertThat(byUid.get("unihub-app-target-down"))
                 .isEqualTo("up{job=\"unihub-backend\"} or on() vector(0)");
+        // the broker's target vanishes the same way when it is scaled to 0 (pod discovery)
+        assertThat(byUid.get("unihub-rabbitmq-target-down"))
+                .isEqualTo("up{job=\"rabbitmq\"} or on() vector(0)");
         assertThat(byUid.get("unihub-app-restarted"))
                 .isEqualTo("changes(process_start_time_seconds{job=\"unihub-backend\"}[10m])");
     }

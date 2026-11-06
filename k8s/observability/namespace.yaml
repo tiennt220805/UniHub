@@ -1,0 +1,10 @@
+# The observability stack's own namespace (Phase 7 checklist D95, task 6.1): Prometheus, Grafana and Tempo, in the
+# mesh. `istio-injection: enabled` puts a sidecar in each pod, so Grafana's reads of Prometheus and Tempo and the
+# application's export to Tempo are mutual-TLS hops like every other (architecture.md §5.4), and Prometheus has
+# a sidecar whose certificates it scrapes with (prometheus.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: unihub-observability
+  labels:
+    istio-injection: enabled

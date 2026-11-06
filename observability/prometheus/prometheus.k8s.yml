@@ -14,6 +14,12 @@
 # volume), and the scrape presents them to the target's sidecar. `insecure_skip_verify` only skips the host
 # name: the certificate's name is a SPIFFE identity, not the pod's address; the chain is still checked against
 # the mesh's root, which is the same file as `ca_file`.
+#
+# `enable_http2: false` (found by running it, 2026-11-06): the API's management port (8081) is in no Service, so
+# its sidecar passes the decrypted stream to the application as plain TCP, and Prometheus's Go client would
+# otherwise offer `h2` in the handshake and speak HTTP/2 to Tomcat, which closes the connection (`unexpected
+# EOF`). HTTP/1.1 over the same mTLS connection is answered. The broker's port is declared as HTTP in its Service,
+# so Envoy would translate there; the setting is on both jobs so the two are the same.
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -22,6 +28,7 @@ scrape_configs:
   - job_name: unihub-backend
     metrics_path: /actuator/prometheus
     scheme: https
+    enable_http2: false
     tls_config:
       ca_file: /etc/istio-certs/root-cert.pem
       cert_file: /etc/istio-certs/cert-chain.pem
@@ -44,6 +51,7 @@ scrape_configs:
   # The broker's own rabbitmq_prometheus plugin (observability/rabbitmq/prometheus.conf turns on per-queue series).
   - job_name: rabbitmq
     scheme: https
+    enable_http2: false
     tls_config:
       ca_file: /etc/istio-certs/root-cert.pem
       cert_file: /etc/istio-certs/cert-chain.pem

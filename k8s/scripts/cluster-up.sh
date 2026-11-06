@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the local cluster (Phase 7 checklist task 5.1): Minikube at the pinned Kubernetes version and size,
-# then the pinned Istio. Safe to run again: a running cluster is kept, and Istio is only installed when it is
-# missing or at another version.
+# then the pinned Istio. Safe to run again: a running cluster is kept, and k8s/istio/install.yaml is applied again
+# (with nothing changed istioctl leaves the pods alone).
 #
 #   k8s/scripts/cluster-up.sh
 #
@@ -13,7 +13,8 @@
 #   1. istioctl at ISTIO_VERSION into k8s/.tools/ (git-ignored), checked against the release's own .sha256
 #   2. minikube start (docker driver) at KUBERNETES_VERSION, MINIKUBE_MEMORY, MINIKUBE_CPUS; metrics-server on
 #   3. istioctl x precheck (AC81.1)
-#   4. istioctl install, profile `default` (istiod and the ingress gateway), waited for
+#   4. istioctl install -f k8s/istio/install.yaml: profile `default` (istiod and the ingress gateway) and the
+#      gateway's tracing provider, waited for
 #   5. a throw-away pod in an injected namespace, to read whether the proxy runs as a native sidecar (AC81.2)
 #   6. the versions that are really running, printed for the cluster checks report
 set -euo pipefail
@@ -67,10 +68,13 @@ minikube addons enable metrics-server -p "$MINIKUBE_PROFILE" >/dev/null
 
 # ---- 4. Istio -------------------------------------------------------------------------------------------------
 installed="$(kubectl -n istio-system get deploy istiod -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
+# k8s/istio/install.yaml is the installation: the `default` profile and the tracing provider of the ingress gateway
+# (task 6.3). Applied on every run, not only on a version change, so an edit to that file reaches a running
+# cluster; with nothing changed istioctl leaves the pods alone.
 case "$installed" in
-  *":$ISTIO_VERSION") echo "istiod $ISTIO_VERSION is already installed" ;;
-  *) "$ISTIOCTL" install -y --set profile=default ;;
+  *":$ISTIO_VERSION") echo "istiod $ISTIO_VERSION is already installed; applying k8s/istio/install.yaml" ;;
 esac
+"$ISTIOCTL" install -y -f k8s/istio/install.yaml
 kubectl -n istio-system rollout status deployment/istiod --timeout=300s
 kubectl -n istio-system rollout status deployment/istio-ingressgateway --timeout=300s
 

@@ -1,0 +1,19 @@
+# The Istio installation (Phase 7 checklist 5.1, 6.3; D81, D98): the `default` profile (istiod and the ingress
+# gateway) plus one mesh-wide fact, the tracing provider the ingress gateway sends its spans to. Read by
+# k8s/scripts/cluster-up.sh (`istioctl install -f`). The provider is only a NAME and an address: nothing traces
+# until a Telemetry resource selects it (k8s/observability/gateway-tracing.yaml names it for the gateway alone,
+# so sidecars and the application are not made to start traces they do not own).
+#
+# `opentelemetry` (not `zipkin`): it propagates W3C `traceparent`, the header the application reads (D65, D98);
+# Zipkin's provider would send B3. It speaks OTLP over gRPC, so Tempo listens on 4317 as well as on the 4318
+# the application uses (observability/tempo/tempo.yaml).
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+spec:
+  profile: default
+  meshConfig:
+    extensionProviders:
+      - name: tempo
+        opentelemetry:
+          service: tempo.unihub-observability.svc.cluster.local
+          port: 4317

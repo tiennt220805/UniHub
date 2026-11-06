@@ -261,6 +261,9 @@ tasks.test {
     // as inputs, editing a manifest and running `test` would report the old result as UP-TO-DATE.
     inputs.dir("../../k8s").withPropertyName("k8s").withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.file("../../Makefile").withPropertyName("makefile").withPathSensitivity(PathSensitivity.RELATIVE)
+    // ObservabilityManifestsTest (task 6.1) reads the observability content and the compose file's image versions.
+    inputs.dir("../../observability").withPropertyName("observability").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file("docker-compose.yml").withPropertyName("compose").withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 // INV-15 (Phase 7 checklist D88, 4.2): MigrationCompatibilityIT starts the application of the commit before the

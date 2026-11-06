@@ -27,6 +27,7 @@ resources:
   - stubs/payment-gateway-stub.yaml
   - stubs/ai-summarization-stub.yaml
   - peer-authentication.yaml
+  - peer-authentication-scraped.yaml
 
 configMapGenerator:
   # The application's configuration, under the names it actually binds (apps/backend/env.example and
@@ -51,8 +52,9 @@ configMapGenerator:
       # The links in an email point at the gateway's origin (Web and API share it, D85).
       - UNIHUB_WEB_BASE_URL=https://unihub.local
       - MANAGEMENT_SERVER_PORT=8081
-      # MANAGEMENT_OTLP_TRACING_ENDPOINT is added with Tempo in Phase 7 Mục 6 (task 6.1): set now, with no Tempo to
-      # receive it, the exporter logs an ERROR every 10 s (seen in the Docker rehearsal of 2026-11-05).
+      # Traces go to Tempo in the observability namespace (task 6.1). Without a Tempo to receive them the exporter logs
+      # an ERROR every 10 s (seen in the Docker rehearsal of 2026-11-05), so `make deploy-*` deploys the stack too.
+      - MANAGEMENT_OTLP_TRACING_ENDPOINT=http://tempo.unihub-observability:4318/v1/traces
   # The migration SQL the Flyway Job mounts (§4). Every file of the migration directory (C47); KubernetesManifestsTest
   # keeps this list and the directory equal. The Job is applied by kubectl, not through Kustomize, and names this
   # ConfigMap literally, hence no hash suffix.

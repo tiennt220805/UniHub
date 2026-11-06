@@ -1,0 +1,19 @@
+# Traces start at the ingress gateway (Phase 7 checklist D98, task 6.3; requirement.md §3.1 "tagged at the
+# Ingress"): Envoy starts the W3C trace, sends `traceparent` to the application, which continues it (its
+# correlation ID is that trace's ID, D65), and sends its own span to Tempo. 10% of requests, the application's own
+# ratio, so that its ParentBased sampler follows the gateway's decision. The selector keeps this on the gateway: a
+# Telemetry without one would also make every sidecar start traces. The provider `tempo` is defined in
+# k8s/istio/install.yaml. Lives in istio-system because a selector matches workloads of its own namespace.
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: gateway-tracing
+  namespace: istio-system
+spec:
+  selector:
+    matchLabels:
+      istio: ingressgateway
+  tracing:
+    - providers:
+        - name: tempo
+      randomSamplingPercentage: 10

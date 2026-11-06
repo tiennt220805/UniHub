@@ -1,0 +1,68 @@
+# Tempo in monolithic mode (task 6.1): the same image and configuration as docker-compose
+# (observability/tempo/tempo.yaml). The application exports OTLP over HTTP to `tempo` on 4318 (a cross-namespace
+# call, `tempo.unihub-observability`); the ingress gateway exports over gRPC on 4317 (task 6.3); Grafana reads
+# traces from 3200. Local disk in an emptyDir: 24 hours of
+# retention in config, and the traces are lost when the pod is replaced.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  namespace: unihub-observability
+  labels: { app: tempo, app.kubernetes.io/part-of: unihub }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: tempo }
+  template:
+    metadata:
+      labels: { app: tempo, app.kubernetes.io/part-of: unihub }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: tempo
+          image: grafana/tempo:2.10.8
+          args: ["-config.file=/etc/tempo/tempo.yaml"]
+          ports:
+            - { name: http-tempo, containerPort: 3200 }
+            - { name: http-otlp, containerPort: 4318 }
+            - { name: grpc-otlp, containerPort: 4317 }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          readinessProbe:
+            httpGet: { path: /ready, port: http-tempo }
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /ready, port: http-tempo }
+            periodSeconds: 20
+            failureThreshold: 6
+          volumeMounts:
+            - { name: config, mountPath: /etc/tempo, readOnly: true }
+            - { name: data, mountPath: /var/tempo }
+      volumes:
+        - name: config
+          configMap: { name: tempo-config }
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  namespace: unihub-observability
+  labels: { app: tempo, app.kubernetes.io/part-of: unihub }
+spec:
+  selector: { app: tempo }
+  ports:
+    - { name: http-tempo, port: 3200, targetPort: http-tempo }
+    - { name: http-otlp, port: 4318, targetPort: http-otlp }
+    - { name: grpc-otlp, port: 4317, targetPort: grpc-otlp }

@@ -13,6 +13,9 @@ distributor:
       protocols:
         http:
           endpoint: 0.0.0.0:4318
+        # Istio's ingress gateway exports over gRPC (k8s/istio/install.yaml); nothing in docker-compose uses it.
+        grpc:
+          endpoint: 0.0.0.0:4317
 
 ingester:
   max_block_duration: 5m

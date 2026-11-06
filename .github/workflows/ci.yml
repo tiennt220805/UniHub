@@ -51,6 +51,8 @@ jobs:
             fi
             echo "$profile: $(grep -c '^kind:' "$RUNNER_TEMP/render-$profile.yaml") objects"
           done
+          make render-observability > "$RUNNER_TEMP/render-observability.yaml"
+          echo "observability: $(grep -c '^kind:' "$RUNNER_TEMP/render-observability.yaml") objects"
 
   # test + jacocoTestCoverageVerification (Coverage Verification Mechanism ADR, deployment-and-cicd.md
   # §5) — Unit only, no Testcontainers/Docker (`integration-test` below is a separate job).
