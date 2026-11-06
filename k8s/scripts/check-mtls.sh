@@ -2,10 +2,16 @@
 # S-19 / M-63 (Phase 7 checklist 7.6, D96, INV-20): a plaintext connection to any pod in the mesh is refused, and a pod
 # with a sidecar still connects.
 #
-#   k8s/scripts/check-mtls.sh                 expect STRICT: plaintext refused (exit 1 when any port answers)
-#   k8s/scripts/check-mtls.sh --expect permissive
-#                                             the NEGATIVE CONTROL: run it before STRICT is switched on, it must show
-#                                             every port answering plaintext, which proves the probe can tell the two apart
+#   k8s/scripts/check-mtls.sh                    expect STRICT: plaintext refused (exit 1 when any port answers)
+#   k8s/scripts/check-mtls.sh --negative-control the CONTROL: applies, for the duration of the run, a PERMISSIVE
+#                                                PeerAuthentication selected by label for every workload (a policy for a
+#                                                workload overrides the namespace's STRICT), expects EVERY port to answer
+#                                                plaintext, then removes the policies. It proves the probe can tell
+#                                                refusing from answering, port by port (8081 included). Run it, then the
+#                                                plain run, in the same session: STRICT is in the manifests, so a fresh deploy
+#                                                has no PERMISSIVE moment of its own.
+#   k8s/scripts/check-mtls.sh --expect permissive  the same expectation without touching the cluster (for a mesh you made
+#                                                PERMISSIVE yourself)
 #
 # Two throw-away pods, one in a namespace WITHOUT injection (`unihub-probe`: no sidecar, so no mesh identity, so
 # plaintext) and one in an injected namespace (`unihub-probe-mesh`: its sidecar originates mutual TLS). Each port is
@@ -22,10 +28,12 @@
 set -euo pipefail
 
 expect=strict
+control=false
 case "${1:-}" in
   "") ;;
-  --expect) expect="${2:-}"; case "$expect" in strict|permissive) ;; *) echo "usage: $0 [--expect strict|permissive]" >&2; exit 2 ;; esac ;;
-  *) echo "usage: $0 [--expect strict|permissive]" >&2; exit 2 ;;
+  --negative-control) expect=permissive; control=true ;;
+  --expect) expect="${2:-}"; case "$expect" in strict|permissive) ;; *) echo "usage: $0 [--negative-control | --expect strict|permissive]" >&2; exit 2 ;; esac ;;
+  *) echo "usage: $0 [--negative-control | --expect strict|permissive]" >&2; exit 2 ;;
 esac
 
 command -v kubectl >/dev/null || { echo "kubectl is not installed" >&2; exit 1; }
@@ -33,8 +41,35 @@ PLAIN_NS=unihub-probe
 MESH_NS=unihub-probe-mesh
 IMAGE=busybox:1.36
 
-cleanup() { kubectl delete namespace "$PLAIN_NS" "$MESH_NS" --wait=false >/dev/null 2>&1 || true; }
+CONTROL_LABEL="app.kubernetes.io/managed-by=check-mtls"
+cleanup() {
+  kubectl delete namespace "$PLAIN_NS" "$MESH_NS" --wait=false >/dev/null 2>&1 || true
+  kubectl delete peerauthentication -l "$CONTROL_LABEL" -n unihub >/dev/null 2>&1 || true
+  kubectl delete peerauthentication -l "$CONTROL_LABEL" -n unihub-observability >/dev/null 2>&1 || true
+}
 trap cleanup EXIT
+if [ "$control" = true ]; then
+  # One PERMISSIVE policy per workload, selected by its `app` label; removed by the trap, whatever happens.
+  for target in unihub:backend-api unihub:web unihub:postgres-master unihub:postgres-replica unihub:redis unihub:rabbitmq \
+                unihub:minio unihub:mailpit unihub:payment-gateway-stub unihub:ai-summarization-stub \
+                unihub-observability:prometheus unihub-observability:tempo unihub-observability:grafana; do
+    ns="${target%%:*}"; app="${target#*:}"
+    kubectl apply -f - >/dev/null <<YAML
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: control-$app
+  namespace: $ns
+  labels:
+    app.kubernetes.io/managed-by: check-mtls
+spec:
+  selector: { matchLabels: { app: $app } }
+  mtls: { mode: PERMISSIVE }
+YAML
+  done
+  echo "negative control: PERMISSIVE applied to every workload for this run (removed on exit); waiting 30 s for the sidecars"
+  sleep 30
+fi
 # A namespace still terminating from an earlier run would refuse the pods.
 kubectl delete namespace "$PLAIN_NS" "$MESH_NS" --ignore-not-found --wait=true >/dev/null
 kubectl create namespace "$PLAIN_NS" >/dev/null
