@@ -41,7 +41,7 @@ Every browser test also fails on a `securitypolicyviolation` event or a CSP erro
   start when more than 16 other workshops are published. The Web's catalog page shows only the first 20 (no search, no paging),
   so a fuller catalog hides the workshops the journeys create. Each test also cancels its own workshops.
 - **WebKit and `<select>`:** with the strict CSP, WebKit reports a `style-src-attr` violation for any native `<select>` (reproduced
-  on a page with nothing else). The guard in `support/fixtures.ts` tolerates exactly that one report, on `/me/checkout/…`, on the
-  `webkit` project (decided by the owner, 2026-11-06); the test attaches `tolerated-csp-webkit-select` whenever it does. Anything
+  on a page with nothing else). The guard in `support/fixtures.ts` tolerates at most two such reports per `<select>` in the DOM, on `/me/checkout/…`, from
+  the application's own bundle, on the `webkit` project (decided by the owner, 2026-11-06); the test attaches `tolerated-csp-webkit-select` whenever it does. Anything
   else, on any engine, fails the test.
 - **429:** the Organizer helper waits out a `429` as `Retry-After` says (the rate limit is per identity).

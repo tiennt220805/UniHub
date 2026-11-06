@@ -10,6 +10,7 @@ type PageHealth = { cspViolations: string[]; consoleErrors: string[] }
 declare global {
   interface Window {
     __cspViolations?: string[]
+    __selectsCreated?: number
   }
 }
 
@@ -18,6 +19,18 @@ async function watch(page: Page): Promise<PageHealth> {
   // The event fires in the page; the init script runs before the page's own scripts, in every frame.
   await page.addInitScript(() => {
     window.__cspViolations = []
+    window.__selectsCreated = 0
+    // Counts the native <select> elements that get into the page (see the WebKit exception in `pageHealth`). A
+    // MutationObserver, not a wrapper around createElement: a wrapper would stand in the call stack and WebKit
+    // attributes the report to the caller, so the report would point at this script instead of the application's.
+    new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of Array.from(record.addedNodes)) {
+          if (!(node instanceof Element)) continue
+          window.__selectsCreated = (window.__selectsCreated ?? 0) + (node.matches('select') ? 1 : 0) + node.querySelectorAll('select').length
+        }
+      }
+    }).observe(document, { childList: true, subtree: true })
     document.addEventListener('securitypolicyviolation', (event) => {
       window.__cspViolations?.push(
         `${event.violatedDirective} blocked ${event.blockedURI || 'inline'} on ${document.location.pathname} at ${event.sourceFile}:${event.lineNumber}:${event.columnNumber} [${(event.sample || '').slice(0, 80)}]`,
@@ -57,19 +70,23 @@ export const test = base.extend<Fixtures>({
     async ({ page }, use, testInfo) => {
       const health = await watch(page)
       await use(health)
-      const fromPage = await page.evaluate(() => window.__cspViolations ?? []).catch(() => [] as string[])
-      health.cspViolations.push(...fromPage)
+      const seen = await page
+        .evaluate(() => ({ violations: window.__cspViolations ?? [], selects: window.__selectsCreated ?? 0 }))
+        .catch(() => ({ violations: [] as string[], selects: 0 }))
+      health.cspViolations.push(...seen.violations)
       // Console errors other than CSP ones are attached, not failed on: a 4xx the journey provokes on purpose
       // logs "Failed to load resource". A CSP error text in the console counts as a violation too.
       const cspInConsole = health.consoleErrors.filter((text) => /content security policy|violates the following/i.test(text))
       // The one tolerated exception, decided by the owner 2026-11-06 (phase-7-cluster-checks.md, 9.4): WebKit reports a
       // `style-src-attr` violation with an empty sample whenever a page creates a native <select>, with the strict CSP
       // and no application code involved (reproduced on a page of its own). It is the checkout's test-token dropdown,
-      // shown only in a test-mode build. Anything else on any engine, or this on any other page, still fails.
+      // shown only in a test-mode build. At most two reports per <select> that the page put in the DOM are tolerated (that is what
+      // WebKit sends); a third, anything else, on any engine, or this on any other page, still fails.
       const isWebkitSelectQuirk = (entry: string) =>
-        testInfo.project.name === 'webkit' && /^style-src-attr blocked inline on \/me\/checkout\/[^ ]+ at \S+:\d+:\d+ \[\]$/.test(entry)
-      const tolerated = health.cspViolations.filter(isWebkitSelectQuirk)
-      const violations = health.cspViolations.filter((entry) => !isWebkitSelectQuirk(entry))
+        testInfo.project.name === 'webkit' && /^style-src-attr blocked inline on \/me\/checkout\/[^ ]+ at https:\/\/[^ ]+\/assets\/[^ ]+\.js:\d+:\d+ \[\]$/.test(entry)
+      const candidates = health.cspViolations.filter(isWebkitSelectQuirk)
+      const tolerated = candidates.slice(0, seen.selects * 2)
+      const violations = [...health.cspViolations.filter((entry) => !isWebkitSelectQuirk(entry)), ...candidates.slice(tolerated.length)]
       // Each tolerated event is followed by the same message in the console; take out that many, not all of them.
       const consoleLeft = [...cspInConsole]
       for (let i = 0; i < tolerated.length; i++) {
