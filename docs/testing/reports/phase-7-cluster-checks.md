@@ -1,7 +1,7 @@
-# Phase 7 — Kiểm tay trên cluster Minikube (task 5.1, 5.3, 5.6, 5.7, 6.1, 6.3, 6.4)
+# Phase 7 — Kiểm tay trên cluster Minikube (task 5.1, 5.3, 5.6, 5.7, 6.1, 6.3, 6.4, 7.1–7.6)
 
 > **Mục đích.** Các IT và test tĩnh của Phase 7 chứng minh từng mảnh (manifest khớp mã, stub trả đúng cái adapter gọi, migration tương thích). Chúng **không** chứng minh rằng các manifest chạy được trong một cluster có Istio. Tài liệu này ghi những gì đã chạy trên cluster, bằng chứng của từng bước, và những gì **chưa** chạy.
-> **Đây là bản luyện tập dưới `PeerAuthentication` PERMISSIVE** (task 5.7). Bản bằng chứng chính thức chạy lại ở Mục 10, dưới STRICT, trên một lần deploy mới (D96). Một ô trống là một khoảng trống, không phải một lần đạt.
+> **Đây là các bản luyện tập:** task 5.x và 6.x chạy dưới `PeerAuthentication` PERMISSIVE (riêng `backend-api` và `rabbitmq` STRICT từ 6.1), task 7.5–7.6 dưới STRICT trong cả hai namespace nhưng trên cluster đã dùng từ 5.7, không phải một lần deploy mới. Bản bằng chứng chính thức chạy lại ở Mục 10, dưới STRICT, trên một lần deploy mới (D96). Một ô trống là một khoảng trống, không phải một lần đạt.
 
 ## Ai chạy, khi nào, ở đâu
 
@@ -103,6 +103,23 @@
 - **Chưa kiểm:** `unihub-app-restarted` `Firing` khi Liveness giết container (AC99.2, kịch bản 7b — thuộc 8.x); `unihub-rate-limit-bypassed` với Redis tắt **có** traffic (không có traffic nên không bắn, như dự đoán); không cấu hình contact point (quyết định của chủ dự án, `observability.md` §6): P1 "có hiệu lực" theo D99 là rule được nạp, đánh giá, và `Firing` thấy được trong Grafana.
 - **Đây là bản luyện tập dưới PERMISSIVE** (với hai workload được siết STRICT, 6.1): dòng P1 của `test-plan.md` §1 **không sửa** — sửa khi chủ dự án chấp nhận và bản chạy lại ở Mục 10 dưới STRICT xong (D96, D102).
 
+### 7.1–7.4 — P2, P3, P4 trước khi bật STRICT (namespace còn PERMISSIVE; `backend-api` và `rabbitmq` đã STRICT từ 6.1)
+
+*Chạy 2026-11-06 ~13:00 (UTC+7), cùng người chạy và máy; cluster `loadtest`, image `a9c1a8f`.*
+
+- **7.1:** cả 12 pod của `unihub` và 3 pod của `unihub-observability` có `istio-proxy` ở `initContainers` với `restartPolicy: Always` (sidecar gốc); mọi probe `httpGet` đã được Istio viết lại thành `/app-health/<container>/…` ở cổng 15020 của sidecar (Postgres, Redis, RabbitMQ dùng probe `exec` nên không đổi). Kiểm bằng `k8s/scripts/check-mesh.sh`.
+- **7.2 (P2):** đọc ở sidecar của đích: `istio_requests_total{reporter="destination", source_workload="istio-ingressgateway"}` — `backend-api` và `web` đều **`connection_security_policy="mutual_tls"`** (3 và 1 chuỗi); không chuỗi nào khác.
+- **7.3 (P3):** `make migrate` với namespace được inject: Job `Complete` trong 17 s, `istio-init`, `istio-proxy` và `flyway` đều `terminated` mã 0 (sidecar gốc kết thúc theo container chính, không `quitquitquit`); log Flyway `Schema "public" is up to date`. `postgres-replica-0`: `istio-init` → `istio-proxy` (chạy) → `basebackup` mã 0, `pg_stat_replication` `streaming`.
+- **7.4 (P4):** cả bốn target Prometheus `UP` qua mTLS; datasource Prometheus và Tempo của Grafana `health OK`; `grafana → prometheus` (≈ 7 280 request) và `grafana → tempo` là `mutual_tls` ở sidecar của đích; WireMock (2), Mailpit và MinIO có sidecar (7.1).
+
+### 7.5, 7.6 — STRICT trong cả hai namespace, S-19 (`k8s/scripts/check-mtls.sh`)
+
+- **Đối chứng âm trước khi bật (`--expect permissive`):** từ pod không inject, **mọi cổng trả lời plaintext trừ các cổng của `backend-api` và `rabbitmq`** (đang STRICT riêng từ 6.1): `web`, hai Postgres, Redis, MinIO, Mailpit (SMTP, UI), hai stub, Prometheus, Tempo (3200, 4318, 4317), Grafana trả 1–64 byte. Vậy phép thử phân biệt được hai chế độ (một lần đo đầu dùng `GET / HTTP/1.0` qua `nc` làm sai kết quả với cổng HTTP — Envoy trả `400` hoặc im lặng — nên phần HTTP dùng `wget`, đếm dòng trạng thái; chỉ một kết nối TCP được chấp nhận **không** chứng minh gì, vì Envoy chấp nhận rồi mới từ chối).
+- **Bật STRICT:** `base/peer-authentication.yaml` và `k8s/observability/peer-authentication.yaml` (mới) thành `STRICT`; `base/peer-authentication-scraped.yaml` xóa; hai object cũ `strict-*` xóa khỏi cluster. Không `portLevelMtls`, không `selector` (`ObservabilityManifestsTest#bothNamespacesAreStrict`).
+- **`check-mtls.sh` dưới STRICT — `check-mtls: OK`:** 19 cổng (mọi cổng Service của hai namespace, cộng cổng quản lý 8081 của API theo địa chỉ pod, vì không Service nào công bố nó), mỗi cổng nói đúng giao thức của nó từ một pod ở namespace **không** inject: **cả 19 từ chối plaintext (0 byte)**; pod trong namespace có inject (`unihub-probe-mesh`) được trả lời ở mọi cổng trừ 8081 (không Service nào nên sidecar không biết cổng, gửi thô — đúng thiết kế; đối chứng dương của nó là `min(up{job="unihub-backend"}) = 1`, Prometheus scrape bằng chứng chỉ của chính nó). Cổng 80 và 443 công khai của gateway là biên của mesh, ngoài phạm vi.
+- **Hệ quả của STRICT, kiểm ngay trên cluster:** (a) toàn bộ pod giữ `2/2 Ready`; (b) `k8s/scripts/journey.sh` xanh (đăng nhập bốn role, tạo và publish, đăng ký, thanh toán qua stub, `CONFIRMED` sau 1 s); (c) `make migrate` → Job `Complete`, sidecar thoát cùng (**AC94.1 dưới STRICT**); (d) **replica dựng lại từ volume trống** (xóa pod và PVC `data-postgres-replica-0`): `istio-init` → `istio-proxy` → `basebackup` mã 0 trong 2 s, `streaming` — `pg_basebackup` đi qua mesh dưới STRICT; (e) `rollout restart` của API: ba pod mới Ready, probe kubelet đi qua sidecar bình thường; (f) trace của gateway vẫn tới Tempo qua gRPC (6 trên 60 request thành trace, span gateway + span ứng dụng); (g) Prometheus vẫn scrape bằng chứng chỉ sidecar (bốn target `UP`); (h) `check-mesh.sh` OK.
+- **Đây là bản luyện tập, chưa phải bằng chứng đã ký:** do Claude Code chạy, chưa có chấp nhận của chủ dự án (D102); M-63 là `Drafted`; bản được ký là lần chạy lại ở Mục 10 trên một lần deploy mới.
+
 ### Đo tài nguyên (thay số tạm của `overlays/loadtest`; ADR Resource Profile, sai lệch có tên của D82)
 
 `kubectl top` khi **rảnh** (không tải), sau khi cả hai overlay đã chạy:
@@ -130,7 +147,7 @@
 
 - **5.5:** `Makefile` có `cluster-up` nhưng **chưa có `smoke`** (Mục 9, D101); `journey.sh` mới là một hành trình, không phải toàn bộ `smoke.sh` (chưa có M-64, M-65).
 - **`/etc/hosts` + `minikube tunnel` + trình duyệt tin CA:** cần `sudo`, không chạy; kiểm bằng `port-forward`. Playwright qua HTTPS (AC97.2) là 9.4.
-- **STRICT, `check-mtls.sh`, S-19, P2–P4** (Mục 7); **kill-pod, đóng băng pod, M-59, M-62, M-64, M-65, rollout rehearsal M-58** (Mục 8); **S-16 trên cluster** (`X-Envoy-External-Address` thật sau sidecar).
+**kill-pod, đóng băng pod, M-59, M-62, M-64, M-65, rollout rehearsal M-58** (Mục 8); **S-16 trên cluster** (`X-Envoy-External-Address` thật sau sidecar).
 - Không có tải: không có K6, không đo p95, không đo `OOMKilled` dưới tải.
 - Không kiểm `readOnlyRootFilesystem`, không có NetworkPolicy (không thuộc Phase 7).
 

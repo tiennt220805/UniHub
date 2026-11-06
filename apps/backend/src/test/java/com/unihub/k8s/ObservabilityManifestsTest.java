@@ -279,46 +279,38 @@ class ObservabilityManifestsTest {
 
     @Test
     @DisplayName(
-            "no PeerAuthentication has portLevelMtls, and only the namespace default is not STRICT (AC95.2)")
-    void noMtlsException() throws IOException {
-        var found = 0;
+            "both namespaces are STRICT, and no PeerAuthentication has portLevelMtls or a selector (AC95.2, INV-20)")
+    void bothNamespacesAreStrict() throws IOException {
+        var seen = new TreeSet<String>();
+        var files = new ArrayList<Path>();
         for (var resource : baseResources()) {
-            for (var document : documents(BASE.resolve(resource))) {
+            files.add(BASE.resolve(resource));
+        }
+        for (var resource : resources()) {
+            files.add(STACK.resolve(resource));
+        }
+        for (var file : files) {
+            for (var document : documents(file)) {
                 if (!"PeerAuthentication".equals(document.get("kind"))) {
                     continue;
                 }
-                found++;
                 @SuppressWarnings("unchecked")
                 var spec = (Map<String, Object>) document.get("spec");
-                assertThat(spec).as("%s", name(document)).doesNotContainKey("portLevelMtls");
-                var mode = ((Map<?, ?>) spec.get("mtls")).get("mode");
-                if (!name(document).equals("default")) {
-                    assertThat(mode)
-                            .as("%s tightens, it never relaxes", name(document))
-                            .isEqualTo("STRICT");
-                    assertThat(spec)
-                            .as("%s is scoped to a workload", name(document))
-                            .containsKey("selector");
-                }
+                assertThat(spec)
+                        .as("%s: an exception to STRICT would be a plaintext hop", name(document))
+                        .doesNotContainKeys("portLevelMtls", "selector");
+                assertThat(((Map<?, ?>) spec.get("mtls")).get("mode"))
+                        .as("mode in %s", namespaceOf(document))
+                        .isEqualTo("STRICT");
+                assertThat(name(document)).isEqualTo("default");
+                seen.add(namespaceOf(document));
             }
         }
-        assertThat(found).isGreaterThanOrEqualTo(3);
-    }
 
-    @Test
-    @DisplayName(
-            "the workloads Prometheus scrapes are STRICT: under PERMISSIVE an mTLS scrape is handed to the application")
-    void scrapedWorkloadsAreStrict() throws IOException {
-        var strict = new TreeSet<String>();
-        for (var document : documents(BASE.resolve("peer-authentication-scraped.yaml"))) {
-            var spec = (Map<?, ?>) document.get("spec");
-            var selector = (Map<?, ?>) ((Map<?, ?>) spec.get("selector")).get("matchLabels");
-            assertThat(((Map<?, ?>) spec.get("mtls")).get("mode")).isEqualTo("STRICT");
-            strict.add((String) selector.get("app"));
-        }
-
-        assertThat(strict).containsExactlyInAnyOrder("backend-api", "rabbitmq");
-        assertThat(baseResources()).contains("peer-authentication-scraped.yaml");
+        assertThat(seen).containsExactlyInAnyOrder("unihub", NAMESPACE);
+        assertThat(baseResources())
+                .as("the interim per-workload policies of task 6.1 are gone")
+                .noneMatch(resource -> resource.contains("scraped"));
     }
 
     @Test
@@ -376,6 +368,37 @@ class ObservabilityManifestsTest {
 
         var tempo = Files.readString(CONTENT.resolve("tempo/tempo.yaml"));
         assertThat(tempo).contains("endpoint: 0.0.0.0:4318").contains("http_listen_port: 3200");
+    }
+
+    // ---------- S-19 covers every Service port (D96) ----------
+
+    @Test
+    @DisplayName("check-mtls.sh probes every port of every Service of both namespaces")
+    void mtlsCheckCoversEveryServicePort() throws IOException {
+        var script = Files.readString(K8S.resolve("scripts/check-mtls.sh"));
+        var missing = new ArrayList<String>();
+        var services = new ArrayList<Map<String, Object>>();
+        for (var resource : baseResources()) {
+            services.addAll(documents(BASE.resolve(resource)));
+        }
+        services.addAll(documentsOf(resources()));
+        var count = 0;
+        for (var document : services) {
+            if (!"Service".equals(document.get("kind"))) {
+                continue;
+            }
+            for (var port : listOf(((Map<?, ?>) document.get("spec")).get("ports"))) {
+                count++;
+                var host = name(document) + "." + namespaceOf(document);
+                var number = ((Map<?, ?>) port).get("port");
+                if (!script.contains(host + "|" + number + "|")) {
+                    missing.add(host + ":" + number);
+                }
+            }
+        }
+
+        assertThat(count).as("Service ports found").isGreaterThan(15);
+        assertThat(missing).as("ports no plaintext probe speaks to").isEmpty();
     }
 
     // ---------- tracing at the gateway (D98, task 6.3) ----------

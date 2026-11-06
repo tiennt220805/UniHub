@@ -1,7 +1,9 @@
-# The mesh's mTLS mode for the whole namespace (Mesh mTLS Mode ADR). No `selector`: it applies to every
-# workload in `unihub`. PERMISSIVE for now — Phase 7 task 7.x switches it to STRICT, one line, after the three
-# preconditions of the ADR are met. Under PERMISSIVE plaintext is still accepted, so §5.4's "no plaintext hop"
-# is not yet enforced.
+# The mesh's mTLS mode for the whole namespace (Mesh mTLS Mode ADR, INV-20). No `selector`: it applies to every
+# workload in `unihub`. STRICT since Phase 7 task 7.5, after the three preconditions of the ADR were shown (P2: the
+# gateway's hops are mutual_tls, P3: the Flyway Job and the replica's init container run under injection, P4: the
+# observability stack scrapes and is read over mTLS). A connection that does not present a mesh identity is
+# refused, never downgraded to plaintext. k8s/observability/peer-authentication.yaml says the same for
+# `unihub-observability`. No `portLevelMtls` anywhere (AC95.2): a static test refuses one.
 apiVersion: security.istio.io/v1
 kind: PeerAuthentication
 metadata:
@@ -9,4 +11,4 @@ metadata:
   namespace: unihub
 spec:
   mtls:
-    mode: PERMISSIVE
+    mode: STRICT

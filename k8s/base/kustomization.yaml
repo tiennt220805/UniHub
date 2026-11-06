@@ -27,7 +27,6 @@ resources:
   - stubs/payment-gateway-stub.yaml
   - stubs/ai-summarization-stub.yaml
   - peer-authentication.yaml
-  - peer-authentication-scraped.yaml
 
 configMapGenerator:
   # The application's configuration, under the names it actually binds (apps/backend/env.example and

@@ -1,0 +1,11 @@
+# STRICT mTLS for the observability namespace (Phase 7 task 7.5, D95, D96; INV-20): Prometheus, Grafana and Tempo are
+# in the mesh like the application, so a plaintext connection to any of them is refused too. Counterpart of
+# k8s/base/peer-authentication.yaml, which is `unihub`'s. No `portLevelMtls`, no selector.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: unihub-observability
+spec:
+  mtls:
+    mode: STRICT
