@@ -1,0 +1,41 @@
+== redis drill started 03:12:16 UTC
+[baseline] 03:12:16 dependency-down: inactive [('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: -
+api pods READY: 2/2 2/2 2/2 | readiness HTTP 200 | dependencies: {"status":"UP","components":{"rabbit":{"status":"UP"},"redis":{"status":"UP"}}}
+deployment.apps/redis scaled
+[scaled to 0] 03:12:17
+[+11s] 03:12:27 dependency-down: inactive [('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: -
+[+21s] 03:12:37 dependency-down: inactive [('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: -
+[+31s] 03:12:47 dependency-down: inactive [('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: -
+[+41s] 03:12:57 dependency-down: inactive [('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: -
+[+51s] 03:13:07 dependency-down: pending [('redis', 'Pending'), ('redis', 'Pending'), ('redis', 'Pending'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+61s] 03:13:17 dependency-down: pending [('redis', 'Pending'), ('redis', 'Pending'), ('redis', 'Pending'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+71s] 03:13:27 dependency-down: pending [('redis', 'Pending'), ('redis', 'Pending'), ('redis', 'Pending'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+81s] 03:13:37 dependency-down: pending [('redis', 'Pending'), ('redis', 'Pending'), ('redis', 'Pending'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+91s] 03:13:48 dependency-down: pending [('redis', 'Pending'), ('redis', 'Pending'), ('redis', 'Pending'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+102s] 03:13:58 dependency-down: pending [('redis', 'Pending'), ('redis', 'Pending'), ('redis', 'Pending'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+112s] 03:14:08 dependency-down: firing [('redis', 'Alerting'), ('redis', 'Alerting'), ('redis', 'Alerting'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+>>> unihub-dependency-down FIRING at +112s
+api pods READY: 2/2 2/2 2/2 | readiness HTTP 200 | dependencies: {"status":"DEGRADED","components":{"rabbit":{"status":"UP"},"redis":{"status":"DEGRADED","details":{"error":"ping refused"}}}}
+[+133s] 03:14:29 dependency-down: firing [('redis', 'Alerting'), ('redis', 'Alerting'), ('redis', 'Alerting'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+143s] 03:14:39 dependency-down: firing [('redis', 'Alerting'), ('redis', 'Alerting'), ('redis', 'Alerting'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+153s] 03:14:49 dependency-down: firing [('redis', 'Alerting'), ('redis', 'Alerting'), ('redis', 'Alerting'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+163s] 03:14:59 dependency-down: firing [('redis', 'Alerting'), ('redis', 'Alerting'), ('redis', 'Alerting'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+173s] 03:15:10 dependency-down: firing [('redis', 'Alerting'), ('redis', 'Alerting'), ('redis', 'Alerting'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+184s] 03:15:20 dependency-down: firing [('redis', 'Alerting'), ('redis', 'Alerting'), ('redis', 'Alerting'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+194s] 03:15:30 dependency-down: firing [('redis', 'Alerting'), ('redis', 'Alerting'), ('redis', 'Alerting'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+204s] 03:15:40 dependency-down: firing [('redis', 'Alerting'), ('redis', 'Alerting'), ('redis', 'Alerting'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+214s] 03:15:50 dependency-down: firing [('redis', 'Alerting'), ('redis', 'Alerting'), ('redis', 'Alerting'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+224s] 03:16:00 dependency-down: firing [('redis', 'Alerting'), ('redis', 'Alerting'), ('redis', 'Alerting'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+234s] 03:16:10 dependency-down: firing [('redis', 'Alerting'), ('redis', 'Alerting'), ('redis', 'Alerting'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[+244s] 03:16:20 dependency-down: firing [('redis', 'Alerting'), ('redis', 'Alerting'), ('redis', 'Alerting'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+api pods READY: 2/2 2/2 2/2 | readiness HTTP 200 | dependencies: {"status":"DEGRADED","components":{"rabbit":{"status":"UP"},"redis":{"status":"DEGRADED","details":{"error":"ping refused"}}}}
+deployment.apps/redis scaled
+[scaled back to 1] 03:16:21
+deployment "redis" successfully rolled out
+[restore +15s] 03:16:36 dependency-down: firing [('redis', 'Alerting'), ('redis', 'Alerting'), ('redis', 'Alerting'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[restore +25s] 03:16:46 dependency-down: firing [('redis', 'Alerting'), ('redis', 'Alerting'), ('redis', 'Alerting'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[restore +35s] 03:16:56 dependency-down: firing [('redis', 'Alerting'), ('redis', 'Alerting'), ('redis', 'Alerting'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: -
+[restore +45s] 03:17:06 dependency-down: inactive [('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: -
+>>> back to Normal at restore +45s
+api pods READY: 2/2 2/2 2/2 | readiness HTTP 200 | dependencies: {"status":"UP","components":{"rabbit":{"status":"UP"},"redis":{"status":"UP"}}}
+== redis drill ended 03:17:19 UTC

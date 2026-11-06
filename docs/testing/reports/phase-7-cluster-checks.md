@@ -56,7 +56,7 @@
 
 ### 6.1 — Stack observability trong cluster (`k8s/observability/`, `make deploy-observability`)
 
-*Chạy 2026-11-06, buổi chiều (UTC+7), cùng người chạy và cùng điều kiện như trên; chạy trên cluster `loadtest` đang có, image `1cf9499` (vẫn là image của lần 5.7 — xem "Mã" của 6.4 cho image của lần diễn tập P1).*
+*Chạy 2026-11-06, buổi chiều (UTC+7), cùng người chạy và cùng điều kiện như trên; chạy trên cluster `loadtest` đang có, image `1cf9499` (của lần 5.7); lần diễn tập P1 (6.4) chạy sau khi đổi sang image `a9c1a8f`.*
 
 - **Triển khai:** `make deploy-observability` → namespace `unihub-observability` (nhãn `istio-injection: enabled`), ba pod `2/2 Running` (ứng dụng + `istio-proxy` là **sidecar gốc**, ở `initContainers` với `restartPolicy: Always`). Image là của docker-compose (`prom/prometheus:v3.15.0`, `grafana/tempo:2.10.8`, `grafana/grafana:13.2.4`). Bộ nhớ lúc rảnh: Grafana 378 MiB, Prometheus 102 MiB, Tempo 72 MiB; **cả container node 5,4 GiB / 10 GiB (54%)** với `loadtest` + stack, **không `OOMKilled`, không pod nào restart** — điều kiện dừng D82 (kể cả OOM của chính container node) không bị chạm. Giới hạn bộ nhớ của Grafana nâng từ 512 Mi lên 768 Mi (378 Mi là 74% của 512).
 - **Chứng chỉ của sidecar ra volume dùng chung:** `/etc/istio-certs` trong container Prometheus có `cert-chain.pem`, `key.pem`, `root-cert.pem` (`OUTPUT_CERTS` + `sidecar.istio.io/userVolumeMount` **chạy được với sidecar gốc**).
@@ -80,6 +80,27 @@
 - **Phần còn lại của câu hỏi (request không được lấy mẫu có `traceparent` không?)**, đo bằng cách tạm thời trỏ một `VirtualService` thăm dò (đã xóa) vào stub WireMock, mà journal của nó ghi header nhận được: **100 trong 100 request đều tới đích với `traceparent`** (+ `tracestate`, `x-request-id`), **8 trong đó gắn cờ sampled (`-01`)**. Envoy sinh trace ID cho **mọi** request, không chỉ những request được lấy mẫu; vậy correlation ID là trace ID do Ingress sinh cho tất cả, và yêu cầu `requirement.md` §3.1 ("tagged at the Ingress") được đáp ứng đầy đủ, không chỉ trên 10% mẫu.
 - **Quan sát khác (có từ Phase 6, không do 6.3):** span của ứng dụng trong Tempo mang `service.name` là `unknown_service` (Spring không đặt `spring.application.name`), nên ở Tempo có hai dịch vụ — gateway và `unknown_service`. Không sửa trong task này; nêu để chủ dự án quyết định.
 
+### 6.4 — P1 trên cluster (`unihub-dependency-down`), bản luyện tập dưới PERMISSIVE
+
+*Chạy 2026-11-06 03:12–03:23 UTC (10:12–10:23 UTC+7), cùng người chạy và máy như trên, bằng kịch bản tạm ngoài repository (`smoke.sh` là Mục 9). Mã: **image `a9c1a8f`** (CI [42150946786](https://github.com/tiennt220805/UniHub/actions/runs/42150946786), mười job xanh; `imageID` của pod là `sha256:b4e10a52…`), ba API pod của `overlays/loadtest`; manifest observability của `c94c76f`. Chưa có traffic: không ai gọi API trong lúc thử.*
+
+| | Redis `scale 0` | RabbitMQ `scale 0` |
+|---|---|---|
+| `unihub-dependency-down` `Pending` | +51 s | +41 s |
+| **`Firing`** (ba instance, một mỗi API pod, nhãn `dependency` đúng) | **+112 s** | **+101 s** |
+| Giữ mất kết nối | 244 s | 243 s |
+| Pod API trong lúc mất | **3/3 `2/2 Ready`**, readiness HTTP **200** | giống |
+| `GET /actuator/health/dependencies` | `DEGRADED`, `redis: ping refused` | `DEGRADED`, `rabbit: AmqpIOException` |
+| Rule khác đổi trạng thái | không | `unihub-rabbitmq-target-down` `Pending` → **`Firing`** (xem dưới) |
+| Khôi phục (`scale 1`) → `Normal` | **+45 s** sau khôi phục | **+98 s** sau khôi phục |
+| Pod API sau khi khôi phục | 3/3 Ready, `dependencies` `UP` | giống |
+
+- **Ảnh chụp (Grafana thật, trình duyệt headless, lúc đang `Firing`)** — phần Phase 6 còn thiếu: [`redis-firing.png`](phase-7-cluster-checks/redis-firing.png) (`Redis or RabbitMQ down`, 3 instances), [`rabbitmq-firing.png`](phase-7-cluster-checks/rabbitmq-firing.png) (cộng `RabbitMQ metrics target down`), và [`redis-normal.png`](phase-7-cluster-checks/redis-normal.png), [`rabbitmq-normal.png`](phase-7-cluster-checks/rabbitmq-normal.png) sau khôi phục; nhật ký có dấu thời gian: [`redis-drill.log`](phase-7-cluster-checks/redis-drill.log), [`rabbitmq-drill.log`](phase-7-cluster-checks/rabbitmq-drill.log).
+- **Hiệu chỉnh một dự đoán (lỗ hổng tìm ra khi chạy, đã sửa trước lần chạy):** với service discovery theo pod, `scale 0` làm **chuỗi `up{job="rabbitmq"}` biến mất**, mà chuỗi vắng là "no data" và mọi rule đọc là OK — `unihub-rabbitmq-target-down` sẽ im. Biểu thức đã đổi thành `up{job="rabbitmq"} or on() vector(0)` (cùng cách rule của ứng dụng, `observability.md` §6, `ObservabilityProvisioningIT` ghim chữ); bằng chứng là rule đó `Firing` trong lần RabbitMQ. Phần P1 vốn không phụ thuộc điều này (nó đến từ gauge `unihub_dependency_up` do chính ứng dụng thăm dò).
+- **Hai rule của 6.2 trên cluster thật:** `unihub-app-target-down` `Pending` rồi `Normal` khi rollout thay pod (đúng: target cũ biến mất lúc pod bị xóa); và **công thức replica lag mới** — trước khi đổi image rule `Replica lag above 10 s` `Firing` trên ba pod (xem `replica-lag-firing-before-fix.png`); sau khi đổi sang `a9c1a8f` gauge của cả ba pod đọc `0` và rule về `Normal` trong ~2 phút (không có `Firing` nào còn lại ở baseline của lần Redis).
+- **Chưa kiểm:** `unihub-app-restarted` `Firing` khi Liveness giết container (AC99.2, kịch bản 7b — thuộc 8.x); `unihub-rate-limit-bypassed` với Redis tắt **có** traffic (không có traffic nên không bắn, như dự đoán); không cấu hình contact point (quyết định của chủ dự án, `observability.md` §6): P1 "có hiệu lực" theo D99 là rule được nạp, đánh giá, và `Firing` thấy được trong Grafana.
+- **Đây là bản luyện tập dưới PERMISSIVE** (với hai workload được siết STRICT, 6.1): dòng P1 của `test-plan.md` §1 **không sửa** — sửa khi chủ dự án chấp nhận và bản chạy lại ở Mục 10 dưới STRICT xong (D96, D102).
+
 ### Đo tài nguyên (thay số tạm của `overlays/loadtest`; ADR Resource Profile, sai lệch có tên của D82)
 
 `kubectl top` khi **rảnh** (không tải), sau khi cả hai overlay đã chạy:
@@ -97,7 +118,7 @@
 
 - **Kết luận có giới hạn:** giới hạn 1 Gi của API có chỗ trống (≈ 52% đang dùng khi rảnh, kể cả sidecar riêng), và `loadtest` + Istio vừa 10 GB mà không pod nào bị `OOMKilled` — **điều kiện dừng của D82 không bị chạm**. Con số này là **lúc rảnh**: không có tải, nên không nói được gì về `OOMKilled` dưới tải, về Postgres khi đọc/ghi nhiều, hay về 12 000 CCU (Phase 8). Postgres đang dùng 79–107 MiB so với request 768 Mi: số của `overlays/loadtest` giữ nguyên (chưa có căn cứ để hạ), ghi lại là **đo lúc rảnh**, không phải số cuối.
 - **Mẫu số là 10 GiB, không phải 11,67 GiB.** Container node bị giới hạn 10 GiB nhưng kubelet báo allocatable theo VM (11,67 GiB), nên scheduler không dừng ở 10 GiB: ở Mục 6, Prometheus, Grafana và Tempo kèm sidecar có thể không làm pod `Pending` mà đẩy **chính container node** vào OOM killer của Docker — trông khác hẳn một pod `OOMKilled`. Điều kiện dừng của D82 bao gồm cả trường hợp đó.
-- Phần observability (Mục 6) chưa có, nên cluster chưa được thử với đủ ba thành phần Prometheus, Grafana, Tempo.
+- Phần observability (Mục 6): đã đo ở 6.1 — cả container node 5,4 GiB / 10 GiB (54%) với `loadtest` và đủ ba thành phần Prometheus, Grafana, Tempo, lúc rảnh.
 
 ## Quan sát khác
 
@@ -107,7 +128,7 @@
 
 - **5.5:** `Makefile` có `cluster-up` nhưng **chưa có `smoke`** (Mục 9, D101); `journey.sh` mới là một hành trình, không phải toàn bộ `smoke.sh` (chưa có M-64, M-65).
 - **`/etc/hosts` + `minikube tunnel` + trình duyệt tin CA:** cần `sudo`, không chạy; kiểm bằng `port-forward`. Playwright qua HTTPS (AC97.2) là 9.4.
-- **STRICT, `check-mtls.sh`, S-19, P2–P4** (Mục 7); **kill-pod, đóng băng pod, M-59, M-62, M-64, M-65, rollout rehearsal M-58** (Mục 8); **observability trong cluster, alert trên cluster** (Mục 6); **S-16 trên cluster** (`X-Envoy-External-Address` thật sau sidecar).
+- **STRICT, `check-mtls.sh`, S-19, P2–P4** (Mục 7); **kill-pod, đóng băng pod, M-59, M-62, M-64, M-65, rollout rehearsal M-58** (Mục 8); **S-16 trên cluster** (`X-Envoy-External-Address` thật sau sidecar).
 - Không có tải: không có K6, không đo p95, không đo `OOMKilled` dưới tải.
 - Không kiểm `readOnlyRootFilesystem`, không có NetworkPolicy (không thuộc Phase 7).
 

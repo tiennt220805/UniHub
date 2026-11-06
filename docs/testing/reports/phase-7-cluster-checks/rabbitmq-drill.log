@@ -1,0 +1,45 @@
+== rabbitmq drill started 03:17:27 UTC
+[baseline] 03:17:27 dependency-down: inactive [('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: -
+api pods READY: 2/2 2/2 2/2 | readiness HTTP 200 | dependencies: {"status":"UP","components":{"rabbit":{"status":"UP"},"redis":{"status":"UP"}}}
+deployment.apps/rabbitmq scaled
+[scaled to 0] 03:17:28
+[+11s] 03:17:38 dependency-down: inactive [('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: -
+[+21s] 03:17:48 dependency-down: inactive [('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: -
+[+31s] 03:17:58 dependency-down: inactive [('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: -
+[+41s] 03:18:08 dependency-down: pending [('rabbitmq', 'Pending'), ('rabbitmq', 'Pending'), ('rabbitmq', 'Pending'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=pending
+[+51s] 03:18:18 dependency-down: pending [('rabbitmq', 'Pending'), ('rabbitmq', 'Pending'), ('rabbitmq', 'Pending'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=pending
+[+61s] 03:18:28 dependency-down: pending [('rabbitmq', 'Pending'), ('rabbitmq', 'Pending'), ('rabbitmq', 'Pending'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=pending
+[+71s] 03:18:38 dependency-down: pending [('rabbitmq', 'Pending'), ('rabbitmq', 'Pending'), ('rabbitmq', 'Pending'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=pending
+[+81s] 03:18:48 dependency-down: pending [('rabbitmq', 'Pending'), ('rabbitmq', 'Pending'), ('rabbitmq', 'Pending'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=pending
+[+91s] 03:18:58 dependency-down: pending [('rabbitmq', 'Pending'), ('rabbitmq', 'Pending'), ('rabbitmq', 'Pending'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=pending
+[+101s] 03:19:09 dependency-down: firing [('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+>>> unihub-dependency-down FIRING at +101s
+api pods READY: 2/2 2/2 2/2 | readiness HTTP 200 | dependencies: {"status":"DEGRADED","components":{"rabbit":{"status":"DEGRADED","details":{"error":"AmqpIOException"}},"redis":{"status":"UP"}}}
+[+121s] 03:19:29 dependency-down: firing [('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[+132s] 03:19:39 dependency-down: firing [('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[+142s] 03:19:49 dependency-down: firing [('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[+152s] 03:19:59 dependency-down: firing [('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[+162s] 03:20:09 dependency-down: firing [('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[+172s] 03:20:19 dependency-down: firing [('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[+182s] 03:20:29 dependency-down: firing [('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[+192s] 03:20:39 dependency-down: firing [('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[+202s] 03:20:49 dependency-down: firing [('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[+212s] 03:20:59 dependency-down: firing [('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[+222s] 03:21:10 dependency-down: firing [('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[+233s] 03:21:20 dependency-down: firing [('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[+243s] 03:21:30 dependency-down: firing [('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+api pods READY: 2/2 2/2 2/2 | readiness HTTP 200 | dependencies: {"status":"DEGRADED","components":{"rabbit":{"status":"DEGRADED","details":{"error":"AmqpIOException"}},"redis":{"status":"UP"}}}
+deployment.apps/rabbitmq scaled
+[scaled back to 1] 03:21:30
+deployment "rabbitmq" successfully rolled out
+[restore +28s] 03:21:58 dependency-down: firing [('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[restore +38s] 03:22:08 dependency-down: firing [('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[restore +48s] 03:22:18 dependency-down: firing [('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[restore +58s] 03:22:28 dependency-down: firing [('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('rabbitmq', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal'), ('rabbitmq', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[restore +68s] 03:22:38 dependency-down: firing [('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[restore +78s] 03:22:48 dependency-down: firing [('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[restore +88s] 03:22:58 dependency-down: firing [('rabbitmq', 'Alerting'), ('redis', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal')] | others: unihub-rabbitmq-target-down=firing
+[restore +98s] 03:23:08 dependency-down: inactive [('redis', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('rabbitmq', 'Normal'), ('redis', 'Normal'), ('redis', 'Normal')] | others: -
+>>> back to Normal at restore +98s
+api pods READY: 2/2 2/2 2/2 | readiness HTTP 200 | dependencies: {"status":"UP","components":{"rabbit":{"status":"UP"},"redis":{"status":"UP"}}}
+== rabbitmq drill ended 03:23:20 UTC
