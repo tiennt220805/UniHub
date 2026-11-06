@@ -5,6 +5,13 @@
 # outlives the phase is cut, which is the one case a deploy may cost a client a connection error.
 server:
   shutdown: graceful
+  # Explicit, because the default is not NONE everywhere: on Kubernetes Spring Boot detects the platform and turns on
+  # `native`, Tomcat's RemoteIpValve, which replaces the request's remote address with the last non-private entry of
+  # the client-written X-Forwarded-For. The rate limiter's address (ClientAddress) must come from the one header the
+  # gateway sets and overwrites, X-Envoy-External-Address, read only when the peer is the pod's own sidecar
+  # (distributed-coordination.md §3, Phase 7 D91): nothing a client can write may choose its budget. The cluster run of
+  # Phase 7 task 8.3 found it on (S-16 a); RateLimitForwardedHeadersIT pins it.
+  forward-headers-strategy: none
 
 # INV-15 (architecture.md §6.2): schema migration runs exactly once, from a single place, before any
 # application instance starts — never from inside the application itself. Locally that place is
