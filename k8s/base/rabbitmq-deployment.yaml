@@ -32,21 +32,31 @@ spec:
               valueFrom: { secretKeyRef: { name: backend-api-secrets, key: SPRING_RABBITMQ_PASSWORD } }
           volumeMounts:
             - { name: prometheus-conf, mountPath: /etc/rabbitmq/conf.d/20-prometheus.conf, subPath: prometheus.conf, readOnly: true }
+            - { name: prometheus-conf, mountPath: /etc/rabbitmq/conf.d/30-memory.conf, subPath: memory.conf, readOnly: true }
             - { name: data, mountPath: /var/lib/rabbitmq }
           resources:
             requests: { cpu: 100m, memory: 256Mi }
             limits: { cpu: 500m, memory: 768Mi }
+          # Measured 2026-11-07 on a loaded host: `rabbitmq-diagnostics -q ping` starts a second Erlang VM and took
+          # 3.0, 5.3 and 9.0 s under the 500m CPU limit, against a 10 s timeout, so it failed in bursts and the kubelet
+          # restarted the broker. Start-up and readiness ask the plugin's own HTTP endpoint instead (the mesh passes an
+          # httpGet probe to the application; a tcpSocket probe would be answered by the sidecar whether or not the
+          # broker is up). The start-up probe covers the 53 s boot; liveness keeps the real broker check with a
+          # timeout that clears 9 s.
+          startupProbe:
+            httpGet: { path: /metrics, port: http-prometheus }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 36
           readinessProbe:
-            exec: { command: ["rabbitmq-diagnostics", "-q", "ping"] }
-            initialDelaySeconds: 10
+            httpGet: { path: /metrics, port: http-prometheus }
             periodSeconds: 10
-            timeoutSeconds: 10
+            timeoutSeconds: 3
             failureThreshold: 6
           livenessProbe:
             exec: { command: ["rabbitmq-diagnostics", "-q", "ping"] }
-            initialDelaySeconds: 60
             periodSeconds: 30
-            timeoutSeconds: 10
+            timeoutSeconds: 30
             failureThreshold: 6
       volumes:
         - name: prometheus-conf

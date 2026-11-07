@@ -46,6 +46,7 @@ spec:
           startupProbe:
             httpGet: { path: /actuator/health/liveness, port: management }
             periodSeconds: 5
+            timeoutSeconds: 3   # 1 s (the default) was not enough for the health endpoint while the CPU was contended
             failureThreshold: 30
           readinessProbe:
             httpGet: { path: /actuator/health/readiness, port: management }

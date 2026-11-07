@@ -16,8 +16,10 @@ export default defineConfig({
   globalSetup: './support/global-setup.ts',
   // No retries: a retry would hide a failure and also spend rate-limit budget (INV-17) that the next test needs.
   retries: 0,
-  // One worker per engine: each engine has its own Student account (support/accounts.ts).
-  workers: 4,
+  // Two workers, not one per engine: the owner's 16 GiB laptop swapped with three engines at four workers, the
+  // cluster's probes timed out together and half the journeys failed (phase-7-cluster-checks.md, 10.1). Each engine
+  // still has its own Student account (support/accounts.ts), whatever the worker count.
+  workers: 2,
   fullyParallel: false,
   timeout: 120_000,
   expect: { timeout: 15_000 },

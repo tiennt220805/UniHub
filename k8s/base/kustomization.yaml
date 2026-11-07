@@ -83,6 +83,7 @@ configMapGenerator:
   - name: rabbitmq-prometheus-conf
     files:
       - prometheus.conf=../../observability/rabbitmq/prometheus.conf
+      - memory.conf=rabbitmq-memory.conf
   - name: payment-gateway-stub-mappings
     files:
       - stubs/payment-gateway/mappings.json
