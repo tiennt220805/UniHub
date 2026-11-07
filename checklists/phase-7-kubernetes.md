@@ -368,7 +368,7 @@ Mỗi mục sửa ở tài liệu được ghi, trước khi code phụ thuộc 
 
 ## 10. Lần chạy bằng chứng cuối cùng (một lần deploy mới, STRICT)
 
-- [ ] **10.1** `minikube delete` → dựng lại từ đầu bằng `Makefile` với image của **một** SHA đã xanh CI (digest từ 2.3) → `smoke.sh` → Playwright → 8.1–8.6 → 6.4 → 7.6. Mọi output vào `docs/testing/reports/phase-7-cluster-checks.md` (lệnh, phiên bản, SHA, digest, thời gian, ảnh chụp alert `Firing`).
+- [ ] **10.1** `minikube delete` → dựng lại từ đầu bằng `Makefile` với image của **một** SHA đã xanh CI (digest từ 2.3) → `smoke.sh` → Playwright → 8.1–8.6 → 6.4 → 7.6. Mọi output vào `docs/testing/reports/phase-7-cluster-checks.md` (lệnh, phiên bản, SHA, digest, thời gian, ảnh chụp alert `Firing`). *(**Thử lần 1, 2026-11-07, không sạch — không tick.** Dựng lại từ `minikube delete` bằng `make` với image CI của `9b08884` (digest trên pod khớp CI), STRICT từ manifest, `smoke.sh` xanh; nhưng host quá tải (VM Docker 12 GiB thường trú trên máy 16 GiB, swap 7,2/8 GiB) và RabbitMQ (`OOMKilled`, probe `rabbitmq-diagnostics` 3–9 s trên 10 s) làm cluster chập chờn: Playwright 7/13 đỏ ở 4 worker, 12/13 ở 2 worker; 8.x, 6.4, 7.6 chưa chạy. Chi tiết và ba hướng xử lý chờ chủ dự án: `phase-7-cluster-checks.md` 10.1.)*
 - [ ] **10.2** Ghi tài nguyên đo được (bộ nhớ từng pod, tổng) và nhận xét cho Phase 8 (Q2).
 
 ## 11. CI/CD

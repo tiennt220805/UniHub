@@ -1,0 +1,22 @@
+k8s/scripts/smoke.sh 
+== smoke at 14:38:14 UTC; mesh: STRICT
+   backend-api thanhtien2208/unihub-backend:9b0888487cccd112ccc6341e7861d7d8f2f12218 x3
+   web         thanhtien2208/unihub-web:9b0888487cccd112ccc6341e7861d7d8f2f12218
+ok    the Flyway Job is Complete
+ok    every Deployment and StatefulSet has all its replicas Ready
+ok    every API pod: readiness 200, dependencies UP (3 pods)
+ok    admin1 signs in and holds REPORT_VIEW
+ok    staff1 signs in and holds CHECKIN_SCAN
+ok    organizer1 signs in and holds WORKSHOP_CREATE
+ok    student1 signs in and holds REGISTRATION_CREATE
+ok    the catalog answers 200
+ok    a free registration is 201 and CONFIRMED
+ok    X-Correlation-Id is a trace ID (ee151f74ff561489d9d415728c739ad3)
+ok    a confirmation email for student1 reached Mailpit in the last two minutes (outbox -> RabbitMQ -> consumer)
+ok    every Prometheus target is up (4 targets)
+ok    5 of 60 requests are in Tempo (the gateway samples 10%); trace 85299b38df5aaea205df7bd392be2d96 has services: istio-ingressgateway.istio-system,unknown_service
+ok    M-60: the replica is streaming (replay lag 0s)
+ok    M-60: postgres-master-0 came back as a new pod on the same PVC, 1 workshops kept
+ok    M-60: the API reads the workshop made before the restart
+ok    M-60: the replica streams again
+== smoke passed at 14:39:33 UTC
