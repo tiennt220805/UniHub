@@ -36,7 +36,7 @@ Phần quy được, theo thời gian từng lớp trên CI (run 42394159591):
 | `StatelessInstancesIT` | 2 | < 1 s |
 | **Tổng** | 25 | **khoảng 73 s** |
 
-Các lớp của Phase 7 chỉ góp khoảng **1,2 phút** cho job; `MigrationCompatibilityIT` chiếm gần hết vì nó dựng jar của bản trước từ lịch sử git và chạy hai JVM con (dự đoán trong checklist là +26 s ở `1d689d8`; đo trên CI hôm nay là 58 s). Ba lớp chậm nhất của cả bộ vẫn là của Phase 5–6: `AuditAlertIT` 122 s, `ObjectStorageOutageIT` 117 s.
+Các lớp của Phase 7 chỉ góp khoảng **1,2 phút** cho job; `MigrationCompatibilityIT` chiếm gần hết vì nó dựng jar của bản trước từ lịch sử git và chạy hai JVM con (Mục 4 đo `MigrationCompatibilityIT` 56 s và job +26 s ở `1d689d8`; trên CI hôm nay là 58 s, cùng mức). Ba lớp chậm nhất của cả bộ vẫn là của Phase 5–6: `AuditAlertIT` 122 s, `ObjectStorageOutageIT` 117 s.
 
 ## 11.2 — Ba IT của Phase 7: 10 vòng liên tiếp xanh ở local
 
