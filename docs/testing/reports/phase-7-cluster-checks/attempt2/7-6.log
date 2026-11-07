@@ -1,0 +1,22 @@
+port                                 plaintext    sidecar client
+api 8080                             refused(0 B) answered(1 B)   ok
+web 8080                             refused(0 B) answered(1 B)   ok
+api management 8081 (pod address)    refused(0 B) silent(0 B)     ok
+postgres-master 5432                 refused(0 B) answered(1 B)   ok
+postgres-replica 5432                refused(0 B) answered(1 B)   ok
+redis 6379                           refused(0 B) answered(34 B)  ok
+rabbitmq amqp 5672                   refused(0 B) answered(64 B)  ok
+rabbitmq prometheus 15692            refused(0 B) answered(1 B)   ok
+rabbitmq management 15672            refused(0 B) answered(1 B)   ok
+minio 9000                           refused(0 B) answered(1 B)   ok
+mailpit smtp 1025                    refused(0 B) answered(64 B)  ok
+mailpit ui 8025                      refused(0 B) answered(1 B)   ok
+payment-gateway-stub 8080            refused(0 B) answered(1 B)   ok
+ai-summarization-stub 8080           refused(0 B) answered(1 B)   ok
+prometheus 9090                      refused(0 B) answered(2 B)   ok
+tempo http 3200                      refused(0 B) answered(1 B)   ok
+tempo otlp http 4318                 refused(0 B) answered(1 B)   ok
+tempo otlp grpc 4317                 refused(0 B) answered(46 B)  ok
+grafana 3000                         refused(0 B) answered(2 B)   ok
+management port, positive control: min(up{job="unihub-backend"}) = 1 (1 = Prometheus scrapes it over mTLS)
+check-mtls: OK (expected strict)

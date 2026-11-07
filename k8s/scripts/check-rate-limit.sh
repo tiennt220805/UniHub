@@ -96,8 +96,16 @@ spec:
     - match: [{ uri: { prefix: /zz-probe/ } }]
       route: [{ destination: { host: ai-summarization-stub, port: { number: 8080 } } }]
 YAML
-for _ in $(seq 1 30); do [ "$(c -o /dev/null -w '%{http_code}' "$BASE/zz-admin/mappings")" = 200 ] && break; sleep 1; done
-c -o /dev/null -X DELETE "$BASE/zz-admin/requests"
+# Ready means WireMock answered, not that something answered: the Web's nginx returns 200 for every path (the SPA
+# fallback), so a status check passes before the route has reached the gateway and the probe then goes to the Web.
+# Found at Mục 10 on a fresh cluster, where the route took longer than the first check.
+ready=false
+for _ in $(seq 1 60); do
+  case "$(c "$BASE/zz-admin/mappings")" in *'"mappings"'*) ready=true; break ;; esac
+  sleep 1
+done
+$ready || { echo "FAIL  the route to the stub's admin API did not appear in 60 s"; fail=1; }
+[ "$(c -o /dev/null -w '%{http_code}' -X DELETE "$BASE/zz-admin/requests")" = 200 ] || { echo "FAIL  the stub's request journal could not be cleared"; fail=1; }
 FORGED=203.0.113.77
 c -o /dev/null "$BASE/zz-probe/x" -H "X-Envoy-External-Address: $FORGED" -H "X-Forwarded-For: 198.51.100.9"
 journal="$(c "$BASE/zz-admin/requests")"

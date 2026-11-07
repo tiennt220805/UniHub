@@ -1,0 +1,32 @@
+== S-15: six rapid registration attempts of one user through the gateway (3 API pods)
+   statuses: 201 409 409 409 409 429   (Retry-After on the 6th: 10)
+   backend-api-557db6558b-82d8t answered 3 request(s)
+   backend-api-557db6558b-9gnvp answered 0 request(s)
+   backend-api-557db6558b-rh4w5 answered 3 request(s)
+PODS 2
+ok    S-15 the sixth attempt is 429 (and only the sixth)
+ok    S-15 the 429 carries Retry-After: 10
+ok    S-15 the burst was served by 2 different pods, and the budget was still shared
+== S-16 (a), part 1: the headers a pod behind the gateway receives
+Traceback (most recent call last):
+  File "<string>", line 4, in <module>
+    reqs = json.load(sys.stdin)["requests"]
+           ~~~~~~~~~^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py", line 298, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py", line 352, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+== S-16 (a), part 2: 130 unauthenticated requests in one burst, a different X-Forwarded-For and forged X-Envoy-External-Address each
+   200: 100, 429: 30 (first 429 at request 101), others: 0
+ok    S-16 (a) the unauthenticated budget was not reset by rotating X-Forwarded-For / X-Envoy-External-Address
+check-rate-limit: FAILED

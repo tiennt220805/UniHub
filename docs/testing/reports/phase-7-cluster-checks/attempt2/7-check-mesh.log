@@ -1,0 +1,9 @@
+ok    7.1 every pod of unihub has a native istio-proxy and rewritten HTTP probes
+ok    7.1 every pod of unihub-observability has a native istio-proxy and rewritten HTTP probes
+ok    7.2 gateway -> backend-api: every series is mutual_tls (17 series)
+ok    7.2 gateway -> web: every series is mutual_tls (3 series)
+4 targets, jobs ['rabbitmq', 'unihub-backend'], not up: []
+ok    7.4 every target is UP over mTLS
+ok    7.4 grafana -> prometheus is mutual_tls
+ok    7.4 grafana -> tempo is mutual_tls
+check-mesh: OK

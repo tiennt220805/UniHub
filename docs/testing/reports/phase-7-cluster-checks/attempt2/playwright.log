@@ -1,0 +1,22 @@
+k8s/scripts/e2e.sh 
+[16:20:10] image of backend-api: thanhtien2208/unihub-backend:f648fd0f82d9f48c7f4bfe2db853d5a546284764
+[16:20:10] image of web:         thanhtien2208/unihub-web:f648fd0f82d9f48c7f4bfe2db853d5a546284764
+[16:20:10] API replicas: 3
+
+Running 13 tests using 2 workers
+
+  ✓   1 [transport] › specs/transport.spec.ts:34:1 › the gateway presents a certificate that the local CA signed, over TLS 1.2 or newer (36ms)
+  ✓   3 [transport] › specs/transport.spec.ts:41:1 › the gateway refuses a handshake that offers only TLS 1.1 or older (11ms)
+  ✓   4 [transport] › specs/transport.spec.ts:49:1 › plain HTTP never reaches the API: it is redirected to HTTPS and no JSON comes back (5.1s)
+  ✓   5 [transport] › specs/transport.spec.ts:69:1 › the Web is served with a Content-Security-Policy header that forbids framing (5.1s)
+  ✓   6 [chromium] › specs/student-journey.spec.ts:8:1 › a Student registers for a free workshop and sees the QR e-ticket (17.1s)
+  ✓   2 [chromium] › specs/organizer-journey.spec.ts:9:1 › an Organizer creates, publishes, edits and reschedules a workshop; Organizer and Admin read its report (36.8s)
+  ✓   7 [chromium] › specs/student-journey.spec.ts:42:1 › a Student registers for a paid workshop, pays with a test token and sees the QR e-ticket (21.7s)
+  ✓   8 [firefox] › specs/organizer-journey.spec.ts:9:1 › an Organizer creates, publishes, edits and reschedules a workshop; Organizer and Admin read its report (20.6s)
+  ✓  10 [webkit] › specs/organizer-journey.spec.ts:9:1 › an Organizer creates, publishes, edits and reschedules a workshop; Organizer and Admin read its report (18.4s)
+  ✓  11 [webkit] › specs/student-journey.spec.ts:8:1 › a Student registers for a free workshop and sees the QR e-ticket (10.3s)
+  ✓   9 [firefox] › specs/student-journey.spec.ts:8:1 › a Student registers for a free workshop and sees the QR e-ticket (40.0s)
+  ✓  12 [webkit] › specs/student-journey.spec.ts:42:1 › a Student registers for a paid workshop, pays with a test token and sees the QR e-ticket (13.8s)
+  ✓  13 [firefox] › specs/student-journey.spec.ts:42:1 › a Student registers for a paid workshop, pays with a test token and sees the QR e-ticket (17.1s)
+
+  13 passed (1.9m)

@@ -1,0 +1,10 @@
+== scenario 7a at 16:33:06 UTC; 3 API pods; probe traffic running (      19 requests so far)
+[before] restarted rule: inactive, target-down rule: inactive
+[T+0] deleting backend-api-557db6558b-82d8t at 16:33:10
+[T+8s] backend-api-557db6558b-82d8t is gone
+[T+42s] the Deployment has 3 Ready pods again
+[after] restarted rule: inactive (a deleted pod is a new series: it is expected NOT to fire), target-down rule: pending
+== probe traffic:      251 requests
+   status 200: 251
+   non-2xx at T+: none
+   5xx: 0, connection errors (000): 0, 429: 0

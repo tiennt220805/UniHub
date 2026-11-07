@@ -1,0 +1,21 @@
+== stripe outage at 16:36:31 UTC; 3 API pods; mesh: STRICT
+workshops ready; paid registration 11bd98cc-ec08-4279-b754-031bb504f5c3 is RESERVED
+[breakers before] 9gnvp=0 rh4w5=0 bwjbk=0 
+   (the stub is gone after 3s)
+[charges against a dead gateway] each pod needs 10 failed calls before its breaker judges the failure rate
+   round 1: 9gnvp=0 rh4w5=0 bwjbk=0 
+   round 2: 9gnvp=0 rh4w5=1 bwjbk=1 
+   round 3: 9gnvp=1 rh4w5=1 bwjbk=1 
+   charge statuses: 503 x42  
+ok    M-64 the breaker is OPEN on every API pod (resilience4j_circuitbreaker_state{state="open"} = 1)
+ok    M-64 every charge against the dead gateway was answered 503, none hung or crashed
+ok    M-64 every API pod is still Ready (3/3)
+ok    M-64 readiness answers 200 on every pod (the gateway is not a Readiness condition)
+ok    M-64 the catalog is served through the gateway (200)
+ok    M-64 a FREE registration is accepted while the breaker is OPEN (201)
+ok    M-64 a charge is refused fast while the breaker is OPEN (503 in 0.219278s)
+[restore] the stub comes back; the breakers probe again after their 30 s open state
+deployment "payment-gateway-stub" successfully rolled out
+ok    M-64 a charge succeeds again after the stub returns (201)
+ok    M-64 the registration is CONFIRMED once the payment went through
+dependency-outage stripe: OK

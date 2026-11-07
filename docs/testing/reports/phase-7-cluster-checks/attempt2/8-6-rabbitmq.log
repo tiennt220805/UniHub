@@ -1,0 +1,17 @@
+== rabbitmq outage at 16:49:46 UTC; 3 API pods; mesh: STRICT
+workshops ready; paid registration 3b786ba0-b0ee-435d-a809-d4d56f643f43 is RESERVED
+[before] unihub-dependency-down: inactive; dependencies:    3 UP 
+   (rabbitmq is gone after 3s)
+[during] 16:50:03: backend-api-557db6558b-9gnvp DEGRADED readiness=200;backend-api-557db6558b-bwjbk DEGRADED readiness=200;backend-api-557db6558b-rh4w5 DEGRADED readiness=200;
+ok    M-65 every API pod is still Ready (3/3) with rabbitmq down
+ok    M-65 readiness answers 200 on every pod
+ok    M-65 the dependencies group is DEGRADED on every pod
+   observed: the catalog answered 200 through the gateway
+   observed: a free registration answered 201 with RabbitMQ down (the outbox keeps the intent)
+ok    P1 unihub-dependency-down is Firing 94s after rabbitmq went down
+   observed: unihub-rabbitmq-target-down is pending (the absent target reads as 0)
+[restore] 16:51:22
+deployment "rabbitmq" successfully rolled out
+ok    P1 unihub-dependency-down is back to Normal 35s after rabbitmq returned
+ok    M-65 a registration is accepted again after rabbitmq returned (201)
+dependency-outage rabbitmq: OK

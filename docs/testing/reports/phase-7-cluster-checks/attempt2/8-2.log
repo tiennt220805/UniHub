@@ -1,0 +1,18 @@
+== scenario 7b at 16:34:29 UTC; 3 API pods; probe traffic running (      18 requests so far)
+[before] restarted rule: inactive, target-down rule: inactive
+[T+0] freezing the application container of backend-api-557db6558b-9gnvp from the node at 16:34:30 (restartCount 0)
+[T+1s] Ready=True
+[T+15s] Ready=False
+[T+29s] Ready=True
+[T+31s] Ready=False
+[T+31s] container restarted in place (restartCount 1)
+[T+66s] Ready=True
+[T+66s] backend-api-557db6558b-9gnvp is Ready and stayed Ready for 20 s
+[T+81s] unihub-app-restarted is Firing
+[after] restarted rule: firing, target-down rule: pending; Ready pods: 3/3
+== probe traffic:      318 requests
+   status 000: 4
+   status 200: 312
+   status 503: 2
+   non-2xx at T+: 4s=000, 7s=000, 11s=000, 15s=000, 30s=503, 31s=503
+   5xx: 2, connection errors (000): 4, 429: 0

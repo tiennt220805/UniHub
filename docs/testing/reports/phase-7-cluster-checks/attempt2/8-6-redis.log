@@ -1,0 +1,16 @@
+== redis outage at 16:53:53 UTC; 3 API pods; mesh: STRICT
+workshops ready; paid registration 8181b720-a517-4efb-b2a9-b25834dd3cf0 is RESERVED
+[before] unihub-dependency-down: inactive; dependencies:    3 UP 
+   (redis is gone after 3s)
+[during] 16:54:11: backend-api-557db6558b-9gnvp DEGRADED readiness=200;backend-api-557db6558b-bwjbk DEGRADED readiness=200;backend-api-557db6558b-rh4w5 DEGRADED readiness=200;
+ok    M-65 every API pod is still Ready (3/3) with redis down
+ok    M-65 readiness answers 200 on every pod
+ok    M-65 the dependencies group is DEGRADED on every pod
+   observed: the catalog answered 200 through the gateway
+ok    M-65 INV-08: a registration is refused with 503 while Redis is down (the seat lock fails closed)
+ok    P1 unihub-dependency-down is Firing 87s after redis went down
+[restore] 16:55:23
+deployment "redis" successfully rolled out
+ok    P1 unihub-dependency-down is back to Normal 54s after redis returned
+ok    M-65 a registration is accepted again after redis returned (201)
+dependency-outage redis: OK

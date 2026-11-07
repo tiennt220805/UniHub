@@ -262,6 +262,50 @@
 
 **Việc cần chủ dự án quyết trước khi thử lại 10.1:** (a) cho phép sửa manifest để deploy tươi không chập chờn — RabbitMQ: probe `tcpSocket` 5672 cho readiness, liveness timeout rộng hơn, `startupProbe`, và nâng giới hạn CPU/bộ nhớ; backend: `startupProbe` `timeoutSeconds` lớn hơn — rồi **một commit mới, CI xanh, và dựng lại từ `minikube delete`** (một SHA mới); (b) hoặc giảm tải lên host (thu nhỏ VM Docker, đóng ứng dụng khác khi chạy bằng chứng, chạy `--workers=2`); (c) hoặc ghi lần thử này vào `phase-7.md` §5 như một giới hạn của máy và dừng ở đây.
 
+## 10.1 — lần thử 2 (2026-11-07 UTC; sau khi sửa manifest; **bộ kiểm chạy hết trừ 8.4; 10.1 vẫn chưa tick**)
+
+*Do Claude Code chạy theo yêu cầu "hỏi advisor để quyết định cho tôi, sau đó thực hiện tiếp" của chủ dự án (quyết định được giao ngày 2026-11-07: phương án (a), chỉ sửa các lỗi mà nhật ký lần thử 1 đã chỉ ra). Lần thử 1 giữ nguyên ở mục trên. Mọi dòng ma trận vẫn `Drafted` (D102); dòng P1 của `test-plan.md` không đụng tới.*
+
+**Sửa trước lần thử 2 (commit `f648fd0`, CI xanh cả mười job, run 42388031802, có `build-and-push`):** RabbitMQ đọc bộ nhớ của VM (12 GiB) thay vì giới hạn 768 Mi nên watermark là 5,01 GB và nó bị `OOMKilled`: `k8s/base/rabbitmq-memory.conf` đặt `total_memory_available_override_value = 768MiB` (watermark nay **0,322 GB**, kiểm trên cluster); probe `rabbitmq-diagnostics ping` (3–9 s trên 10 s) thay bằng `httpGet /metrics:15692` cho start-up và readiness (một probe `tcpSocket` bị loại: sidecar trả lời kết nối dù broker chưa lên), liveness giữ `ping` với timeout 30 s; `startupProbe` của backend `timeoutSeconds` 1 → 3; mặc định Playwright 4 → 2 worker. **Chẩn đoán CPU của advisor không được xác nhận** (`schedulers_online` là 1, không phải 8) nên không áp cờ busy-wait. Kiểm trước trên cluster cũ: RabbitMQ không restart qua một lần `make e2e`.
+
+| | |
+|---|---|
+| Lệnh và giờ | `minikube delete -p unihub` 16:11:18 → `make cluster-up` 16:11:53–16:13:44 → `make-local-ca.sh --apply` → `make secrets` → `make deploy-loadtest TAG=f648fd0f82d9f48c7f4bfe2db853d5a546284764` 16:13:45–16:17:52 (**4 phút 07 giây, rollout xong, không hết hạn**) → idle → `make smoke` 16:19:32–16:20:02 → `make e2e` → 8.3 → 8.1 → 8.2 → 8.5 → 8.6 (RabbitMQ, rồi Redis) → `check-mesh.sh` → `check-mtls.sh --negative-control` → `check-mtls.sh` |
+| Image | `thanhtien2208/unihub-backend@sha256:2ed3cad5e2e9fc0aceb9654a319f1df7d884e7f1477b272f69c7f1179ebc8262`, `thanhtien2208/unihub-web@sha256:a81d2f2b0c90ed7e98fa7ac8144b8eb25787fd7691ecc993385beb4c2db94204` (cả hai `amd64`+`arm64`; trùng digest với `9b08884` vì từ `9b08884` tới `f648fd0` chỉ đổi manifest, tài liệu và cấu hình test, không đổi mã ứng dụng). **`imageID` của ba pod API và pod Web trên cluster bằng đúng hai digest đó.** |
+| Phiên bản (đọc từ cluster) | Minikube v1.38.1, Kubernetes v1.35.1, Istio 1.31.3 (control plane và data plane), native sidecar; STRICT từ manifest ở `unihub` và `unihub-observability` |
+| Khởi động | Backend `Started UniHubApplication in 61,7 s`; RabbitMQ `Time to start RabbitMQ: 36 571 ms` (lần 1: 80 s và 53 s). **Sau deploy: 0 restart trên mọi pod.** |
+| `smoke.sh` | Xanh toàn bộ (17 mục kiểm gồm M-60), `smoke.log` |
+| Playwright | `make e2e` (2 worker): **13/13 xanh trong 1,9 phút, 0 restart** (`playwright.log`). Một lần chạy sạch trên cluster tươi; chưa lặp lại 5 lần như trên cluster đã ấm. |
+| 8.3 (M-62) | S-15: `201 409 409 409 409 429`, `Retry-After: 10`, ngân sách chung giữa các pod; S-16 (a): `X-Envoy-External-Address` giả (`203.0.113.77`) bị gateway ghi đè (`127.0.0.1` tới pod qua sidecar), 130 request đổi `X-Forwarded-For` và header giả vẫn bị chặn ở request 101 (100 `200`, 30 `429`). **Hai lần đầu đỏ vì lỗi của chính script** (bên dưới), lần thứ ba đạt: `check-rate-limit: OK`. |
+| 8.1 (M-59) | `kill-pod.sh 7a`: 251 request thăm dò, **0 5xx, 0 lỗi kết nối, 0 `429`**. Lần đầu đỏ ở bước đăng nhập (xem dưới); lần hai đạt. |
+| 8.2 (M-59) | `kill-pod.sh 7b`: pod rời rotation T+15 s, container restart tại chỗ T+31 s, Ready bền T+66 s, **`unihub-app-restarted` `Firing` T+81 s (AC99.2)**; traffic tiếp tục ở pod khác (312 `200`). **Lỗi không bằng 0, như lần luyện tập:** 4 timeout (tới pod đã đóng băng) và **2 `503` quanh T+30 s** lúc container restart nên script thoát mã 1; chủ dự án quyết có xử lý hay không. Đây là restart duy nhất của cả lần chạy (`backend-api-…-9gnvp`, có chủ đích). |
+| 8.5 (M-64) | `dependency-outage.sh stripe`: 42 charge `503`, breaker `OPEN` trên cả 3 pod, 3/3 Ready, catalog `200`, đăng ký free `201` khi breaker mở, charge bị từ chối trong 0,22 s; stub về → charge `201`, đăng ký `CONFIRMED`. |
+| 8.6 + 6.4 (M-65, P1) | **RabbitMQ:** `unihub-dependency-down` `Firing` sau 94 s, `Normal` sau 35 s; 3/3 pod Ready, `dependencies` `DEGRADED`, đăng ký free `201` (outbox), `201` trở lại. **Redis:** `Firing` sau 102 s (lần 1) và 87 s (lần 2, chạy lại để chụp ảnh), `Normal` sau 55/54 s; đăng ký `503` (INV-08), `201` trở lại. Ảnh Grafana thật lúc `Firing` và sau khôi phục: `phase-7-cluster-checks/attempt2/{redis,rabbitmq}-{firing,normal}.png` (rule `Redis or RabbitMQ down`, 3 instances). |
+| 7.6 (M-63) | `check-mtls.sh --negative-control`: cả 19 cổng trả lời plaintext (đối chứng), rồi xóa các policy PERMISSIVE; `check-mtls.sh`: **cả 19 từ chối** (0 byte), `min(up{job="unihub-backend"})` = 1; STRICT còn nguyên sau đó. `check-mesh.sh` (P2, P4, 7.1, 7.2, 7.4): đạt sau khi Grafana đã đọc Tempo (lần đầu đỏ ở "grafana → tempo" vì Grafana trên cluster mới chưa từng đọc nó; chính script nêu điều kiện này). |
+| Không chạy | **8.4** (diễn tập rollout, M-58): chờ quyết định topology AMQP của chủ dự án; N-1 `a58e814` cũng không có image trên Docker Hub. Vì vậy **10.1 chưa tick**. |
+
+**Ba lỗi của script bộ kiểm, tìm ra vì cluster mới chậm hơn cluster đã ấm (đã sửa hoặc ghi):**
+1. `check-rate-limit.sh` (8.3, hai lần đỏ): vòng chờ "route tạm tới stub đã sẵn sàng" kiểm `200`, nhưng nginx của Web trả `200` cho mọi đường dẫn (SPA fallback), nên vòng chờ qua ngay khi route chưa lan tới gateway và request thăm dò đi vào Web, không vào stub (`DELETE` trả `405`, nhật ký stub rỗng). Sửa: chờ nội dung `"mappings"` của WireMock tối đa 60 s và báo lỗi nếu không thấy; lần chạy sau đạt.
+2. `kill-pod.sh` (8.1, một lần đỏ): đăng nhập ở đầu script nhận `429`, vì 8.3 vừa dùng hết ngân sách theo địa chỉ (130 request ẩn danh). Chạy lại sau một cửa sổ 60 s thì đạt. Chưa sửa script (thứ tự chạy đã tránh được); ghi lại.
+3. `check-mesh.sh`: điều kiện "Grafana đã đọc Tempo" cần thao tác trước trên cluster mới; ghi lại, không sửa.
+
+**10.2 — tài nguyên đo được (`kubectl top`, `docker stats`; `resources-idle.txt` lúc 16:19 sau khi CPU hạ, `resources-after-battery.txt` sau bộ 8.x/7.6):**
+
+| Thành phần | Lúc rảnh | Sau bộ kiểm | Giới hạn |
+|---|---|---|---|
+| `backend-api` (mỗi pod, 3 pod) | 524–527 MiB | 590–612 MiB | 1 GiB |
+| RabbitMQ | 142 MiB | 128 MiB | 768 Mi (watermark nay 322 MB) |
+| Postgres master / replica | 136 / 76 MiB | 72 / 79 MiB | — |
+| Redis | 10 MiB | 7 MiB | 256 Mi |
+| Grafana / Prometheus / Tempo | 328 / 66 / 34 MiB | 505 / 95 / 177 MiB | — |
+| MinIO / Mailpit / hai stub / Web | 78 / 8 / 115–117 / 7 MiB | 79 / 28 / 127 / 7 MiB | — |
+| Node (`kubectl top`) | 4 900 MiB (41%), 1 718m | 5 965 MiB (49%), 1 344m | — |
+| Container node (`docker stats`) | **4,80 GiB / 10 GiB** | **5,83 GiB / 10 GiB** | 10 GiB |
+
+Không `OOMKilled` ở lần chạy này (trừ lần thử 1, đã ghi). **Nhận xét cho Phase 8 (Q2):** (1) giới hạn thật của việc chạy K6 trên cluster này là **host**, không phải node: máy 16 GiB cấp 12 GiB cho VM Docker, VM chiếm 12 GiB thường trú, swap đã dùng 6,8–7,2/8 GiB và load average 7–15 ngay cả khi không có tải; lần thử 1 cho thấy mọi probe quá hạn cùng lúc khi host đứng. Bước tải thật cần host rảnh (đóng ứng dụng khác), hoặc nhiều RAM hơn, hoặc VM nhỏ hơn với số pod ít hơn; (2) bộ nhớ lúc rảnh còn dư (4,8 GiB trên 10 GiB) nhưng đỉnh dưới tải chưa đo: ba pod API 612 MiB mỗi pod sau bộ kiểm trên giới hạn 1 GiB; (3) Grafana (505 MiB, không giới hạn) là thành phần ăn thêm nhiều nhất sau khi mở các trang; (4) khởi động nguội mất 60–80 s cho backend và 36 s cho RabbitMQ, nên các kịch bản K6 phải chờ cluster ấm.
+
+**Điều còn chờ chủ dự án:** 8.4 (quyết định topology AMQP); chấp nhận bằng chứng cluster (D102) cho M-58…M-67, M-69, M-70 và ghi vào `phase-7.md` §5: lỗi 503 ~1 s lúc container restart (8.2), hành trình một phần của M-70, ngoại lệ CSP của WebKit, và giới hạn host ở trên.
+
 ## Quan sát khác
 
 - **`Connection reset` tới RabbitMQ lúc khởi động:** backend ghi 216 dòng WARN `ForgivingExceptionHandler … Connection reset` trong **đúng hai phút đầu** (01:55:31–01:57:31 UTC), rồi dừng hẳn. Nguyên nhân hợp lý: `make deploy-*` áp mọi thứ cùng lúc, backend khởi động trước khi RabbitMQ (và sidecar của nó) sẵn sàng, và client AMQP tự thử lại. Readiness của API không phụ thuộc broker (thiết kế), nên pod vẫn `Ready`. Chưa làm gì; nếu muốn log yên hơn, thêm probe/`initContainer` chờ broker là quyết định riêng.

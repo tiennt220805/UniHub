@@ -1,0 +1,23 @@
+negative control: PERMISSIVE applied to every workload for this run (removed on exit); waiting 30 s for the sidecars
+port                                 plaintext    sidecar client
+api 8080                             ANSWERED(1 B) answered(1 B)   ok
+web 8080                             ANSWERED(1 B) answered(1 B)   ok
+api management 8081 (pod address)    ANSWERED(1 B) answered(1 B)   ok
+postgres-master 5432                 ANSWERED(1 B) answered(1 B)   ok
+postgres-replica 5432                ANSWERED(1 B) answered(1 B)   ok
+redis 6379                           ANSWERED(34 B) answered(34 B)  ok
+rabbitmq amqp 5672                   ANSWERED(64 B) answered(64 B)  ok
+rabbitmq prometheus 15692            ANSWERED(1 B) answered(1 B)   ok
+rabbitmq management 15672            ANSWERED(1 B) answered(1 B)   ok
+minio 9000                           ANSWERED(1 B) answered(1 B)   ok
+mailpit smtp 1025                    ANSWERED(64 B) answered(64 B)  ok
+mailpit ui 8025                      ANSWERED(1 B) answered(1 B)   ok
+payment-gateway-stub 8080            ANSWERED(1 B) answered(1 B)   ok
+ai-summarization-stub 8080           ANSWERED(1 B) answered(1 B)   ok
+prometheus 9090                      ANSWERED(2 B) answered(2 B)   ok
+tempo http 3200                      ANSWERED(1 B) answered(1 B)   ok
+tempo otlp http 4318                 ANSWERED(1 B) answered(1 B)   ok
+tempo otlp grpc 4317                 ANSWERED(46 B) answered(46 B)  ok
+grafana 3000                         ANSWERED(2 B) answered(2 B)   ok
+management port, positive control: min(up{job="unihub-backend"}) = 0 (1 = Prometheus scrapes it over mTLS)
+check-mtls: OK (expected permissive)
