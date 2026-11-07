@@ -262,7 +262,7 @@
 
 **Việc cần chủ dự án quyết trước khi thử lại 10.1:** (a) cho phép sửa manifest để deploy tươi không chập chờn — RabbitMQ: probe `tcpSocket` 5672 cho readiness, liveness timeout rộng hơn, `startupProbe`, và nâng giới hạn CPU/bộ nhớ; backend: `startupProbe` `timeoutSeconds` lớn hơn — rồi **một commit mới, CI xanh, và dựng lại từ `minikube delete`** (một SHA mới); (b) hoặc giảm tải lên host (thu nhỏ VM Docker, đóng ứng dụng khác khi chạy bằng chứng, chạy `--workers=2`); (c) hoặc ghi lần thử này vào `phase-7.md` §5 như một giới hạn của máy và dừng ở đây.
 
-## 10.1 — lần thử 2 (2026-11-07 UTC; sau khi sửa manifest; **bộ kiểm chạy hết trừ 8.4; 10.1 vẫn chưa tick**)
+## 10.1 — lần thử 2 (2026-11-07 UTC; sau khi sửa manifest; **bộ kiểm chạy hết trừ 8.4; 10.1 tick 2026-11-08 theo quyết định của chủ dự án loại 8.4**)
 
 *Do Claude Code chạy theo yêu cầu "hỏi advisor để quyết định cho tôi, sau đó thực hiện tiếp" của chủ dự án (quyết định được giao ngày 2026-11-07: phương án (a), chỉ sửa các lỗi mà nhật ký lần thử 1 đã chỉ ra). Lần thử 1 giữ nguyên ở mục trên. Mọi dòng ma trận vẫn `Drafted` (D102); dòng P1 của `test-plan.md` không đụng tới.*
 
@@ -282,7 +282,7 @@
 | 8.5 (M-64) | `dependency-outage.sh stripe`: 42 charge `503`, breaker `OPEN` trên cả 3 pod, 3/3 Ready, catalog `200`, đăng ký free `201` khi breaker mở, charge bị từ chối trong 0,22 s; stub về → charge `201`, đăng ký `CONFIRMED`. |
 | 8.6 + 6.4 (M-65, P1) | **RabbitMQ:** `unihub-dependency-down` `Firing` sau 94 s, `Normal` sau 35 s; 3/3 pod Ready, `dependencies` `DEGRADED`, đăng ký free `201` (outbox), `201` trở lại. **Redis:** `Firing` sau 102 s (lần 1) và 87 s (lần 2, chạy lại để chụp ảnh), `Normal` sau 55/54 s; đăng ký `503` (INV-08), `201` trở lại. Ảnh Grafana thật lúc `Firing` và sau khôi phục: `phase-7-cluster-checks/attempt2/{redis,rabbitmq}-{firing,normal}.png` (rule `Redis or RabbitMQ down`, 3 instances). |
 | 7.6 (M-63) | `check-mtls.sh --negative-control`: cả 19 cổng trả lời plaintext (đối chứng), rồi xóa các policy PERMISSIVE; `check-mtls.sh`: **cả 19 từ chối** (0 byte), `min(up{job="unihub-backend"})` = 1; STRICT còn nguyên sau đó. `check-mesh.sh` (P2, P4, 7.1, 7.2, 7.4): đạt sau khi Grafana đã đọc Tempo (lần đầu đỏ ở "grafana → tempo" vì Grafana trên cluster mới chưa từng đọc nó; chính script nêu điều kiện này). |
-| Không chạy | **8.4** (diễn tập rollout, M-58): chờ quyết định topology AMQP của chủ dự án; N-1 `a58e814` cũng không có image trên Docker Hub. Vì vậy **10.1 chưa tick**. |
+| Không chạy | **8.4** (diễn tập rollout, M-58): chờ quyết định topology AMQP; N-1 `a58e814` cũng không có image trên Docker Hub. **Quyết định của chủ dự án 2026-11-08 ("cách 2"): 8.4 nằm ngoài 10.1**, nên 10.1 được tick; 8.4 vẫn chưa tick và M-58 vẫn `Drafted`. Phải ghi ở `phase-7.md` §5, và tiêu chí exit "pod phiên bản cũ không hỏng khi đang rollout" chưa đạt trọn vẹn. |
 
 **Ba lỗi của script bộ kiểm, tìm ra vì cluster mới chậm hơn cluster đã ấm (đã sửa hoặc ghi):**
 1. `check-rate-limit.sh` (8.3, hai lần đỏ): vòng chờ "route tạm tới stub đã sẵn sàng" kiểm `200`, nhưng nginx của Web trả `200` cho mọi đường dẫn (SPA fallback), nên vòng chờ qua ngay khi route chưa lan tới gateway và request thăm dò đi vào Web, không vào stub (`DELETE` trả `405`, nhật ký stub rỗng). Sửa: chờ nội dung `"mappings"` của WireMock tối đa 60 s và báo lỗi nếu không thấy; lần chạy sau đạt.
