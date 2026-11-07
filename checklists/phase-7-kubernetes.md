@@ -373,9 +373,9 @@ Mỗi mục sửa ở tài liệu được ghi, trước khi code phụ thuộc 
 
 ## 11. CI/CD
 
-- [ ] **11.1** Mười job xanh trên một SHA; thời gian `integration-test` trước/sau (rate limiter, hai instance, `MigrationCompatibilityIT`) ghi lại; **không** `@Disabled`/bỏ test INV nào (`test-plan.md` §2).
-- [ ] **11.2** `RateLimitMultiInstanceIT`, `StatelessInstancesIT`, `MigrationCompatibilityIT` ≥ 10 lần liên tiếp xanh ở local.
-- [ ] **11.3** `contract-diff`, `web`, `mobile`, Gitleaks xanh; delta OWASP do dependency/image mới ghi vào `phase-7.md` §5.
+- [x] **11.1** Mười job xanh trên một SHA; thời gian `integration-test` trước/sau (rate limiter, hai instance, `MigrationCompatibilityIT`) ghi lại; **không** `@Disabled`/bỏ test INV nào (`test-plan.md` §2). *(Xong 2026-11-08: mười job xanh trên `f648fd0`, `308e3de` và `39198c4`; 879 test tích hợp trên CI, 0 lỗi, 0 bỏ qua, không `@Disabled`, không test nào bị xóa (111 thêm). `integration-test` trung bình 19m16s trên 15 run xanh so với 16m59s ở baseline, các lớp Phase 7 chiếm khoảng 73 s. `phase-7-ci-checks.md` 11.1.)*
+- [x] **11.2** `RateLimitMultiInstanceIT`, `StatelessInstancesIT`, `MigrationCompatibilityIT` ≥ 10 lần liên tiếp xanh ở local. *(Xong 2026-11-08: 10 vòng liên tiếp xanh, 8 test mỗi vòng, 90–101 s mỗi vòng, JDK Temurin 21.0.11. `phase-7-ci-checks.md` 11.2.)*
+- [x] **11.3** `contract-diff`, `web`, `mobile`, Gitleaks xanh; delta OWASP do dependency/image mới ghi vào `phase-7.md` §5. *(Xong 2026-11-08: `contract-diff`, `web`, `mobile`, Gitleaks xanh; delta OWASP so với cuối Phase 6 bằng 0 (245 → 245 phát hiện duy nhất, 166 → 166 phụ thuộc); nền cũ 37 `CRITICAL` / 108 `HIGH` ở Spring Boot 3.3.5 và các thư viện đi kèm, có từ trước Phase 7, để chủ dự án quyết. Ghi vào `phase-7.md` §5 khi lập sign-off. `phase-7-ci-checks.md` 11.3.)*
 
 ## 12. Đồng bộ tài liệu & Test Matrix
 
