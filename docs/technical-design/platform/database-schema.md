@@ -187,6 +187,8 @@ Rationale for each column is narrated in `../modules/workshop.md`; this section 
 | `price` | NUMERIC(12,2) | NULL, CHECK `chk_workshop_price` (`(is_paid = false AND price IS NULL) OR (is_paid = true AND price IS NOT NULL AND price > 0)`) | `price IS NOT NULL` is explicit: `NULL > 0` is unknown, which a CHECK treats as passing, so without it a paid workshop with no price would be accepted. Added by `V1_1__workshop_paid_price_not_null.sql`. |
 | `brochure_s3_key` | VARCHAR(512) | NULL | Object storage pointer (`../modules/workshop.md`) — the PDF itself lives in S3, never in Postgres. |
 | `pending_brochure_key` | VARCHAR(512) | NULL | The key of the last presigned upload URL issued, until `confirmBrochureUpload` finds the object and moves it into `brochure_s3_key` (`V7`, §10.4). Never exposed by the API. |
+| `cover_image_key` | VARCHAR(512) | NULL | Object storage pointer of the cover image (`covers/{workshop_id}/{uuid}.{jpg\|png\|webp}`), set by `confirmCoverImageUpload` only after the object was checked (`V9`, §10.6). The API exposes it as the path `/media/{key}` (`coverImageUrl`), never the key. |
+| `pending_cover_image_key` | VARCHAR(512) | NULL | The key of the last cover upload URL issued, until it is confirmed (moved into `cover_image_key`) or its object is rejected (cleared). Never exposed by the API (`V9`, §10.6). |
 | `status` | VARCHAR(20) | NOT NULL, DEFAULT `'DRAFT'`, CHECK IN (`DRAFT`, `PUBLISHED`, `CANCELLED`, `COMPLETED`) | Reschedule is an update to `start_time`/`end_time` on a `PUBLISHED` row, not a status value — it's an event (notified via `event_publications`/`audit_events`), not a persistent state. |
 | `version` | INT | NOT NULL, DEFAULT 0 | Optimistic-concurrency marker (§6.1, `distributed-coordination.md` §2). Shared by seat claims **and** organizer edits (decision below). A seat claim is `UPDATE workshops SET seats_taken = seats_taken + 1, version = version + 1 WHERE id = ? AND version = :expected AND seats_taken < capacity`; zero rows → re-read to tell a lost version race (retry) from a full workshop (sold out) (`../modules/registration.md` §2). |
 | `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
@@ -1054,6 +1056,31 @@ The index is built without `CONCURRENTLY` (Flyway runs the migration in a transa
 | `audit_events.source_message_id` nullable + unique index | Never writes `audit_events` (nothing consumed `unihub.audit.queue` before Phase 6) | Writes it on every insert | Safe: adding a nullable column changes no existing statement (`architecture.md` §6.2) |
 
 `V8` is forward-only.
+
+---
+
+### 10.6 Migration `V9` — specification (Phase 8; applied as `V9__workshop_cover_image_keys.sql`)
+
+Specified here first (Phase 8 checklist 3.2, D114, D121, D122). **Why it exists:** an Organizer uploads a cover image for a workshop (D114), and `confirmCoverImageUpload` has no request body for the same reason `confirmBrochureUpload` has none: the server must remember which key it issued between the two calls. The two columns mirror the brochure pair of `V7` and `brochure_s3_key`, for the same reasons (PostgreSQL is the authority for what a workshop's cover is; the nullable column is safe for the previous release).
+
+```sql
+ALTER TABLE workshops ADD COLUMN cover_image_key VARCHAR(512);
+ALTER TABLE workshops ADD COLUMN pending_cover_image_key VARCHAR(512);
+```
+
+| Aspect | Rule |
+|---|---|
+| Written | Issuance writes `pending_cover_image_key` by a plain `UPDATE` that leaves `version` alone; issuing again replaces it. The object of a replaced key is an orphan, the same accepted waste as a replaced brochure |
+| Read and cleared | Confirmation: `UPDATE … SET cover_image_key = :pending, pending_cover_image_key = NULL WHERE id = :id AND pending_cover_image_key = :pending`; zero rows is a `409` (the loser of a race, or nothing issued) |
+| Cleared on rejection | An object that is too big, stored as another type, or whose first bytes are not the issued format is deleted and `pending_cover_image_key` is set to NULL (`WHERE … = :pending`); the cover is untouched and the next attempt needs a new URL (`422`) |
+| Kept | Bucket unreachable (`503`) or object absent (`404`): nothing is persisted and the pending key stays |
+| Not mapped for writing by JPA | `cover_image_key` is `updatable = false` on the entity (an Organizer's edit cannot overwrite it); `pending_cover_image_key` is not mapped at all. Both are written only by `WorkshopCoverImages` |
+
+| Change | Previous release (before `V9`) | New release | Verdict |
+|---|---|---|---|
+| `workshops.cover_image_key`, `workshops.pending_cover_image_key` nullable columns | Neither reads nor writes them; inserts and updates name their columns | Reads and writes them | Safe: adding nullable columns changes no existing statement (`architecture.md` §6.2) |
+
+`V9` is forward-only. The new release also versions the Redis keys of the two cached shapes it changed (`unihub:cache:workshop:detail:v2:{id}`, `…:list:v2:{hash}`, `workshop.md` §2), because the previous release and this one share one Redis during a rollout and Jackson reads a missing component as `null`/`0` without error: an entry of the other shape would otherwise be served as a wrong value, not as a miss.
 
 ---
 
