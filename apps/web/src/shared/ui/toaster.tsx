@@ -14,7 +14,9 @@ import { Button } from "@/shared/ui/button"
 // in production. This one is plain classes and a Zustand store.
 //
 // Both live regions are in the DOM from the first render and start empty, because a screen reader only announces what is
-// added to a region that already exists. Success and information are polite; an error is an alert and stays until closed.
+// added to a region that already exists. Success and information are polite; an error is assertive and stays until closed.
+// The regions are plain `aria-live` elements with no role: an always-present `role="alert"` would answer every
+// `getByRole('alert')` of a page's own error with a second, empty match.
 
 const ICON: Record<ToastTone, React.ReactNode> = {
   success: <CircleCheck className="text-primary-text" />,
@@ -81,12 +83,12 @@ export function Toaster() {
   const toasts = useToastStore((state) => state.toasts)
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex flex-col gap-2 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-      <div role="status" aria-live="polite" aria-label="Thông báo" className={region}>
+      <div aria-live="polite" aria-label="Thông báo" className={region}>
         {toasts.filter((t) => t.tone !== "error").map((t) => (
           <ToastView key={t.id} toast={t} />
         ))}
       </div>
-      <div role="alert" aria-live="assertive" aria-label="Lỗi" className={region}>
+      <div aria-live="assertive" aria-label="Lỗi" className={region}>
         {toasts.filter((t) => t.tone === "error").map((t) => (
           <ToastView key={t.id} toast={t} />
         ))}

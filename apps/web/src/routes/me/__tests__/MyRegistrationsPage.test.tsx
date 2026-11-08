@@ -177,7 +177,8 @@ describe('MyRegistrationsPage', () => {
     const user = userEvent.setup()
     const { router, queryClient } = renderRoute('/me/registrations')
 
-    expect(await screen.findByText(/Nguyễn Văn An \(Student\)/)).toBeInTheDocument()
+    // The student frame names the user (the role label moved to the admin frame, G1); it is display text either way.
+    expect(await screen.findByText('Nguyễn Văn An')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Đăng xuất' }))
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'))

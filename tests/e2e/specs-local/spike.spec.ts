@@ -144,10 +144,10 @@ test('Sheet opens, locks the page scroll, is styled and closes', async ({ page, 
 test('our own toast shows, is styled and dismisses, with its two live regions in place from the start', async ({ page, health }) => {
   await open(page, 'toast')
   // Both regions exist before anything is shown, or a screen reader announces nothing.
-  await expect(page.getByRole('status', { name: 'Thông báo' })).toHaveCount(1)
-  await expect(page.getByRole('alert', { name: 'Lỗi' })).toHaveCount(1)
+  await expect(page.getByLabel('Thông báo', { exact: true })).toHaveCount(1)
+  await expect(page.getByLabel('Lỗi', { exact: true })).toHaveCount(1)
   await page.getByRole('button', { name: 'Hiện thông báo' }).click()
-  const ok = page.getByRole('status', { name: 'Thông báo' }).getByText('Đã lưu thay đổi.')
+  const ok = page.getByLabel('Thông báo', { exact: true }).getByText('Đã lưu thay đổi.')
   await expect(ok).toBeVisible()
   const item = page.locator('[data-slot="toast"]').filter({ hasText: 'Đã lưu thay đổi.' })
   // The things Sonner lost under the policy: a fixed container, a surface colour and a border, all from our own classes.
@@ -155,7 +155,7 @@ test('our own toast shows, is styled and dismisses, with its two live regions in
   expect(await css(item, 'background-color')).not.toMatch(transparent)
   expect(await css(item, 'border-top-width')).toBe('1px')
   await page.getByRole('button', { name: 'Hiện lỗi' }).click()
-  await expect(page.getByRole('alert', { name: 'Lỗi' }).getByText('Không lưu được.')).toBeVisible()
+  await expect(page.getByLabel('Lỗi', { exact: true }).getByText('Không lưu được.')).toBeVisible()
   await page.getByRole('button', { name: 'Đóng thông báo' }).last().click()
   await expect(page.getByText('Không lưu được.')).toHaveCount(0)
   expect(await violations(page, health)).toEqual([])

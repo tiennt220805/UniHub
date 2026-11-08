@@ -1,5 +1,6 @@
 import { Monitor, Moon, Sun } from 'lucide-react'
 
+import { cn } from '@/shared/lib/utils'
 import type { ThemePreference } from '@/shared/lib/theme-storage'
 import { useThemeStore } from '@/shared/store/theme-store'
 import { Button } from '@/shared/ui/button'
@@ -11,12 +12,12 @@ const OPTIONS: { value: ThemePreference; label: string; icon: typeof Sun }[] = [
 ]
 
 /** Light / dark / follow-the-system. The label is the accessible name; the pressed one says which is on. */
-export function ThemeToggle() {
+export function ThemeToggle({ className }: { className?: string }) {
   const preference = useThemeStore((state) => state.preference)
   const setPreference = useThemeStore((state) => state.setPreference)
 
   return (
-    <div role="group" aria-label="Chế độ hiển thị" className="flex items-center gap-0.5">
+    <div role="group" aria-label="Chế độ hiển thị" className={cn("flex items-center gap-0.5", className)}>
       {OPTIONS.map(({ value, label, icon: Icon }) => (
         <Button
           key={value}

@@ -209,3 +209,20 @@ The few generic words in them ("Đóng", "Trước", "Sau", "Phân trang") are i
 
 There is no `Select` (§7, D132) and no `DateTimePicker` library (D134). Pages that are not redesigned yet still use these components: the
 button's new look reaches them early, which is intended.
+
+## 10. The two frames (D136)
+
+Both live in `apps/web/src/app/router/` (they need `features/auth`, which `shared/` may not import) and render no `<main>`: each page has its own.
+
+| | Student frame (`StudentLayout`) | Admin frame (`AdminLayout`) |
+|---|---|---|
+| Routes | everything except `/admin/*` | `/admin/*`, behind `RequirePermission` with `WORKSHOP_CREATE`, `WORKSHOP_EDIT` or `REPORT_VIEW` (any one); each page still asks for its own |
+| ≥ 1024 px | top bar: logo, links, theme choice, name, "Đăng xuất" / "Đăng nhập" | sidebar 248 px: the permitted links, "Về trang sinh viên", theme choice, name and role, "Đăng xuất" |
+| 768–1023 px | the same top bar | icon rail 64 px; each link's text is `sr-only` (not `hidden`), so the icon keeps its accessible name |
+| < 768 px | logo, notification bell (signed in), "Mở menu" opens a sheet with the links, theme choice and sign-in/out | top bar with "Mở menu quản trị" opening the sidebar's content in a sheet |
+
+- The links come from data and are gated by permission, never by role name: `ADMIN_NAV` in `admin-nav.ts`. It is empty until Phase 8 Mục 6 adds the pages ("Danh sách workshop", "Tạo workshop"); a link to a page that does not exist is worse than a sparse sidebar.
+- The bell has no unread count: a notification has no read state (M-81). It is named "Hộp thư thông báo" so that "Thông báo" stays one link.
+- The admin logo is not a link; "Về trang sinh viên" is the one way back.
+- A guard that refuses (`NoPermission`) offers "Về trang chủ": the admin guard sits above its own frame, so the refusal would otherwise be a dead end.
+- Names that the Playwright suites and page tests assert stay as they were: the links "Workshop", "Đăng ký của tôi", "Thông báo", "Đăng nhập", the button "Đăng xuất", and the theme buttons "Sáng", "Tối", "Theo hệ thống" (all visible at 1280 px).

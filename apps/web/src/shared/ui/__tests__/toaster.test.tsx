@@ -18,8 +18,13 @@ const advance = (ms: number) => act(() => void vi.advanceTimersByTime(ms))
 describe('Toaster', () => {
   it('has both live regions in the DOM before anything is shown: a region added with its content is not announced', () => {
     render(<Toaster />)
-    expect(screen.getByRole('status', { name: 'Thông báo' })).toBeEmptyDOMElement()
-    expect(screen.getByRole('alert', { name: 'Lỗi' })).toBeEmptyDOMElement()
+    expect(screen.getByLabelText('Thông báo')).toBeEmptyDOMElement()
+    expect(screen.getByLabelText('Thông báo')).toHaveAttribute('aria-live', 'polite')
+    expect(screen.getByLabelText('Lỗi')).toBeEmptyDOMElement()
+    expect(screen.getByLabelText('Lỗi')).toHaveAttribute('aria-live', 'assertive')
+    // No role on them: a page's own `role="alert"` stays the only alert.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
   it('puts success and information in the polite region and errors in the alert region', () => {
@@ -29,8 +34,8 @@ describe('Toaster', () => {
       toast.info('Có phiên bản mới.')
       toast.error('Không lưu được.')
     })
-    const polite = screen.getByRole('status', { name: 'Thông báo' })
-    const assertive = screen.getByRole('alert', { name: 'Lỗi' })
+    const polite = screen.getByLabelText('Thông báo')
+    const assertive = screen.getByLabelText('Lỗi')
     expect(polite).toHaveTextContent('Đã lưu thay đổi.')
     expect(polite).toHaveTextContent('Có phiên bản mới.')
     expect(polite).not.toHaveTextContent('Không lưu được.')

@@ -9,7 +9,8 @@ import { NotificationsPage } from '@/routes/me/NotificationsPage'
 import { RegistrationTicketPage } from '@/routes/me/RegistrationTicketPage'
 import { WorkshopCatalogPage } from '@/routes/public/WorkshopCatalogPage'
 import { WorkshopDetailPage } from '@/routes/public/WorkshopDetailPage'
-import { AppLayout } from './AppLayout'
+import { AdminLayout } from './AdminLayout'
+import { StudentLayout } from './StudentLayout'
 import { RequirePermission } from './guards/RequirePermission'
 import { RequireSession } from './guards/RequireSession'
 
@@ -27,9 +28,33 @@ const spikeRoutes: RouteObject[] =
       ]
     : []
 
+// Whoever holds any one of these may enter /admin (S9). Each page inside still asks for its own permission.
+const ADMIN_ACCESS = [Permission.WORKSHOP_CREATE, Permission.WORKSHOP_EDIT, Permission.REPORT_VIEW]
+
 export const routes: RouteObject[] = [
   {
-    element: <AppLayout />,
+    // The administration shell (D136): its own frame, not the student one. The guard is the outer element, so a visitor
+    // who may not enter sees the refusal, not an admin sidebar around it.
+    path: '/admin',
+    element: (
+      <RequirePermission anyOf={ADMIN_ACCESS}>
+        <AdminLayout />
+      </RequirePermission>
+    ),
+    children: [
+      {
+        // getWorkshopReport is guarded by REPORT_VIEW (held by Organizer and Admin).
+        path: 'workshops/:workshopId/report',
+        element: (
+          <RequirePermission anyOf={[Permission.REPORT_VIEW]}>
+            <WorkshopReportPage />
+          </RequirePermission>
+        ),
+      },
+    ],
+  },
+  {
+    element: <StudentLayout />,
     children: [
       ...spikeRoutes,
       { path: '/', element: <Navigate to="/workshops" replace /> },
@@ -61,15 +86,6 @@ export const routes: RouteObject[] = [
           <RequireSession>
             <NotificationsPage />
           </RequireSession>
-        ),
-      },
-      {
-        // getWorkshopReport is guarded by REPORT_VIEW (held by Organizer and Admin).
-        path: '/admin/workshops/:workshopId/report',
-        element: (
-          <RequirePermission anyOf={[Permission.REPORT_VIEW]}>
-            <WorkshopReportPage />
-          </RequirePermission>
         ),
       },
       {
