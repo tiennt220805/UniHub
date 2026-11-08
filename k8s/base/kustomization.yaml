@@ -43,6 +43,8 @@ configMapGenerator:
       - SPRING_RABBITMQ_HOST=rabbitmq
       - SPRING_RABBITMQ_PORT=5672
       - UNIHUB_OBJECT_STORAGE_ENDPOINT=http://minio:9000
+      # The address a browser reaches the bucket at: the gateway's origin (D120). A presigned URL is signed for it.
+      - UNIHUB_OBJECT_STORAGE_PUBLIC_ENDPOINT=https://unihub.local
       - UNIHUB_OBJECT_STORAGE_CREATE_BUCKET=true
       - UNIHUB_NOTIFICATION_SMTP_HOST=mailpit
       - UNIHUB_NOTIFICATION_SMTP_PORT=1025

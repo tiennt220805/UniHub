@@ -12,7 +12,7 @@ class StoragePropertiesTest {
     private static ObjectStorageProperties storage(
             String endpoint, String access, String secret, Duration connect) {
         return new ObjectStorageProperties(
-                endpoint, null, null, access, secret, null, connect, null);
+                endpoint, null, null, null, access, secret, null, connect, null);
     }
 
     @Test
@@ -35,6 +35,30 @@ class StoragePropertiesTest {
         assertThat(storage("  ", null, null, null).endpoint()).isNull();
         assertThat(storage(" http://minio:9000 ", null, null, null).endpoint())
                 .isEqualTo("http://minio:9000");
+    }
+
+    @Test
+    @DisplayName(
+            "the browser's address of the bucket is the server's own until it is told otherwise")
+    void publicEndpointDefaultsToTheEndpoint() {
+        assertThat(storage("http://minio:9000", null, null, null).publicEndpoint())
+                .isEqualTo("http://minio:9000");
+        assertThat(storage(null, null, null, null).publicEndpoint()).isNull();
+
+        var behindTheEdge =
+                new ObjectStorageProperties(
+                        "http://minio:9000",
+                        " https://unihub.local ",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null);
+        assertThat(behindTheEdge.endpoint()).isEqualTo("http://minio:9000");
+        assertThat(behindTheEdge.publicEndpoint()).isEqualTo("https://unihub.local");
+        assertThat(behindTheEdge.toString()).contains("publicEndpoint=https://unihub.local");
     }
 
     @Test
@@ -79,5 +103,21 @@ class StoragePropertiesTest {
 
         assertThatThrownBy(() -> new AiSummarizationProperties("https://ai", "k", Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName(
+            "the anonymous read policy allows GetObject on covers/* of this bucket and nothing else")
+    void coverReadPolicyIsNarrow() {
+        var policy = BrochureStorageConfig.coverReadPolicy("unihub-brochures");
+
+        assertThat(policy)
+                .contains("\"Principal\":\"*\"")
+                .contains("\"Action\":[\"s3:GetObject\"]")
+                .contains("\"Resource\":[\"arn:aws:s3:::unihub-brochures/covers/*\"]")
+                .doesNotContain("ListBucket")
+                .doesNotContain("s3:*")
+                .doesNotContain("PutObject")
+                .doesNotContain("DeleteObject");
     }
 }

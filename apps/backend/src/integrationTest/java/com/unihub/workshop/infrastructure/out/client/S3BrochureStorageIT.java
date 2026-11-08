@@ -49,6 +49,7 @@ class S3BrochureStorageIT extends IntegrationTestSupport {
                         MINIO.getS3URL(),
                         null,
                         null,
+                        null,
                         MINIO.getUserName(),
                         MINIO.getPassword(),
                         true,
@@ -186,6 +187,7 @@ class S3BrochureStorageIT extends IntegrationTestSupport {
         var dead =
                 new ObjectStorageProperties(
                         "http://localhost:1",
+                        null,
                         null,
                         null,
                         "k",

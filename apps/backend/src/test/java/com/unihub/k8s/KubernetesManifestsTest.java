@@ -294,17 +294,109 @@ class KubernetesManifestsTest {
     @Test
     @DisplayName("the gateway sends /api/ to the API and everything else to the Web, on one host")
     void gatewayRoutes() throws IOException {
+        var routes = virtualServiceRoutes();
+
+        assertThat(destination(routes.getFirst())).isEqualTo("backend-api-service:8080");
+        assertThat(destination(routes.getLast())).isEqualTo("web:8080");
+        assertThat(String.valueOf(routes.getFirst())).contains("prefix=/api/");
+        assertThat(((Map<?, ?>) routes.getLast()).get("match"))
+                .as("the Web is the route with no match: everything the others left")
+                .isNull();
+    }
+
+    @Test
+    @DisplayName(
+            "object storage is reached on two paths only: covers read by GET/HEAD, uploads by PUT (D120)")
+    void gatewayServesOnlyTheStoragePaths() throws IOException {
+        var routes = virtualServiceRoutes();
+        var byName = new java.util.HashMap<String, Map<?, ?>>();
+        for (var route : routes) {
+            var name = ((Map<?, ?>) route).get("name");
+            if (name != null) {
+                byName.put((String) name, (Map<?, ?>) route);
+            }
+        }
+
+        var read = byName.get("cover-read");
+        assertThat(String.valueOf(read.get("match")))
+                .contains("prefix=/media/covers/")
+                .contains("exact=GET")
+                .contains("exact=HEAD")
+                .doesNotContain("PUT")
+                .doesNotContain("DELETE");
+        assertThat(destination(read)).isEqualTo("minio:9000");
+        assertThat(String.valueOf(read.get("rewrite")))
+                .as("the prefix becomes the bucket's covers/ prefix: the only one MinIO opens")
+                .contains("/unihub-brochures/covers/");
+        assertThat(String.valueOf(read.get("headers")))
+                .as("MinIO sets neither; the edge does")
+                .contains("nosniff")
+                .contains("immutable");
+
+        var upload = byName.get("storage-upload");
+        assertThat(String.valueOf(upload.get("match")))
+                .contains("prefix=/unihub-brochures/")
+                .contains("exact=PUT")
+                .doesNotContain("GET");
+        assertThat(destination(upload)).isEqualTo("minio:9000");
+        assertThat(upload.get("rewrite"))
+                .as("a SigV4 signature covers the path: it is forwarded untouched")
+                .isNull();
+
+        for (var name : List.of("cover-read", "storage-upload")) {
+            assertThat(String.valueOf(byName.get(name)))
+                    .as("%s must not change the Host: the signature covers it", name)
+                    .doesNotContain("authority");
+        }
+        var closed = byName.get("storage-closed");
+        assertThat(String.valueOf(closed.get("match")))
+                .contains("prefix=/media/")
+                .contains("prefix=/unihub-brochures/");
+        assertThat(String.valueOf(closed.get("directResponse"))).contains("405");
+        assertThat(routes.indexOf(closed))
+                .as("the closing route comes after the two that open a path, and before the Web")
+                .isGreaterThan(routes.indexOf(upload))
+                .isLessThan(routes.size() - 1);
+        assertThat(String.valueOf(routes)).doesNotContain("9001").doesNotContain("/minio");
+    }
+
+    @Test
+    @DisplayName(
+            "the application mints upload URLs for the gateway's origin, not for MinIO's address")
+    void applicationMintsUrlsForTheGateway() throws IOException {
+        var literals = literalsOf("backend-api-config");
+
+        assertThat(literals)
+                .contains("UNIHUB_OBJECT_STORAGE_ENDPOINT=http://minio:9000")
+                .contains("UNIHUB_OBJECT_STORAGE_PUBLIC_ENDPOINT=https://unihub.local");
+    }
+
+    private static List<Map<?, ?>> virtualServiceRoutes() throws IOException {
         var virtualService =
                 documents(BASE.resolve("gateway.yaml")).stream()
                         .filter(document -> "VirtualService".equals(document.get("kind")))
                         .findFirst()
                         .orElseThrow();
-        var routes = (List<?>) ((Map<?, ?>) virtualService.get("spec")).get("http");
+        var routes = new ArrayList<Map<?, ?>>();
+        for (var route : (List<?>) ((Map<?, ?>) virtualService.get("spec")).get("http")) {
+            routes.add((Map<?, ?>) route);
+        }
+        return routes;
+    }
 
-        assertThat(routes).hasSize(2);
-        assertThat(destination(routes.get(0))).isEqualTo("backend-api-service:8080");
-        assertThat(destination(routes.get(1))).isEqualTo("web:8080");
-        assertThat(String.valueOf(routes.get(0))).contains("prefix=/api/");
+    private static List<String> literalsOf(String configMap) throws IOException {
+        var kustomization = documents(BASE.resolve("kustomization.yaml")).getFirst();
+        for (var entry : (List<?>) kustomization.get("configMapGenerator")) {
+            var map = (Map<?, ?>) entry;
+            if (configMap.equals(map.get("name"))) {
+                var literals = new ArrayList<String>();
+                for (var literal : (List<?>) map.get("literals")) {
+                    literals.add((String) literal);
+                }
+                return literals;
+            }
+        }
+        throw new IllegalStateException("no ConfigMap " + configMap);
     }
 
     // ---------- helpers ----------

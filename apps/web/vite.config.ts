@@ -6,6 +6,7 @@ import react from '@vitejs/plugin-react'
 import { loadEnv } from 'vite'
 import { defineConfig } from 'vitest/config'
 import { cspMeta } from './vite-plugins/csp.ts'
+import { storageProxy } from './vite-plugins/storage-proxy.ts'
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -29,6 +30,8 @@ export default defineConfig(({ mode }) => {
       // Backend API (server.port is not overridden in application.yml → Spring Boot default 8080).
       proxy: {
         '/api': 'http://localhost:8080',
+        // Covers and uploads reach the bucket on this same origin (Phase 8 D120; vite-plugins/storage-proxy.ts).
+        ...storageProxy(process.env.UNIHUB_STORAGE_PROXY_TARGET ?? 'http://127.0.0.1:9000'),
       },
     },
     test: {

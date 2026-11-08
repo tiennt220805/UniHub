@@ -3,6 +3,18 @@
 # (k8s/scripts/make-local-ca.sh, D97); the Secret `unihub-tls` is created BY HAND in the namespace of the gateway
 # workload (istio-system with the default install), where Istio reads `credentialName` from — not in `unihub`.
 # /api/** goes to the API, everything else to the Web, on the same origin. Task 5.6.
+#
+# Phase 8 (D120-D122) adds the two paths of object storage on the same origin, and only those:
+#   PUT /unihub-brochures/**  a presigned upload from the browser. The path is the bucket's, forwarded untouched, with
+#                             no `rewrite.authority`: a SigV4 signature covers the Host and the path, so a rewrite of
+#                             either breaks every upload. The application mints those URLs for https://unihub.local
+#                             (UNIHUB_OBJECT_STORAGE_PUBLIC_ENDPOINT).
+#   GET|HEAD /media/covers/** a cover image, read without credentials. The prefix is replaced by the bucket's covers/
+#                             prefix, which is the only thing MinIO's anonymous policy opens (brochures are never read
+#                             without a signature). MinIO sets neither header below; the gateway does.
+# Any other method on those paths, and any other path under /media/, is a 405 here and never reaches the Web's SPA
+# fallback (a missing file must not answer 200 with HTML) nor MinIO. MinIO's console (9001) and its admin API are not
+# routed at all.
 apiVersion: networking.istio.io/v1
 kind: Gateway
 metadata:
@@ -29,4 +41,24 @@ spec:
   http:
     - match: [{ uri: { prefix: /api/ } }]
       route: [{ destination: { host: backend-api-service, port: { number: 8080 } } }]
+    - name: cover-read
+      match:
+        - { uri: { prefix: /media/covers/ }, method: { exact: GET } }
+        - { uri: { prefix: /media/covers/ }, method: { exact: HEAD } }
+      rewrite: { uri: /unihub-brochures/covers/ }
+      headers:
+        response:
+          set:
+            X-Content-Type-Options: nosniff
+            # A cover's key is immutable (a new upload is a new key), so it never changes under a URL.
+            Cache-Control: "public, max-age=31536000, immutable"
+      route: [{ destination: { host: minio, port: { number: 9000 } } }]
+    - name: storage-upload
+      match: [{ uri: { prefix: /unihub-brochures/ }, method: { exact: PUT } }]
+      route: [{ destination: { host: minio, port: { number: 9000 } } }]
+    - name: storage-closed
+      match:
+        - { uri: { prefix: /media/ } }
+        - { uri: { prefix: /unihub-brochures/ } }
+      directResponse: { status: 405 }
     - route: [{ destination: { host: web, port: { number: 8080 } } }]

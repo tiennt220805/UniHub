@@ -66,16 +66,18 @@ public class BrochureStorageConfig {
                         .region(Region.of(settings.region()))
                         .credentialsProvider(credentials(settings))
                         .serviceConfiguration(configuration(settings));
-        if (settings.endpoint() != null) {
-            builder.endpointOverride(URI.create(settings.endpoint()));
+        // The URL a presigned PUT names is the browser's address of the bucket, not ours (D120).
+        if (settings.publicEndpoint() != null) {
+            builder.endpointOverride(URI.create(settings.publicEndpoint()));
         }
         return builder.build();
     }
 
     /**
      * Local runs and tests only ({@code unihub.object-storage.create-bucket}): makes the bucket if
-     * it is missing. A deployed environment never sets it (the bucket is infrastructure). A bucket
-     * that cannot be reached at start-up is logged, not fatal.
+     * it is missing, and sets the anonymous read policy of the covers. A deployed environment never
+     * sets it (the bucket is infrastructure). A bucket that cannot be reached at start-up is
+     * logged, not fatal.
      */
     @Bean
     ApplicationRunner ensureBrochureBucket(S3Client client, ObjectStorageProperties settings) {
@@ -90,6 +92,12 @@ public class BrochureStorageConfig {
                     client.createBucket(b -> b.bucket(settings.bucket()));
                     LOG.info("created the bucket {}", settings.bucket());
                 }
+                // Covers are the one thing read without credentials (D121): GetObject on covers/*,
+                // not ListBucket, and never the brochures. Set every time: a policy is idempotent.
+                client.putBucketPolicy(
+                        b ->
+                                b.bucket(settings.bucket())
+                                        .policy(coverReadPolicy(settings.bucket())));
             } catch (RuntimeException e) {
                 LOG.warn(
                         "could not check or create the bucket {}: {}",
@@ -97,6 +105,15 @@ public class BrochureStorageConfig {
                         e.toString());
             }
         };
+    }
+
+    /** Anonymous {@code GetObject} on {@code covers/*} and nothing else (D121). */
+    public static String coverReadPolicy(String bucket) {
+        return "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"PublicCoverRead\","
+                + "\"Effect\":\"Allow\",\"Principal\":\"*\",\"Action\":[\"s3:GetObject\"],"
+                + "\"Resource\":[\"arn:aws:s3:::"
+                + bucket
+                + "/covers/*\"]}]}";
     }
 
     private static AwsCredentialsProvider credentials(ObjectStorageProperties settings) {
