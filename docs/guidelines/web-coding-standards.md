@@ -82,6 +82,7 @@ and ask.
 - [12. Testing](#12-testing)
 - [13. Open Items](#13-open-items)
 - [14. Glossary & Naming](#14-glossary-naming)
+- [15. Design System](#15-design-system)
 
 ---
 
@@ -1167,3 +1168,24 @@ const statusLabel: Record<RegistrationStatus, string> = {
   EXPIRED: 'Hold expired',
 }
 ```
+
+---
+
+## 15. Design System
+
+**Decision.** How the Web *looks* (colour tokens, type, spacing, motion, the state-is-never-colour-alone rule, and which UI libraries
+may be used) is owned by `docs/guidelines/web-design-system.md`; this file keeps owning how the code is laid out.
+
+- Shared presentational components live in `shared/ui/` and the design tokens in `src/styles/index.css`; neither knows a status, a
+  permission code or a domain phrase (Rules #4). A status label is a map in the feature that owns the status (§14's example).
+- Dark mode is the `.dark` class on `<html>` and nothing else; the choice lives in `shared/store/theme-store.ts` (a Zustand store of
+  UI state with no business knowledge belongs in `shared/store/`, §8).
+- **A new UI library is not added until it has passed the CSP spike** (`tests/e2e/specs-local/spike.spec.ts`, `npm run test:local` in
+  `tests/e2e`) on all three engines. A library that would need a Content-Security-Policy exception is not added without the owner.
+  Sonner, NumberFlow and Radix Select failed it (design-system doc §7).
+- The Radix modal primitives get their scroll lock from `src/shared/lib/csp-safe-remove-scroll.tsx`, which `vite.config.ts` aliases in
+  place of `react-remove-scroll`.
+
+**Why.** The production policy is `style-src 'self'` without `'unsafe-inline'`, because the session token sits in `sessionStorage`
+(§11). Libraries that inject a `<style>` element at run time fail silently in development, where there is no policy, and
+visibly in the browser console in production; the spike makes that a build-time finding.
