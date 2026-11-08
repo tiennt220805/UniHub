@@ -359,3 +359,28 @@ BrochureUploadConfirmResponse:
     hasBrochure:
       type: boolean
       example: true
+
+CoverImageUploadUrlResponse:
+  type: object
+  description: Phase 8 (D114, D120). The cover-image counterpart of `BrochureUploadUrlResponse`.
+  required: [uploadUrl, expiresAt]
+  properties:
+    uploadUrl:
+      type: string
+      format: uri
+      description: >-
+        Presigned PUT URL, scoped to exactly one key, one `Content-Type` and one `Content-Length`,
+        10-minute TTL. A path on the application's own origin: the edge forwards it to the bucket
+        without changing the host or the path (the signature covers both).
+    expiresAt:
+      type: string
+      format: date-time
+
+CoverImageUploadConfirmResponse:
+  type: object
+  required: [coverImageUrl]
+  properties:
+    coverImageUrl:
+      type: string
+      description: The path the cover image is now served from (`Workshop.coverImageUrl`).
+

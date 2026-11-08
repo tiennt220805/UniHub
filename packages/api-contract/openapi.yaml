@@ -70,6 +70,10 @@ paths:
     $ref: './paths/workshop.yaml#/workshopBrochureUploadUrl'
   /api/v1/workshops/{id}/brochure-upload-confirm:
     $ref: './paths/workshop.yaml#/workshopBrochureUploadConfirm'
+  /api/v1/workshops/{id}/cover-image-upload-url:
+    $ref: './paths/workshop.yaml#/workshopCoverImageUploadUrl'
+  /api/v1/workshops/{id}/cover-image-upload-confirm:
+    $ref: './paths/workshop.yaml#/workshopCoverImageUploadConfirm'
   /api/v1/workshops/{workshopId}/registrations:
     $ref: './paths/registration.yaml#/workshopRegistrations'
   /api/v1/registrations:

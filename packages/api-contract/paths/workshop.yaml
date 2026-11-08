@@ -575,3 +575,164 @@ workshopBrochureUploadConfirm:
           application/problem+json:
             schema:
               $ref: '../common/error.yaml'
+
+workshopCoverImageUploadUrl:
+  post:
+    operationId: requestCoverImageUploadUrl
+    summary: Issue a presigned cover-image upload URL
+    description: >-
+      Phase 8 (D114, D120–D122). Same two-step shape as the brochure upload: the image's bytes travel
+      from the Organizer's browser to the bucket on the issued URL, never through this API. The URL is
+      signed for the declared `Content-Type` and the exact `Content-Length`, so a bucket that checks the
+      signature accepts that file and nothing else. The key is fresh and unguessable
+      (`covers/{workshopId}/{uuid}.{jpg|png|webp}`); issuing again replaces the pending key, never the
+      confirmed cover. No call is made to the bucket, so this works while object storage is down.
+      Only JPEG, PNG and WebP: an SVG on the application's own origin could carry script, and the
+      bucket's response does not carry the Web's CSP. Either permission satisfies the check, as for the
+      brochure.
+    tags: [Workshop]
+    x-required-permission: [WORKSHOP_CREATE, WORKSHOP_EDIT]
+    parameters:
+      - $ref: '#/WorkshopIdParam'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [contentType, contentLength]
+            properties:
+              contentType:
+                type: string
+                enum: [image/jpeg, image/png, image/webp]
+              contentLength:
+                type: integer
+                minimum: 1
+                maximum: 2097152
+                description: >-
+                  The exact size of the file in bytes (at most 2 MiB). The URL is signed for it. A
+                  16:9 image is recommended; the shape is not enforced.
+    responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
+      '200':
+        description: >-
+          Presigned PUT URL issued for exactly one `PUT` of that file to one fresh key, for ten
+          minutes. The URL is a path on the application's own origin (the edge forwards it to the
+          bucket unchanged: the signature covers the host and the path).
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/workshop.yaml#/CoverImageUploadUrlResponse'
+      '400':
+        description: '`contentType` is missing or not one of the three raster types, or `contentLength` is missing or outside 1 … 2097152.'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, missing both WORKSHOP_CREATE and WORKSHOP_EDIT.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '404':
+        description: No workshop with this id.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '409':
+        description: Workshop is already CANCELLED or COMPLETED.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+
+workshopCoverImageUploadConfirm:
+  post:
+    operationId: confirmCoverImageUpload
+    summary: Confirm a completed cover-image upload
+    description: >-
+      Phase 8 (D114, D120–D122). Called by the Organizer's browser immediately after a successful `PUT`.
+      What is checked is what arrived, never what the client said: the server reads the stored size and
+      `Content-Type` (`HeadObject`), compares the type with the one the key was issued for, and reads the
+      object's first bytes to confirm the format. A file that fails is **deleted** and the pending key
+      cleared (`422`); the Organizer asks for a new URL. On success the pending key becomes the workshop's
+      cover and its path is returned. There is no consumer and no outbox row: unlike the brochure there
+      is nothing to compute afterwards.
+    tags: [Workshop]
+    x-required-permission: [WORKSHOP_CREATE, WORKSHOP_EDIT]
+    parameters:
+      - $ref: '#/WorkshopIdParam'
+    responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
+      '200':
+        description: Object confirmed; `cover_image_key` persisted and the cached detail dropped.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/workshop.yaml#/CoverImageUploadConfirmResponse'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, missing both WORKSHOP_CREATE and WORKSHOP_EDIT.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '404':
+        description: >-
+          No workshop with this id, or nothing at the issued key yet (the browser has not uploaded) —
+          nothing persisted, the issued key is kept, the Organizer can retry.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '409':
+        description: >-
+          Nothing to confirm (problem `type` `urn:unihub:problem:cover-image-upload-not-issued`): no URL
+          was issued, it was already confirmed or its file was rejected (also what the loser of two
+          concurrent confirmations gets), or the workshop is CANCELLED/COMPLETED.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '422':
+        description: >-
+          The uploaded file is not an acceptable cover (problem `type` `urn:unihub:problem:cover-image-rejected`):
+          empty or over 2 MiB, stored as another type than the URL was issued for, or its first bytes are not
+          that format. The object was deleted and the pending key cleared.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '503':
+        description: >-
+          Object storage could not be reached (problem `type` `urn:unihub:problem:storage-unavailable`).
+          Nothing was persisted and the issued key is kept, so the **same** call succeeds once storage is
+          back. An object-storage outage never touches registration, payment or check-in (INV-19).
+        headers:
+          Retry-After:
+            $ref: '../common/headers.yaml#/RetryAfter'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
