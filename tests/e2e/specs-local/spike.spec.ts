@@ -75,6 +75,39 @@ test('Dialog opens, locks the page scroll, is styled and closes', async ({ page,
   expect(await violations(page, health)).toEqual([])
 })
 
+test('AlertDialog opens, locks the page scroll, is styled and both buttons close it', async ({ page, health }) => {
+  await open(page, 'alertdialog')
+  await page.getByRole('button', { name: 'Hủy workshop' }).click()
+  const dialog = page.getByRole('alertdialog', { name: 'Xác nhận hủy thử' })
+  await expect(dialog).toBeVisible()
+  expect(await css(dialog, 'position')).toBe('fixed')
+  expect(await css(dialog, 'background-color')).not.toMatch(transparent)
+  expect(await bodyOverflow(page)).toBe('hidden')
+  await dialog.getByRole('button', { name: 'Giữ lại' }).click()
+  await expect(dialog).toBeHidden()
+  expect(await bodyOverflow(page)).toBe('')
+  await page.getByRole('button', { name: 'Hủy workshop' }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Hủy workshop' }).click()
+  await expect(page.getByRole('alertdialog')).toBeHidden()
+  expect(await violations(page, health)).toEqual([])
+})
+
+test('native date and datetime-local inputs take a value and raise nothing', async ({ page, health }, info) => {
+  await open(page, 'date')
+  const date = page.getByLabel('Từ ngày')
+  const start = page.getByLabel('Bắt đầu')
+  await expect(date).toHaveValue('2026-11-12')
+  await date.fill('2026-12-01')
+  await start.fill('2026-12-01T09:30')
+  await expect(date).toHaveValue('2026-12-01')
+  await expect(start).toHaveValue('2026-12-01T09:30')
+  // Computed style proves the control is styled by our classes, not left raw.
+  expect(await css(date, 'border-top-width')).toBe('1px')
+  const seen = await violations(page, health)
+  info.annotations.push({ type: 'date-input-reports', description: String(seen.length) })
+  expect(seen).toEqual([])
+})
+
 test('Popover opens and is styled', async ({ page, health }) => {
   await open(page, 'popover')
   await page.getByRole('button', { name: 'Mở popover' }).click()

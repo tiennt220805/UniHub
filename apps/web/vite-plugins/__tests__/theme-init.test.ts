@@ -64,3 +64,27 @@ describe('public/theme-init.js', () => {
     expect(run({ noMatchMedia: true })).toBe(false)
   })
 })
+
+// A failure here is silent in a browser: if /theme-init.js is not served as a file, nginx's `try_files $uri /index.html` answers 200 with the
+// HTML shell, the blocking script is "empty", and the white flash is back without any error. So the three links of the chain are pinned.
+describe('how /theme-init.js reaches the browser', () => {
+  const web = path.resolve(import.meta.dirname, '..', '..')
+  const html = readFileSync(path.join(web, 'index.html'), 'utf-8')
+
+  it('is a file in public/, which Vite copies to the site root', () => {
+    expect(SCRIPT.length).toBeGreaterThan(0)
+  })
+
+  it('is a blocking classic script in <head>, before the module script', () => {
+    const head = html.slice(html.indexOf('<head>'), html.indexOf('</head>'))
+    const tag = head.match(/<script\b[^>]*\bsrc="\/theme-init\.js"[^>]*>/)?.[0]
+    expect(tag, 'a <script src="/theme-init.js"> in <head>').toBeDefined()
+    expect(tag).not.toMatch(/\b(type="module"|defer|async)\b/)
+    expect(html.indexOf('/theme-init.js')).toBeLessThan(html.indexOf('/src/app/main.tsx'))
+  })
+
+  it('is answered by nginx as a file before the single-page fallback', () => {
+    const conf = readFileSync(path.join(web, 'nginx', 'default.conf'), 'utf-8')
+    expect(conf).toMatch(/location \/ \{[^}]*try_files \$uri \/index\.html;/)
+  })
+})

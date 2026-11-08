@@ -1,5 +1,16 @@
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, XAxis } from 'recharts'
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/shared/ui/alert-dialog'
 import { Button } from '@/shared/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from '@/shared/ui/dialog'
 import {
@@ -49,6 +60,44 @@ export function SpikePage() {
               <DialogDescription>Nội dung hộp thoại.</DialogDescription>
             </DialogContent>
           </Dialog>
+        </section>
+      )}
+
+      {shows('alertdialog') && (
+        <section aria-label="AlertDialog">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive">Hủy workshop</Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Xác nhận hủy thử</AlertDialogTitle>
+                <AlertDialogDescription>Sinh viên đã đăng ký sẽ được thông báo.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Giữ lại</AlertDialogCancel>
+                <AlertDialogAction>Hủy workshop</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </section>
+      )}
+
+      {shows('date') && (
+        // Native date controls: no library, so the question is only whether an engine reports them under the policy.
+        <section aria-label="Ô ngày giờ" className="grid max-w-xs gap-3">
+          <label className="grid gap-1 text-sm">
+            Từ ngày
+            <input type="date" defaultValue="2026-11-12" className="h-9 rounded-lg border border-input bg-card px-3" />
+          </label>
+          <label className="grid gap-1 text-sm">
+            Bắt đầu
+            <input
+              type="datetime-local"
+              defaultValue="2026-11-12T14:00"
+              className="h-9 rounded-lg border border-input bg-card px-3"
+            />
+          </label>
         </section>
       )}
 

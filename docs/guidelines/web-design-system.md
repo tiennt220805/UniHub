@@ -104,22 +104,37 @@ test long titles with tone marks (checklist 7.2). Numbers that change (seat coun
 
 ## 5. State is never colour alone (D115)
 
-Primary and "success" share a hue, so a status must carry text or an icon besides its colour. Every status component takes the label from a
-map in its **feature** (never from `shared/`); `shared/ui` `Badge` only knows the tone.
+Primary and "success" share a hue, so a status must carry text or an icon besides its colour. Every status component takes its text from a
+map in its **feature** (never from `shared/`); `shared/ui` `Badge` only knows the tone. The icon and tone columns are *proposed*, final at G1.
+The **text is not free**: where it already exists in the code it stays, because Playwright asserts some of it (C68).
 
-| Domain value (from the API contract) | Tone | Text (Vietnamese) | Icon |
-|---|---|---|---|
-| `RegistrationStatus.CONFIRMED` | success | Đã xác nhận | check-circle |
-| `RegistrationStatus.RESERVED` | warning | Đang giữ chỗ | clock |
-| `RegistrationStatus.EXPIRED` | muted | Hết hạn giữ chỗ | timer-off |
-| `RegistrationStatus.CANCELLED` | destructive | Đã hủy | x-circle |
-| `PaymentStatus.SUCCEEDED` / `PENDING` / `FAILED` | success / info / destructive | Đã thanh toán / Đang xử lý / Thất bại | |
-| `PaymentStatus.REFUND_REQUIRED` / `REFUNDED` | warning / info | Chờ hoàn tiền / Đã hoàn tiền | |
-| `WorkshopStatus.DRAFT` / `PUBLISHED` / `CANCELLED` / `COMPLETED` | muted / success / destructive / info | Nháp / Đã công bố / Đã hủy / Đã kết thúc | |
-| Seat level (catalog, D118) | success / warning / destructive | Còn chỗ / Sắp hết / Hết chỗ | |
+| Domain value (API contract) | Tone | Text | Source of the text | Icon |
+|---|---|---|---|---|
+| `RegistrationStatus.CONFIRMED` | success | Đã xác nhận | existing, `registration-status.ts` | check-circle |
+| `RegistrationStatus.RESERVED` | warning | Đang giữ chỗ | existing | clock |
+| `RegistrationStatus.EXPIRED` | muted | Hết hạn giữ chỗ | existing | timer-off |
+| `RegistrationStatus.CANCELLED` | destructive | Đã hủy | existing | x-circle |
+| `PaymentStatus.PENDING` | info | Đang xử lý thanh toán… | existing notice, `PaymentStatusNotice.tsx` | loader |
+| `PaymentStatus.SUCCEEDED` | success | Thanh toán thành công. | existing notice (**asserted by E2E**) | check-circle |
+| `PaymentStatus.FAILED` | destructive | Thanh toán bị từ chối. Bạn có thể thử lại bằng phương thức khác. | existing notice | x-circle |
+| `PaymentStatus.CANCELLED` | warning | Thanh toán đã bị hủy. Bạn có thể thử lại. | existing notice | ban |
+| `PaymentStatus.REFUND_REQUIRED` | warning | Thanh toán đã thành công nhưng đăng ký không còn hiệu lực. Khoản tiền sẽ được hoàn lại. | existing notice | undo |
+| `PaymentStatus.REFUNDED` | info | Khoản thanh toán đã được hoàn lại. | existing notice | check-circle |
+| `WorkshopStatus.CANCELLED` / `COMPLETED` | destructive / info | Workshop này đã bị hủy. / Workshop này đã kết thúc. | existing notice, `WorkshopDetailView.tsx` | x-circle / flag |
+| `WorkshopStatus.DRAFT` / `PUBLISHED` | muted / success | Nháp / Đã công bố | **proposed** badge text for the admin list (S10); no existing label | pencil / globe |
+| Seat level (catalog, D118) | success / warning / destructive | Còn chỗ / Sắp hết / Hết chỗ | owner's wording in D118 | none beyond the bar |
+| Ticket type | highlight / muted | Có phí / Miễn phí | existing in `MyRegistrationList.tsx`; `Có phí` is **asserted by E2E** (`student-journey.spec.ts`) | none |
+
+Strings the Playwright suites assert and that therefore may not change without the spec in the same commit (C68): `Đăng ký tham dự`,
+`Đăng ký thành công. Chỗ của bạn đã được xác nhận.`, `Xem vé`, `Mã QR e-ticket` (image name), `Thanh toán` (heading and button),
+`Thanh toán thành công.`, `Đăng ký của bạn đã được xác nhận.`, `Xem đăng ký của tôi`, `Có phí`, `Đăng nhập để đăng ký`, `Đăng nhập`,
+`Đăng xuất`, `Đăng ký của tôi` (link), `Xem báo cáo`, the region `Báo cáo workshop` and its figures `Sức chứa`, `Chỗ đã giữ`,
+`Đăng ký đã xác nhận`. A label approved at a gate that differs from one of these is changed in the spec in the same commit as the screen.
 
 The seat level on the catalog is "about" (the list is cached for 30 s); only the detail page shows the live number. Errors sit next to
 their field and say what to do; a `503` offers "Thử lại".
+
+---
 
 ## 6. Motion (D113)
 
@@ -145,7 +160,8 @@ Each candidate was opened on Chromium, Firefox and WebKit under the production p
 
 | Library | Result | Consequence |
 |---|---|---|
-| Radix Tabs, Popover, DropdownMenu, Dialog, Sheet (through `radix-ui` and the shadcn files in `shared/ui`) | pass, **with the scroll-lock shim** | usable |
+| Radix Tabs, Popover, DropdownMenu, Dialog, **AlertDialog**, Sheet (through `radix-ui` and the shadcn files in `shared/ui`) | pass, **with the scroll-lock shim** (AlertDialog: opens, locks scroll, both buttons close it, 0 violations on all three engines) | usable |
+| Native `<input type="date">` and `datetime-local` (no library) | pass: take a value, styled by our classes, **0 reports on Chromium, Firefox and WebKit** | the date range of the catalog filter and the admin form's `startTime`/`endTime` use native inputs; no `DateTimePicker` library. The picker popup is the operating system's and cannot be themed |
 | recharts 3.10.1 | pass (bars and donut, 0 violations) | the report charts (6.8) |
 | **Sonner** | **fail**: injects two `<style>` elements at import time; the toaster stays `position: static` | removed; the toast is built in `shared/ui` (2.6) |
 | **NumberFlow** | **fail**: injects a `<style>` when the page loads; digit columns render raw | removed; no rolling-digit animation |
@@ -155,7 +171,7 @@ Each candidate was opened on Chromium, Firefox and WebKit under the production p
 `react-style-singleton`; every modal open was a violation on all three engines. `src/shared/lib/csp-safe-remove-scroll.tsx` does the
 same through the CSSOM (`body.style`, which the policy allows), and `vite.config.ts` aliases the package name to it, so Radix is not
 patched. Given up: the real package also swallows wheel and touch events aimed at scrollable elements *outside* the open layer. An
-`AlertDialog` is built on the same primitive and must pass the spike when it is added.
+`AlertDialog` is built on the same primitive and passed the spike too.
 
 Every new UI library goes through the spike first. A library that needs a CSP exception is not added without the owner (checklist, "Ghi chú cho Claude Code").
 
@@ -173,6 +189,6 @@ Every new UI library goes through the spike first. A library that needs a CSP ex
 ## 9. Components (`apps/web/src/shared/ui`)
 
 Present: `button` (the stock shadcn one, restyled at 2.6), `theme-toggle`, and the unstyled shadcn primitives from the spike (`dialog`,
-`sheet`, `popover`, `dropdown-menu`, `tabs`). Planned at 2.6, after G1: Input, Textarea, Badge, Card, Skeleton, EmptyState, ErrorState,
-AlertDialog, Toast (own, because of §7), Pagination, DateTimePicker. Each one knows tokens and behaviour only; a status, a permission or a
+`sheet`, `popover`, `dropdown-menu`, `tabs`). Present too, unstyled: `alert-dialog`. Planned at 2.6, after G1: Input (including the native date and datetime-local variants, §7), Textarea, Badge, Card, Skeleton,
+EmptyState, ErrorState, Toast (own, because of §7), Pagination. There is no `Select` (§7) and no `DateTimePicker` library. Each one knows tokens and behaviour only; a status, a permission or a
 Vietnamese domain phrase lives in the feature that uses it.
