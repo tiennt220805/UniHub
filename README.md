@@ -23,22 +23,6 @@ _Designed and built end to end by **Nguyễn Thành Tiến**_
 
 ---
 
-## Table of Contents
-
-- [Overview](#overview)
-- [Features](#features)
-- [Architecture](#architecture)
-- [Engineering Highlights](#engineering-highlights)
-- [Tech Stack](#tech-stack)
-- [Repository Layout](#repository-layout)
-- [Getting Started](#getting-started)
-- [Testing](#testing)
-- [CI/CD](#cicd)
-- [Kubernetes Deployment](#kubernetes-deployment)
-- [Observability](#observability)
-- [Documentation](#documentation)
-- [Author](#author)
-
 ## Overview
 
 University workshops are usually run from spreadsheets and forms. That breaks in three places, and UniHub is built around fixing exactly those:
