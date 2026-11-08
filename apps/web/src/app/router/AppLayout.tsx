@@ -2,6 +2,7 @@ import { Link, Outlet } from 'react-router'
 
 import { useSession, useSignOut } from '@/features/auth'
 import { Button } from '@/shared/ui/button'
+import { ThemeToggle } from '@/shared/ui/theme-toggle'
 
 // The frame around every page: navigation and who is signed in. The role labels are display text
 // ("Signed in as: Student"), never an input to any condition (web-coding-standards.md §11).
@@ -30,6 +31,7 @@ export function AppLayout() {
             </>
           )}
           <span className="ml-auto flex items-center gap-3">
+            <ThemeToggle />
             {session ? (
               <>
                 <span className="text-muted-foreground">
