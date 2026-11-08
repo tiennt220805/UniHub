@@ -13,33 +13,35 @@ afterEach(() => {
   useToastStore.setState({ toasts: [] })
 })
 
+const polite = () => document.querySelector('[data-slot="toast-region-polite"]') as HTMLElement
+const assertive = () => document.querySelector('[data-slot="toast-region-assertive"]') as HTMLElement
 const advance = (ms: number) => act(() => void vi.advanceTimersByTime(ms))
 
 describe('Toaster', () => {
   it('has both live regions in the DOM before anything is shown: a region added with its content is not announced', () => {
     render(<Toaster />)
-    expect(screen.getByLabelText('Thông báo')).toBeEmptyDOMElement()
-    expect(screen.getByLabelText('Thông báo')).toHaveAttribute('aria-live', 'polite')
-    expect(screen.getByLabelText('Lỗi')).toBeEmptyDOMElement()
-    expect(screen.getByLabelText('Lỗi')).toHaveAttribute('aria-live', 'assertive')
+    expect(polite()).toBeEmptyDOMElement()
+    expect(polite()).toHaveAttribute('aria-live', 'polite')
+    expect(assertive()).toBeEmptyDOMElement()
+    expect(assertive()).toHaveAttribute('aria-live', 'assertive')
     // No role on them: a page's own `role="alert"` stays the only alert.
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
-  it('puts success and information in the polite region and errors in the alert region', () => {
+  it('puts success and information in the polite region and errors in the assertive region', () => {
     render(<Toaster />)
     act(() => {
       toast.success('Đã lưu thay đổi.')
       toast.info('Có phiên bản mới.')
       toast.error('Không lưu được.')
     })
-    const polite = screen.getByLabelText('Thông báo')
-    const assertive = screen.getByLabelText('Lỗi')
-    expect(polite).toHaveTextContent('Đã lưu thay đổi.')
-    expect(polite).toHaveTextContent('Có phiên bản mới.')
-    expect(polite).not.toHaveTextContent('Không lưu được.')
-    expect(assertive).toHaveTextContent('Không lưu được.')
+    const politeRegion = polite()
+    const assertiveRegion = assertive()
+    expect(politeRegion).toHaveTextContent('Đã lưu thay đổi.')
+    expect(politeRegion).toHaveTextContent('Có phiên bản mới.')
+    expect(politeRegion).not.toHaveTextContent('Không lưu được.')
+    expect(assertiveRegion).toHaveTextContent('Không lưu được.')
   })
 
   it('dismisses a success by itself after five seconds, through the exit transition', () => {

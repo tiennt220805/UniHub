@@ -52,4 +52,4 @@ Every browser test also fails on a `securitypolicyviolation` event or a CSP erro
 `vite preview` on `127.0.0.1:4399` (override with `E2E_LOCAL_PORT`; Vite's default 4173 is often taken). The build carries the real
 Content-Security-Policy `<meta>`; the one difference is `VITE_SPIKE=true`, which adds the `/__spike` page. The build goes into
 `apps/web/node_modules/.spike-dist`, never into `apps/web/dist`. These specs are Phase 8 evidence (the UI-library CSP spike, task 2.3, and
-the light/dark theme, task 2.4); they do not replace the cluster suite above, and `support/page-health.ts` is the same CSP watcher both use.
+the light/dark theme, task 2.4, and the two frames at 1280, 900 and 360 px, task 2.7); they do not replace the cluster suite above, and `support/page-health.ts` is the same CSP watcher both use.

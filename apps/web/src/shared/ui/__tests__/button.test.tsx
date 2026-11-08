@@ -27,9 +27,12 @@ describe('Button', () => {
     expect(className).not.toMatch(/ring-ring\/\d+/)
   })
 
-  it('scales on press only when motion is allowed', () => {
+  it('scales on press only when motion is allowed, and animates it', () => {
     render(<Button>Lưu</Button>)
-    expect(screen.getByRole('button').className).toContain('motion-safe:active:scale-[0.97]')
+    const { className } = screen.getByRole('button')
+    expect(className).toContain('motion-safe:active:scale-[0.97]')
+    // Tailwind v4's scale-* is the `scale` property, not `transform`: it must be in the transition list or the press is instant.
+    expect(className).toMatch(/transition-\[[^\]]*\bscale\b[^\]]*\]/)
   })
 
   it.each([
