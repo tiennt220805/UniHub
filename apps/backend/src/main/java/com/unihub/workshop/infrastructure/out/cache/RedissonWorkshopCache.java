@@ -57,7 +57,9 @@ class RedissonWorkshopCache implements WorkshopCache {
 
     @Override
     public Optional<WorkshopDetailSnapshot> findDetail(WorkshopId id) {
-        return read(WorkshopCacheKeys.detail(id), WorkshopDetailSnapshot.class);
+        // One key for both releases of a rollout: an entry of another shape is a miss, not a value.
+        return read(WorkshopCacheKeys.detail(id), WorkshopDetailSnapshot.class)
+                .filter(snapshot -> snapshot.shape() == WorkshopDetailSnapshot.SHAPE);
     }
 
     @Override

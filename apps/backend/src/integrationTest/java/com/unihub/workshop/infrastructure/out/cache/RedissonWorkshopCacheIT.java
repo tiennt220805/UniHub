@@ -88,7 +88,8 @@ class RedissonWorkshopCacheIT extends IntegrationTestSupport {
                 new BigDecimal("150000.50"),
                 true,
                 "covers/" + id.value() + "/a.jpg",
-                Instant.parse("2026-10-01T00:00:00Z"));
+                Instant.parse("2026-10-01T00:00:00Z"),
+                WorkshopDetailSnapshot.SHAPE);
     }
 
     private WorkshopSeatsSnapshot seats() {
@@ -106,6 +107,27 @@ class RedissonWorkshopCacheIT extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName(
+            "an entry of another shape, or from a release that predates the marker, is a miss; one DEL still reaches it")
+    void detail_otherShapeIsAMiss_andInvalidateStillReachesIt() {
+        var key = track(WorkshopCacheKeys.detail(id));
+        var current = detail();
+        cache.putDetail(current);
+        var written = redis.getBucket(key, StringCodec.INSTANCE).get().toString();
+
+        // The previous release wrote no "shape": Jackson reads it as 0, which is not this
+        // release's.
+        redis.getBucket(key, StringCodec.INSTANCE).set(written.replaceAll(",\"shape\":\\d+", ""));
+        assertThat(cache.findDetail(id)).as("no shape component").isEmpty();
+        redis.getBucket(key, StringCodec.INSTANCE)
+                .set(written.replaceAll("\"shape\":\\d+", "\"shape\":99"));
+        assertThat(cache.findDetail(id)).as("another shape").isEmpty();
+
+        cache.invalidate(id);
+        assertThat(exists(key)).as("the same key, so either release's DEL reaches it").isFalse();
+    }
+
+    @Test
     @DisplayName("detail round-trips, as plain JSON under the documented key, for 300s")
     void detail_roundTrip_keyAndTtl() {
         var snapshot = detail();
@@ -113,7 +135,7 @@ class RedissonWorkshopCacheIT extends IntegrationTestSupport {
         cache.putDetail(snapshot);
 
         assertThat(cache.findDetail(id)).contains(snapshot);
-        var key = "unihub:cache:workshop:detail:v2:" + id.value();
+        var key = "unihub:cache:workshop:detail:" + id.value();
         var raw = (String) redis.getBucket(key, StringCodec.INSTANCE).get();
         assertThat(raw).startsWith("{").contains("\"title\":\"Intro to Kubernetes\"");
         assertThat(raw).as("no storage key leaks into the cache").doesNotContain("brochureS3Key");

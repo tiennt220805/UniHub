@@ -193,7 +193,7 @@ Every Redis key pattern and numeric value across this system, in one place, trac
 
 | Key Pattern | TTL / Lease / Rate | Backs |
 |---|---|---|
-| `unihub:cache:workshop:detail:v2:{workshopId}` | 300s TTL | Caching slow-changing workshop data (`docs/requirement.md` §2.4) — full design in `../modules/workshop.md` |
+| `unihub:cache:workshop:detail:{workshopId}` | 300s TTL | Caching slow-changing workshop data (`docs/requirement.md` §2.4) — full design in `../modules/workshop.md` |
 | `unihub:cache:workshop:seats:{workshopId}` | 3s TTL | Near-real-time seat availability display (§1.3.1) — full design in `../modules/workshop.md` |
 | `unihub:cache:workshop:list:v2:{filterHash}` | 30s TTL | Catalog search/browse caching (§2.4) — full design in `../modules/workshop.md` |
 | `unihub:lock:seat:{workshopId}` | 5s lease, 2s wait | Anti-overbooking coordination layer (`architecture.md` §6.1/§4.2, `proposal.md` §11.1) — full design in `../modules/registration.md`; advisory only, `database-schema.md` §3.1/§4.1's `version`/check-constraint pair is the final authority |

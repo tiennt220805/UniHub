@@ -17,14 +17,20 @@ final class WorkshopCacheKeys {
     private static final String PREFIX = "unihub:cache:workshop:";
 
     /**
-     * The shape generation of the cached values. A rollout runs two releases against one Redis
-     * (INV-15), and Jackson reads a missing record component as {@code null} or {@code 0} without
-     * complaint, so an entry written by the other release would be served as a wrong value, not as
-     * a miss. Raise it whenever a cached record gains or loses a component: the old entries are
-     * then never read, and expire on their own. v2 (Phase 8): the catalog entry gained the card's
-     * fields and the detail snapshot its cover image.
+     * The shape generation of the cached <em>list</em> pages. A rollout runs two releases against
+     * one Redis (INV-15), and Jackson reads a missing record component as {@code null} or {@code 0}
+     * without complaint, so a page written by the other release would be served as a wrong value,
+     * not as a miss. Raise it whenever {@code WorkshopCatalogEntry} gains or loses a component: the
+     * old pages are then never read, and expire on their own. A list is never invalidated by a
+     * write (workshop.md §2), so nothing is lost by the two releases using different keys.
+     *
+     * <p>The <em>detail</em> key is deliberately not versioned: an explicit {@code DEL} on a write
+     * must reach the entry of both releases, and a version in the key would send each release's
+     * {@code DEL} to a key the other never reads. The detail snapshot carries its own shape marker
+     * instead ({@link com.unihub.workshop.application.port.out.WorkshopDetailSnapshot#SHAPE}). The
+     * seats key has not changed shape.
      */
-    static final String SHAPE = "v2:";
+    static final String LIST_SHAPE = "v2:";
 
     /** 128 bits of the SHA-256: ample for a 30s cache, and half the key length. */
     private static final int FILTER_HASH_HEX_LENGTH = 32;
@@ -32,7 +38,7 @@ final class WorkshopCacheKeys {
     private WorkshopCacheKeys() {}
 
     static String detail(WorkshopId id) {
-        return PREFIX + "detail:" + SHAPE + id.value();
+        return PREFIX + "detail:" + id.value();
     }
 
     static String seats(WorkshopId id) {
@@ -40,7 +46,7 @@ final class WorkshopCacheKeys {
     }
 
     static String list(SearchWorkshopsCriteria criteria) {
-        return PREFIX + "list:" + SHAPE + filterHash(criteria);
+        return PREFIX + "list:" + LIST_SHAPE + filterHash(criteria);
     }
 
     /**

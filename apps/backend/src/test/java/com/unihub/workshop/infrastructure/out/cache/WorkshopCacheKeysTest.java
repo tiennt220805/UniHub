@@ -17,13 +17,13 @@ class WorkshopCacheKeysTest {
 
     @Test
     @DisplayName(
-            "detail and seats keys are the documented ones; detail and list carry the shape version"
-                    + " (distributed-coordination.md §5, INV-15)")
+            "detail and seats keys are the documented, unversioned ones: one DEL must reach both"
+                    + " releases of a rollout (distributed-coordination.md §5, INV-15)")
     void keyFormats() {
         var id = new WorkshopId(UUID.fromString("11111111-2222-3333-4444-555555555555"));
 
         assertThat(WorkshopCacheKeys.detail(id))
-                .isEqualTo("unihub:cache:workshop:detail:v2:11111111-2222-3333-4444-555555555555");
+                .isEqualTo("unihub:cache:workshop:detail:11111111-2222-3333-4444-555555555555");
         assertThat(WorkshopCacheKeys.seats(id))
                 .isEqualTo("unihub:cache:workshop:seats:11111111-2222-3333-4444-555555555555");
     }

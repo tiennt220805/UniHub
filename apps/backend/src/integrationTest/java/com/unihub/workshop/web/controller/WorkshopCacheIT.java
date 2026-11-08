@@ -106,10 +106,7 @@ class WorkshopCacheIT extends IntegrationTestSupport {
     }
 
     private boolean cached(String kind, UUID id) {
-        // The detail entry carries the shape version (WorkshopCacheKeys.SHAPE); seats do not.
-        var versioned = kind.equals("detail") ? kind + ":v2" : kind;
-        return redis.getBucket(
-                        "unihub:cache:workshop:" + versioned + ":" + id, StringCodec.INSTANCE)
+        return redis.getBucket("unihub:cache:workshop:" + kind + ":" + id, StringCodec.INSTANCE)
                 .isExists();
     }
 

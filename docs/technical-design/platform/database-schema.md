@@ -1080,7 +1080,7 @@ ALTER TABLE workshops ADD COLUMN pending_cover_image_key VARCHAR(512);
 |---|---|---|---|
 | `workshops.cover_image_key`, `workshops.pending_cover_image_key` nullable columns | Neither reads nor writes them; inserts and updates name their columns | Reads and writes them | Safe: adding nullable columns changes no existing statement (`architecture.md` §6.2) |
 
-`V9` is forward-only. The new release also versions the Redis keys of the two cached shapes it changed (`unihub:cache:workshop:detail:v2:{id}`, `…:list:v2:{hash}`, `workshop.md` §2), because the previous release and this one share one Redis during a rollout and Jackson reads a missing component as `null`/`0` without error: an entry of the other shape would otherwise be served as a wrong value, not as a miss.
+`V9` is forward-only. The new release also protects the Redis entries it shares with the previous one during a rollout: the list key is versioned (`unihub:cache:workshop:list:v2:{hash}`) and the detail snapshot carries a `shape` marker under the unchanged key, so that an explicit `DEL` reaches both releases (`workshop.md`, "Cache shape (INV-15)").
 
 ---
 
