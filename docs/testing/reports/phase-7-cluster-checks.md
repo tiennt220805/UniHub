@@ -161,7 +161,7 @@
   - **Biện pháp 2 (dừng N-1 trước, tức Recreate): hiệu quả nhưng là sự cố ngừng dịch vụ** — HEAD Ready sau **85 s** kể từ lúc N-1 dừng; probe trong lúc đó: **236 `503`** (gateway không có pod).
   - Sau cùng: hàng đợi có đủ bốn tham số mới, không còn `PRECONDITION_FAILED`, `unihub_audit_publish_failures_total` = 0.
 - **Kết luận có giới hạn:** (i) `INV-15` ở mức **schema** được chứng minh trên cluster (Job dưới STRICT + sidecar, N-1 đọc/ghi trên schema mới, 0 lỗi). (ii) **Một thay đổi tham số của hàng đợi AMQP không đi được qua rolling update** — không có expand/contract cho topology. Với cặp thật (một bản phát hành chưa từng nằm trên cluster này, vì cluster dựng lần đầu ở HEAD của Phase 7) thì chỉ gặp một lần, nhưng quy tắc cần được chủ dự án quyết: (a) ghi nhận là bước vận hành một lần (xóa hàng đợi và dừng bản cũ) cho bản phát hành vượt `ab9cd91`; (b) đổi các tham số giới hạn/DLX của hàng đợi sang **policy của RabbitMQ** (`set_policy`) thay vì `x-arguments` khi khai báo — policy đổi được mà không gây `PRECONDITION_FAILED`; (c) khi đổi tham số, đặt tên hàng đợi mới (expand) rồi bỏ hàng đợi cũ (contract). Tôi **không** chọn thay chủ dự án và không sửa code ở đây.
-- M-58 vẫn `Drafted` (cả vì chờ chấp nhận, D102, cả vì rollout chưa xong).
+- *(Lúc ghi, 2026-11-06)* M-58 `Drafted` vì chờ chấp nhận (D102) và vì rollout chưa xong. *(2026-11-08: M-58 `Passing` theo lời chủ dự án, người đọc tiêu chí là phần schema; rollout chưa xong vẫn là phát hiện mở ở `phase-7.md` §5.)*
 
 ### 8.5 — stub Stripe chết (kịch bản 1b, M-64; `k8s/scripts/dependency-outage.sh stripe`)
 
@@ -321,3 +321,5 @@ Không `OOMKilled` ở lần chạy này (trừ lần thử 1, đã ghi). **Nh�
 ## Điều kiện để các dòng ma trận lên `Passing` (D102)
 
 M-60 (replica `streaming`, `postgres-master-0` cùng tên và PVC) và M-66 (cluster kéo đúng digest CI) đã có bằng chứng ở đây, nhưng do Claude Code chạy: chủ dự án phải nói rõ **chấp nhận** nhóm bằng chứng này (ở `phase-7.md`, điều kiện B của sign-off). Bản chạy lại ở Mục 10 dưới STRICT là bản được ký.
+
+**Kết quả (2026-11-08, lúc ký Phase 7):** chủ dự án chọn "Chấp nhận tất cả" cho nhóm bằng chứng cluster do Claude Code chạy (M-59, M-60, M-62 … M-67, M-69, M-70 và ô P1), và đọc tiêu chí INV-15 là phần schema (M-58). Các dòng đó là `Passing` trong `test-matrix.md`; điều kiện B1 và B2 của `release-sign-offs/phase-7.md` ghi lại hai câu đó.
