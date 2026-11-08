@@ -4,8 +4,8 @@ The visual language of `apps/web`: tokens, type, spacing, motion, state rules, a
 owner of *how the Web looks*; `web-coding-standards.md` owns *how the code is laid out* and links here (§15). Decisions are those of
 the Phase 8 checklist (`checklists/phase-8-web-ui.md`, D105–D129); this file does not restate them, it makes them usable.
 
-> **Status.** Sections marked *proposed* are the values the G1 mockup shows; they become final when the owner approves G1 (D116).
-> Everything else is implemented in `apps/web/src/styles/index.css` and checked by tests.
+> **Status.** The owner approved the G1 mockup on 2026-11-08 ("Tôi duyệt"; D130–D136 in the Phase 8 checklist), so every value here is final.
+> The tokens are implemented in `apps/web/src/styles/index.css` and checked by tests; the components are in `apps/web/src/shared/ui`.
 
 ## 1. Principles
 
@@ -75,7 +75,7 @@ button's tinted surface and that both modes define the same tokens). A pair that
 The preview page the owner chose drew the input border as `#CDD6CC` / `#2D3F33` (1,49 / 1,57), which fails 3:1; it was replaced
 by `input` above (C71).
 
-## 3. Typography *(proposed, final at G1)*
+## 3. Typography
 
 **Be Vietnam Pro**, self-hosted through `@fontsource/be-vietnam-pro` 5.3.0, weights 400, 500, 600, 700 (D111). Each weight's CSS carries the
 `vietnamese`, `latin-ext` and `latin` subsets with `unicode-range`, so a Vietnamese page loads only what it uses. The font files
@@ -96,7 +96,7 @@ Vietnamese stacks diacritics above and below the line: keep body line height at 
 test long titles with tone marks (checklist 7.2). Numbers that change (seat counts, countdown) use tabular figures
 (`font-variant-numeric: tabular-nums`) so they do not jitter.
 
-## 4. Spacing, radius, elevation *(proposed, final at G1)*
+## 4. Spacing, radius, elevation
 
 - **Spacing:** Tailwind's 4 px scale. Page gutter 16 px below `md`, 24 px from `md`. Student content `max-w-6xl`; the catalog grid is 1 column at 360 px, 2 from `sm`, 3 from `lg`. Admin content `max-w-5xl` inside the sidebar layout. Touch targets 44 px minimum on student pages (a 36 px button gets padding, not a smaller hit area).
 - **Radius:** `--radius` is 0.625 rem (10 px). Cards `rounded-xl` (14 px), buttons and controls `rounded-lg`, chips and badges `rounded-full`, dialogs `rounded-2xl`.
@@ -105,7 +105,7 @@ test long titles with tone marks (checklist 7.2). Numbers that change (seat coun
 ## 5. State is never colour alone (D115)
 
 Primary and "success" share a hue, so a status must carry text or an icon besides its colour. Every status component takes its text from a
-map in its **feature** (never from `shared/`); `shared/ui` `Badge` only knows the tone. The icon and tone columns are *proposed*, final at G1.
+map in its **feature** (never from `shared/`); `shared/ui` `Badge` only knows the tone. The icon and tone columns were approved at G1.
 The **text is not free**: where it already exists in the code it stays, because Playwright asserts some of it (C68).
 
 | Domain value (API contract) | Tone | Text | Source of the text | Icon |
@@ -121,7 +121,7 @@ The **text is not free**: where it already exists in the code it stays, because 
 | `PaymentStatus.REFUND_REQUIRED` | warning | Thanh toán đã thành công nhưng đăng ký không còn hiệu lực. Khoản tiền sẽ được hoàn lại. | existing notice | undo |
 | `PaymentStatus.REFUNDED` | info | Khoản thanh toán đã được hoàn lại. | existing notice | check-circle |
 | `WorkshopStatus.CANCELLED` / `COMPLETED` | destructive / info | Workshop này đã bị hủy. / Workshop này đã kết thúc. | existing notice, `WorkshopDetailView.tsx` | x-circle / flag |
-| `WorkshopStatus.DRAFT` / `PUBLISHED` | muted / success | Nháp / Đã công bố | **proposed** badge text for the admin list (S10); no existing label | pencil / globe |
+| `WorkshopStatus.DRAFT` / `PUBLISHED` | muted / success | Nháp / Đã công bố | badge text for the admin list (S10), new and approved at G1; no existing label | pencil / globe |
 | Seat level (catalog, D118) | success / warning / destructive | Còn chỗ / Sắp hết / Hết chỗ | owner's wording in D118 | none beyond the bar |
 | Ticket type | highlight / muted | Có phí / Miễn phí | existing in `MyRegistrationList.tsx`; `Có phí` is **asserted by E2E** (`student-journey.spec.ts`) | none |
 
@@ -179,7 +179,7 @@ Every new UI library goes through the spike first. A library that needs a CSP ex
 
 | What | Why | Where decided |
 |---|---|---|
-| shadcn's `--accent` is a **green surface**, amber is `--highlight` | shadcn uses `accent` for hover and selection (ghost buttons, menu items, list rows); amber there would paint every hovered item yellow, against D109. The hex values of palette B are unchanged | `index.css`; confirm at G1 |
+| shadcn's `--accent` is a **green surface**, amber is `--highlight` | shadcn uses `accent` for hover and selection (ghost buttons, menu items, list rows); amber there would paint every hovered item yellow, against D109. The hex values of palette B are unchanged | `index.css`; confirmed 2026-11-08 (D130) |
 | `--primary-hover` is its own token | `hover:bg-primary/80` of the stock button drops white-on-green below 4,5:1 in light mode | `index.css`; 2.6 must use it |
 | Focus ring is a solid `outline-ring`, not `/50` | half opacity falls under 3:1 | `index.css` base layer |
 | `muted` and `seat-track` are `#ECEFEA` / `#1D2A21` | from the owner's preview page; they reproduce the 4,32 and 3,07 of the contrast table | `index.css` |

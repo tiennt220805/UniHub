@@ -173,7 +173,19 @@ Primary và "thành công" cùng sắc xanh, nên mọi trạng thái (Đã xác
 - [x] 2.5 Tài liệu `docs/guidelines/web-design-system.md`: token, bảng tương phản, thang chữ, khoảng cách, bo góc, đổ bóng, chuyển động (thời lượng, easing theo `emil-design-eng`), quy tắc trạng thái (màu + chữ/biểu tượng); link từ `web-coding-standards.md` (§ mới) và nêu vị trí thành phần dùng chung `shared/ui` *(Xong 2026-11-08, viết tay, không dùng script `--persist`, nên không có thư mục `design-system/` ở gốc repo (C69). Có: token và bảng tương phản đo từ `index.css`, quy tắc trạng thái theo enum thật của contract, kết quả spike và chỗ lệch so với mặc định shadcn (bảng §8), link từ `web-coding-standards.md` §15. Thang chữ, khoảng cách, bo góc, đổ bóng, độ rộng nội dung ghi là *proposed*: chốt khi owner duyệt G1.)*
 - [ ] 2.6 Thành phần dùng chung trong `shared/ui` (không kiến thức nghiệp vụ, Rules #4): Button (biến thể), Input, Select, Textarea, Badge, Card, Skeleton, EmptyState, ErrorState, Dialog/AlertDialog, Tabs, Toast, Pagination, DateTimePicker (theo kết quả 2.3)
 - [ ] 2.7 Hai khung: `StudentLayout` (top nav, menu điện thoại, chuông thông báo, nút chế độ) và `AdminLayout` (sidebar, breadcrumb, gập trên màn hình hẹp); route `/admin/*` bọc `RequirePermission anyOf` (S9)
-- [ ] 2.8 **G1:** mockup HTML (token thật) của design system và hai khung; owner duyệt *(Mockup dựng 2026-11-08, **chờ owner duyệt, chưa tick**: https://claude.ai/artifact/AqzwhJW7ebhssS43UbePJe — 7 artboard: token và chữ, component sáng/tối, **A/B màu accent**, khung sinh viên 360 px (sáng + tối), khung sinh viên máy tính, khung quản trị 1280 px và 768 px. Bảy điều cần owner quyết: (1) accent A xanh nhạt (đề xuất) hay B hổ phách; (2) khoá cuộn modal bằng alias thay `react-remove-scroll` hay thêm hai hash vào CSP; (3) bỏ Radix Select (vi phạm CSP) — xác nhận, và 2.6 phải bỏ Select khỏi danh sách; (4) toast tự làm thay Sonner, bỏ NumberFlow; (5) ô ngày giờ native, không thư viện; (6) chữ, khoảng cách, bo góc, đổ bóng đang là đề xuất; (7) hai khung. Khi owner duyệt: tick 2.8, chốt các mục *proposed* ở `web-design-system.md`, rồi mới làm 2.6 và 2.7.)*
+- [x] 2.8 **G1:** mockup HTML (token thật) của design system và hai khung; owner duyệt *(Mockup dựng 2026-11-08: https://claude.ai/artifact/AqzwhJW7ebhssS43UbePJe — 7 artboard (token và chữ, component sáng/tối, A/B accent, khung sinh viên 360 px sáng + tối, khung sinh viên máy tính, khung quản trị 1280 px và 768 px). **Owner duyệt 2026-11-08, nguyên văn: "Tôi duyệt, bạn hãy là tiếp 2.6, 2.7 và 2.8 cho tôi".** Owner không nêu từng điểm riêng, nên Claude Code đọc là duyệt **cả bảy đề xuất như đã trình bày**; đổi ý điểm nào là quyết định mới. Ghi thành D130–D136 để `phase-8.md` §5 trích dẫn:*
+
+| D | Quyết định (duyệt 2026-11-08, đọc theo đề xuất) |
+|---|---|
+| D130 | shadcn `--accent` là xanh nhạt `#E6EFE7`/`#1C2D22` (A); hổ phách là token `--highlight`, chỉ cho nhãn và điểm nhấn |
+| D131 | Khoá cuộn của modal Radix bằng `csp-safe-remove-scroll.tsx` (alias thay `react-remove-scroll` trong `vite.config.ts`); **không** thêm hash vào CSP |
+| D132 | Không dùng Radix Select (thẻ `<style>` vi phạm CSP); `shared/ui/select.tsx` đã xoá; màn hình nào cần danh sách chọn thì quay lại owner |
+| D133 | Toast tự làm trong `shared/ui` thay Sonner; bỏ NumberFlow |
+| D134 | Ô ngày và ngày giờ dùng `<input type="date">` / `datetime-local` native, không thư viện DateTimePicker |
+| D135 | Chữ (Be Vietnam Pro, thang 12–36), khoảng cách (lưới 4 px), bo góc (gốc 10 px), đổ bóng và chuyển động như `web-design-system.md` §3, §4, §6 |
+| D136 | Hai khung: sinh viên (thanh trên; điện thoại có menu ngăn bên) và quản trị (sidebar ≥1024 px, thanh biểu tượng 768–1023 px) |
+
+*Hai điều chỉnh so với mockup, ghi để owner biết (không phải quyết định mới):* bộ lọc catalog không có chip Miễn phí/Có phí (D119: `listWorkshops` không có tham số đó), và sidebar quản trị không có mục "Báo cáo" cấp trên (báo cáo là theo từng workshop, S15). Chuông thông báo sẽ **không** có số đếm "3" như mockup vì thông báo không có trạng thái đã đọc (M-81).*
 
 ## 3. Backend tối thiểu (sau Q1, Q3–Q6)
 
