@@ -51,6 +51,8 @@ export const useThemeStore = create<ThemeState>()((set) => ({
 export function startThemeSync(): () => void {
   const media = typeof window.matchMedia === 'function' ? window.matchMedia(DARK_QUERY) : null
   const onSystemChange = () => applyTheme(useThemeStore.getState().preference)
+  // The init script has normally done this already; this covers a page that was served without it (a stale cache).
+  onSystemChange()
   const onStorage = (event: StorageEvent) => {
     if (event.key !== THEME_STORAGE_KEY) return
     const preference = parseThemePreference(event.newValue)

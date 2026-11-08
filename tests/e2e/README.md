@@ -45,3 +45,11 @@ Every browser test also fails on a `securitypolicyviolation` event or a CSP erro
   the application's own bundle, on the `webkit` project (decided by the owner, 2026-11-06); the test attaches `tolerated-csp-webkit-select` whenever it does. Anything
   else, on any engine, fails the test.
 - **429:** the Organizer helper waits out a `429` as `Retry-After` says (the rate limit is per identity).
+
+## Local browser checks (no cluster): `npm run test:local`
+
+`playwright.local.config.ts` + `specs-local/` run on the three engines against a **production build of `apps/web`** served by
+`vite preview` on `127.0.0.1:4399` (override with `E2E_LOCAL_PORT`; Vite's default 4173 is often taken). The build carries the real
+Content-Security-Policy `<meta>`; the one difference is `VITE_SPIKE=true`, which adds the `/__spike` page. The build goes into
+`apps/web/node_modules/.spike-dist`, never into `apps/web/dist`. These specs are Phase 8 evidence (the UI-library CSP spike, task 2.3, and
+the light/dark theme, task 2.4); they do not replace the cluster suite above, and `support/page-health.ts` is the same CSP watcher both use.

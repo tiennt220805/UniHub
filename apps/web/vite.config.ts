@@ -14,9 +14,15 @@ export default defineConfig(({ mode }) => {
     // The CSP meta tag is added to production builds only (vite-plugins/csp.ts).
     plugins: [react(), tailwindcss(), cspMeta(env.VITE_API_BASE_URL ?? '')],
     resolve: {
-      alias: {
-        '@': path.resolve(import.meta.dirname, './src'),
-      },
+      alias: [
+        { find: '@', replacement: path.resolve(import.meta.dirname, './src') },
+        // Radix's modals lock the page scroll with react-remove-scroll, which injects a <style> element that the
+        // production CSP refuses. This file does the same through the CSSOM (Phase 8 task 2.3).
+        {
+          find: /^react-remove-scroll$/,
+          replacement: path.resolve(import.meta.dirname, './src/shared/lib/csp-safe-remove-scroll.tsx'),
+        },
+      ],
     },
     server: {
       // Paths in packages/api-contract already carry the /api/v1 prefix, so forward /api as-is to the

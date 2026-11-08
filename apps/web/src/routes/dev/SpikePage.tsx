@@ -1,0 +1,133 @@
+import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, XAxis } from 'recharts'
+
+import { Button } from '@/shared/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from '@/shared/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/shared/ui/dropdown-menu'
+import { Popover, PopoverContent, PopoverTrigger } from '@/shared/ui/popover'
+import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from '@/shared/ui/sheet'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs'
+
+// Task 2.3 (Phase 8 checklist, D125): every UI library that the design leans on is opened in a real browser under
+// the production Content-Security-Policy (`style-src 'self'`, no 'unsafe-inline') before a screen depends on it.
+// Only a build made with VITE_SPIKE=true has this route (app/router/routes.tsx); tests/e2e/specs-local/spike.spec.ts
+// drives it on the three engines. It is a test fixture, not a screen: nothing links here.
+
+const BARS = [
+  { slot: '08:00', count: 4 },
+  { slot: '08:15', count: 11 },
+  { slot: '08:30', count: 7 },
+  { slot: '08:45', count: 2 },
+]
+const SHARE = [
+  { name: 'Đã check-in', value: 24, fill: 'var(--chart-1)' },
+  { name: 'Chưa check-in', value: 36, fill: 'var(--chart-5)' },
+]
+
+// `?only=numberflow,charts` renders just those sections, so a violation can be pinned on one library.
+const ONLY = new URLSearchParams(window.location.search).get('only')?.split(',')
+const shows = (section: string) => !ONLY || ONLY.includes(section)
+
+export function SpikePage() {
+
+  return (
+    <main className="mx-auto grid max-w-3xl gap-6 p-4">
+      <h1 className="text-xl font-semibold">Kiểm tra CSP của thư viện giao diện</h1>
+
+      {shows('dialog') && (
+        <section aria-label="Dialog" className="flex items-center gap-3">
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button>Mở hộp thoại</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogTitle>Hộp thoại thử</DialogTitle>
+              <DialogDescription>Nội dung hộp thoại.</DialogDescription>
+            </DialogContent>
+          </Dialog>
+        </section>
+      )}
+
+      {shows('popover') && (
+        <section aria-label="Popover">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline">Mở popover</Button>
+            </PopoverTrigger>
+            <PopoverContent>Nội dung popover</PopoverContent>
+          </Popover>
+        </section>
+      )}
+
+      {shows('menu') && (
+        <section aria-label="Menu">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">Mở menu</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem>Mục một</DropdownMenuItem>
+              <DropdownMenuItem>Mục hai</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </section>
+      )}
+
+      {shows('sheet') && (
+        <section aria-label="Ngăn bên">
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="outline">Mở ngăn bên</Button>
+            </SheetTrigger>
+            <SheetContent>
+              <SheetTitle>Ngăn bên thử</SheetTitle>
+              <SheetDescription>Nội dung ngăn bên.</SheetDescription>
+            </SheetContent>
+          </Sheet>
+        </section>
+      )}
+
+      {shows('tabs') && (
+        <section aria-label="Tabs">
+          <Tabs defaultValue="one">
+            <TabsList>
+              <TabsTrigger value="one">Tab một</TabsTrigger>
+              <TabsTrigger value="two">Tab hai</TabsTrigger>
+            </TabsList>
+            <TabsContent value="one">Nội dung tab một</TabsContent>
+            <TabsContent value="two">Nội dung tab hai</TabsContent>
+          </Tabs>
+        </section>
+      )}
+
+
+      {shows('charts') && (
+        <section aria-label="Biểu đồ" className="grid grid-cols-2 gap-4">
+          <div role="img" aria-label="Biểu đồ cột" className="h-40">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={BARS}>
+                <XAxis dataKey="slot" />
+                <Bar dataKey="count" fill="var(--chart-1)" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div role="img" aria-label="Biểu đồ vòng" className="h-40">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={SHARE} dataKey="value" nameKey="name" innerRadius={30} outerRadius={60}>
+                  {SHARE.map((entry) => (
+                    <Cell key={entry.name} fill={entry.fill} />
+                  ))}
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+      )}
+    </main>
+  )
+}

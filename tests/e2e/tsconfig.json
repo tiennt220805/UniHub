@@ -9,5 +9,5 @@
     "types": ["node"],
     "verbatimModuleSyntax": true
   },
-  "include": ["*.ts", "specs/**/*.ts", "support/**/*.ts"]
+  "include": ["*.ts", "specs/**/*.ts", "specs-local/**/*.ts", "support/**/*.ts"]
 }

@@ -69,6 +69,13 @@ describe('the theme store', () => {
 })
 
 describe('startThemeSync', () => {
+  it('applies the current choice when it starts', () => {
+    stubSystem(true)
+    const stop = startThemeSync()
+    expect(isDark()).toBe(true)
+    stop()
+  })
+
   it('follows the operating system while the choice is `system`, and not once it is not', () => {
     const system = stubSystem(false)
     const stop = startThemeSync()

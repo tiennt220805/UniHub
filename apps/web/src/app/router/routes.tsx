@@ -13,10 +13,25 @@ import { AppLayout } from './AppLayout'
 import { RequirePermission } from './guards/RequirePermission'
 import { RequireSession } from './guards/RequireSession'
 
+// The CSP spike page (task 2.3). `import.meta.env.VITE_SPIKE` is read here, not through shared/config/env.ts, on
+// purpose: Vite replaces it with a constant at build time, so a build without the flag drops the whole branch and
+// the page, with the libraries only it uses, is not in the production bundle. A Zod-parsed runtime value would
+// leave the dynamic import() in the bundle.
+const spikeRoutes: RouteObject[] =
+  import.meta.env.VITE_SPIKE === 'true'
+    ? [
+        {
+          path: '/__spike',
+          lazy: async () => ({ Component: (await import('@/routes/dev/SpikePage')).SpikePage }),
+        },
+      ]
+    : []
+
 export const routes: RouteObject[] = [
   {
     element: <AppLayout />,
     children: [
+      ...spikeRoutes,
       { path: '/', element: <Navigate to="/workshops" replace /> },
       { path: '/workshops', element: <WorkshopCatalogPage /> },
       { path: '/workshops/:workshopId', element: <WorkshopDetailPage /> },
