@@ -63,6 +63,9 @@ class WorkshopJpaEntity {
     @Column(name = "brochure_s3_key", updatable = false)
     private String brochureS3Key;
 
+    @Column(name = "cover_image_key", updatable = false)
+    private String coverImageKey;
+
     @Column(nullable = false)
     private String status;
 
@@ -188,6 +191,14 @@ class WorkshopJpaEntity {
 
     void brochureS3Key(String brochureS3Key) {
         this.brochureS3Key = brochureS3Key;
+    }
+
+    String coverImageKey() {
+        return coverImageKey;
+    }
+
+    void coverImageKey(String coverImageKey) {
+        this.coverImageKey = coverImageKey;
     }
 
     String status() {

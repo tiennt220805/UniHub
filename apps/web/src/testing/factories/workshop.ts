@@ -22,6 +22,7 @@ export function aWorkshop(overrides: Partial<Workshop> = {}): Workshop {
     isPaid: false,
     price: null,
     hasBrochure: false,
+    coverImageUrl: null,
     status: 'PUBLISHED',
     version: 3,
     ...overrides,
@@ -35,6 +36,13 @@ export function aWorkshopSummary(overrides: Partial<WorkshopSummary> = {}): Work
     location: 'Hall A',
     startTime: '2026-11-01T02:00:00Z',
     status: 'PUBLISHED',
+    speakerName: 'Dr. Lan Nguyen',
+    endTime: '2026-11-01T04:00:00Z',
+    capacity: 50,
+    seatsTaken: 15,
+    isPaid: false,
+    price: null,
+    coverImageUrl: null,
     ...overrides,
   }
 }

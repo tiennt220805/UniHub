@@ -28,6 +28,7 @@ public final class WorkshopBuilder {
     private boolean paid = false;
     private BigDecimal price;
     private String brochureS3Key;
+    private String coverImageKey;
     private WorkshopStatus status = WorkshopStatus.DRAFT;
     private Version version = Version.initial();
 
@@ -124,6 +125,11 @@ public final class WorkshopBuilder {
         return this;
     }
 
+    public WorkshopBuilder withCoverImageKey(String coverImageKey) {
+        this.coverImageKey = coverImageKey;
+        return this;
+    }
+
     public WorkshopBuilder withStatus(WorkshopStatus status) {
         this.status = status;
         return this;
@@ -150,6 +156,7 @@ public final class WorkshopBuilder {
                 paid,
                 price,
                 brochureS3Key,
+                coverImageKey,
                 status,
                 version);
     }

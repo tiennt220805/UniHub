@@ -96,6 +96,7 @@ class WorkshopWriteControllerWebTest {
                 false,
                 null,
                 false,
+                null,
                 status,
                 0,
                 Instant.parse("2026-10-01T08:00:00Z"),

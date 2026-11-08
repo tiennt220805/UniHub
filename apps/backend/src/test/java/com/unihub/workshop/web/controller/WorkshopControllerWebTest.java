@@ -168,6 +168,7 @@ class WorkshopControllerWebTest {
                 false,
                 null,
                 false,
+                null,
                 "PUBLISHED",
                 0,
                 now,

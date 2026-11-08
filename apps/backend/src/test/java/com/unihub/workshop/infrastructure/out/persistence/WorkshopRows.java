@@ -36,6 +36,7 @@ public final class WorkshopRows {
         columns.put("is_paid", w.isPaid());
         columns.put("price", w.price());
         columns.put("brochure_s3_key", w.brochureS3Key());
+        columns.put("cover_image_key", w.coverImageKey());
         columns.put("status", w.status().name());
         columns.put("version", (int) w.version().value());
         insertColumns(jdbc, columns);
@@ -76,6 +77,7 @@ public final class WorkshopRows {
                                 rs.getBoolean("is_paid"),
                                 rs.getBigDecimal("price"),
                                 rs.getString("brochure_s3_key"),
+                                rs.getString("cover_image_key"),
                                 WorkshopStatus.valueOf(rs.getString("status")),
                                 new Version(rs.getInt("version"))),
                 id.value());

@@ -25,6 +25,7 @@ class WorkshopPersistenceMapper {
                 e.paid(),
                 e.price(),
                 e.brochureS3Key(),
+                e.coverImageKey(),
                 WorkshopStatus.valueOf(e.status()),
                 new Version(e.version()),
                 e.createdAt(),
@@ -56,6 +57,7 @@ class WorkshopPersistenceMapper {
         e.paid(w.isPaid());
         e.price(w.price());
         e.brochureS3Key(w.brochureS3Key());
+        e.coverImageKey(w.coverImageKey());
         e.status(w.status().name());
     }
 }

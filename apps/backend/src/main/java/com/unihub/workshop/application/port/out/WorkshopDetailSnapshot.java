@@ -24,6 +24,7 @@ public record WorkshopDetailSnapshot(
         boolean paid,
         BigDecimal price,
         boolean hasBrochure,
+        String coverImageKey,
         Instant createdAt) {
 
     public static WorkshopDetailSnapshot from(Workshop w) {
@@ -41,6 +42,7 @@ public record WorkshopDetailSnapshot(
                 w.isPaid(),
                 w.price(),
                 w.brochureS3Key() != null,
+                w.coverImageKey(),
                 w.createdAt());
     }
 }

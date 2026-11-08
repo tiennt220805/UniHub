@@ -47,6 +47,7 @@ public record Workshop(
                         format = "double")
                 BigDecimal price,
         boolean hasBrochure,
+        @Schema(types = {"string", "null"}) String coverImageUrl,
         WorkshopStatus status,
         int version,
         Instant createdAt,

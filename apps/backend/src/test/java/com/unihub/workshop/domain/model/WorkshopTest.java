@@ -124,6 +124,7 @@ class WorkshopTest {
                         base.isPaid(),
                         base.price(),
                         base.brochureS3Key(),
+                        base.coverImageKey(),
                         base.status(),
                         base.version(),
                         created,
@@ -254,6 +255,13 @@ class WorkshopTest {
     @DisplayName("rejects a brochure key longer than its 512-character column")
     void rejects_brochureKeyLongerThanColumn() {
         assertThatThrownBy(() -> aDraftWorkshop().withBrochureS3Key("k".repeat(513)).build())
+                .isInstanceOf(InvalidWorkshopException.class);
+    }
+
+    @Test
+    @DisplayName("rejects a cover image key longer than its 512-character column")
+    void rejects_coverImageKeyLongerThanColumn() {
+        assertThatThrownBy(() -> aDraftWorkshop().withCoverImageKey("k".repeat(513)).build())
                 .isInstanceOf(InvalidWorkshopException.class);
     }
 

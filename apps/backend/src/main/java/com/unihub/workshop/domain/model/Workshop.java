@@ -43,6 +43,7 @@ public final class Workshop {
     private final boolean paid;
     private BigDecimal price;
     private final String brochureS3Key;
+    private final String coverImageKey;
     private WorkshopStatus status;
     private final Version version;
     // Persistence metadata (workshops.created_at/updated_at): read-only, absent until first saved.
@@ -65,6 +66,7 @@ public final class Workshop {
             boolean paid,
             BigDecimal price,
             String brochureS3Key,
+            String coverImageKey,
             WorkshopStatus status,
             Version version,
             Instant createdAt,
@@ -107,11 +109,15 @@ public final class Workshop {
         if (brochureS3Key != null && brochureS3Key.length() > BROCHURE_KEY_MAX) {
             throw new InvalidWorkshopException("brochureS3Key exceeds " + BROCHURE_KEY_MAX);
         }
+        if (coverImageKey != null && coverImageKey.length() > BROCHURE_KEY_MAX) {
+            throw new InvalidWorkshopException("coverImageKey exceeds " + BROCHURE_KEY_MAX);
+        }
         this.capacity = capacity;
         this.seatsTaken = seatsTaken;
         this.paid = paid;
         this.price = price;
         this.brochureS3Key = brochureS3Key;
+        this.coverImageKey = coverImageKey;
     }
 
     /** A new workshop: {@code DRAFT}, no seats taken, no summary or brochure, initial version. */
@@ -142,6 +148,7 @@ public final class Workshop {
                 paid,
                 price,
                 null,
+                null,
                 WorkshopStatus.DRAFT,
                 Version.initial(),
                 null,
@@ -167,6 +174,7 @@ public final class Workshop {
             boolean paid,
             BigDecimal price,
             String brochureS3Key,
+            String coverImageKey,
             WorkshopStatus status,
             Version version) {
         return restore(
@@ -184,6 +192,7 @@ public final class Workshop {
                 paid,
                 price,
                 brochureS3Key,
+                coverImageKey,
                 status,
                 version,
                 null,
@@ -206,6 +215,7 @@ public final class Workshop {
             boolean paid,
             BigDecimal price,
             String brochureS3Key,
+            String coverImageKey,
             WorkshopStatus status,
             Version version,
             Instant createdAt,
@@ -225,6 +235,7 @@ public final class Workshop {
                 paid,
                 price,
                 brochureS3Key,
+                coverImageKey,
                 status,
                 version,
                 createdAt,
@@ -353,6 +364,7 @@ public final class Workshop {
                 paid,
                 price,
                 brochureS3Key,
+                coverImageKey,
                 status,
                 version,
                 createdAt,
@@ -423,6 +435,11 @@ public final class Workshop {
 
     public String brochureS3Key() {
         return brochureS3Key;
+    }
+
+    /** The confirmed cover image's object key; {@code null} while the workshop has none. */
+    public String coverImageKey() {
+        return coverImageKey;
     }
 
     public WorkshopStatus status() {

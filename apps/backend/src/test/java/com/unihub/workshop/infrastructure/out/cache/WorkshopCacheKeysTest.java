@@ -16,12 +16,14 @@ class WorkshopCacheKeysTest {
     }
 
     @Test
-    @DisplayName("detail and seats keys are the documented ones (distributed-coordination.md §5)")
+    @DisplayName(
+            "detail and seats keys are the documented ones; detail and list carry the shape version"
+                    + " (distributed-coordination.md §5, INV-15)")
     void keyFormats() {
         var id = new WorkshopId(UUID.fromString("11111111-2222-3333-4444-555555555555"));
 
         assertThat(WorkshopCacheKeys.detail(id))
-                .isEqualTo("unihub:cache:workshop:detail:11111111-2222-3333-4444-555555555555");
+                .isEqualTo("unihub:cache:workshop:detail:v2:11111111-2222-3333-4444-555555555555");
         assertThat(WorkshopCacheKeys.seats(id))
                 .isEqualTo("unihub:cache:workshop:seats:11111111-2222-3333-4444-555555555555");
     }
@@ -30,7 +32,7 @@ class WorkshopCacheKeysTest {
     @DisplayName("the list key is the prefix plus a 32-hex-character filter hash")
     void listKeyShape() {
         assertThat(WorkshopCacheKeys.list(criteria("kube", null, null)))
-                .matches("unihub:cache:workshop:list:[0-9a-f]{32}");
+                .matches("unihub:cache:workshop:list:v2:[0-9a-f]{32}");
     }
 
     @Test

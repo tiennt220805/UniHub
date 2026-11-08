@@ -5,6 +5,7 @@ import com.unihub.shared.web.dto.PageMeta;
 import com.unihub.workshop.application.command.CancelWorkshopCommand;
 import com.unihub.workshop.application.command.CreateWorkshopCommand;
 import com.unihub.workshop.application.command.FieldChange;
+import com.unihub.workshop.application.command.ListManagedWorkshopsCriteria;
 import com.unihub.workshop.application.command.PublishWorkshopCommand;
 import com.unihub.workshop.application.command.SearchWorkshopsCriteria;
 import com.unihub.workshop.application.command.UpdateWorkshopCommand;
@@ -36,6 +37,12 @@ public final class WorkshopWebMapper {
         return new SearchWorkshopsCriteria(q, speaker, location, dateFrom, dateTo, page, size);
     }
 
+    public static ListManagedWorkshopsCriteria toManagedCriteria(
+            WorkshopStatus status, String q, int page, int size) {
+        return new ListManagedWorkshopsCriteria(
+                status == null ? null : status.name(), q, page, size);
+    }
+
     public static WorkshopListResponse toResponse(SearchWorkshopsResult result) {
         List<WorkshopSummary> items =
                 result.items().stream()
@@ -46,7 +53,14 @@ public final class WorkshopWebMapper {
                                                 i.title(),
                                                 i.location(),
                                                 i.startTime(),
-                                                WorkshopStatus.valueOf(i.status())))
+                                                WorkshopStatus.valueOf(i.status()),
+                                                i.speakerName(),
+                                                i.endTime(),
+                                                i.capacity(),
+                                                i.seatsTaken(),
+                                                i.paid(),
+                                                i.price(),
+                                                i.coverImageUrl()))
                         .toList();
         PageMeta page =
                 new PageMeta(
@@ -108,6 +122,7 @@ public final class WorkshopWebMapper {
                 r.paid(),
                 r.price(),
                 r.hasBrochure(),
+                r.coverImageUrl(),
                 WorkshopStatus.valueOf(r.status()),
                 Math.toIntExact(r.version()), // workshops.version is an INT column
                 r.createdAt(),

@@ -134,6 +134,69 @@ workshops:
             schema:
               $ref: '../common/error.yaml'
 
+managedWorkshops:
+  get:
+    operationId: listManagedWorkshops
+    summary: List workshops for management, drafts included (Phase 8, D119)
+    description: >-
+      The Organizer's and Admin's view of the workshops (`docs/requirement.md` §1.3.3): every status,
+      `DRAFT` and `CANCELLED` included, which the public `listWorkshops` never returns. A separate
+      operation rather than a `status` parameter on `listWorkshops`, so the public list's cache key and
+      payload stay exactly what they are. Read from the Master and never cached, as a workshop manager's
+      `getWorkshop` is: an Organizer who has just created or published a workshop sees it in the next
+      response. Ordered by `startTime` descending, then `id`. The projection is the catalog's
+      `WorkshopSummary`, so `seatsTaken` here is the Master's own figure, not a cached one.
+      Authorization: a caller holding `WORKSHOP_EDIT`. `WORKSHOP_CREATE` alone does not list: creating a
+      workshop does not entitle one to read the others.
+    tags: [Workshop]
+    x-required-permission: WORKSHOP_EDIT
+    parameters:
+      - name: status
+        in: query
+        required: false
+        description: Only workshops in this status; absent means all four.
+        schema:
+          $ref: '../schemas/workshop.yaml#/WorkshopStatus'
+      - name: q
+        in: query
+        required: false
+        description: Case-insensitive substring of the title. Blank is the same as absent.
+        schema:
+          type: string
+          maxLength: 255
+      - $ref: '../common/pagination.yaml#/PageParam'
+      - $ref: '../common/pagination.yaml#/SizeParam'
+    responses:
+      '429':
+        $ref: '../common/responses.yaml#/TooManyRequests'
+      '200':
+        description: Paginated workshops of every status.
+        headers:
+          X-Correlation-Id:
+            $ref: '../common/headers.yaml#/CorrelationIdResponse'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/workshop.yaml#/WorkshopListResponse'
+      '400':
+        description: Invalid query parameters (an unknown `status`, `size` above the cap).
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '401':
+        description: Missing or invalid token.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+      '403':
+        description: Valid token, missing WORKSHOP_EDIT permission.
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/error.yaml'
+
 workshopById:
   get:
     operationId: getWorkshop

@@ -69,6 +69,7 @@ configMapGenerator:
       - ../../apps/backend/src/main/resources/db/migration/V6__checkin_unresolved_scans_and_organizer_reports.sql
       - ../../apps/backend/src/main/resources/db/migration/V7__workshop_pending_brochure_key.sql
       - ../../apps/backend/src/main/resources/db/migration/V8__audit_events_source_message_id.sql
+      - ../../apps/backend/src/main/resources/db/migration/V9__workshop_cover_image_keys.sql
     options:
       disableNameSuffixHash: true
       labels:

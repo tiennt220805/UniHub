@@ -21,7 +21,7 @@ import org.springframework.context.annotation.Configuration;
 class WorkshopOpenApiConfig {
 
     private static final List<String> SCHEMAS_WITH_PRICE_RULE =
-            List.of("Workshop", "CreateWorkshopRequest");
+            List.of("Workshop", "WorkshopSummary", "CreateWorkshopRequest");
 
     @Bean
     OpenApiCustomizer paidWorkshopPriceRule() {

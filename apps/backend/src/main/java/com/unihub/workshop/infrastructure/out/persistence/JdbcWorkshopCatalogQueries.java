@@ -65,7 +65,8 @@ class JdbcWorkshopCatalogQueries implements WorkshopCatalogQueries {
         pageArgs.add((long) page * size);
         List<WorkshopCatalogEntry> items =
                 jdbcTemplate.query(
-                        "SELECT id, title, location, start_time, status FROM workshops "
+                        "SELECT id, title, location, start_time, status, speaker_name, end_time, "
+                                + "capacity, seats_taken, is_paid, price, cover_image_key FROM workshops "
                                 + where
                                 + " ORDER BY start_time, id LIMIT ? OFFSET ?",
                         (rs, rowNum) ->
@@ -74,7 +75,14 @@ class JdbcWorkshopCatalogQueries implements WorkshopCatalogQueries {
                                         rs.getString("title"),
                                         rs.getString("location"),
                                         rs.getTimestamp("start_time").toInstant(),
-                                        rs.getString("status")),
+                                        rs.getString("status"),
+                                        rs.getString("speaker_name"),
+                                        rs.getTimestamp("end_time").toInstant(),
+                                        rs.getInt("capacity"),
+                                        rs.getInt("seats_taken"),
+                                        rs.getBoolean("is_paid"),
+                                        rs.getBigDecimal("price"),
+                                        rs.getString("cover_image_key")),
                         pageArgs.toArray());
 
         int totalPages = size == 0 ? 0 : (int) Math.ceil(totalElements / (double) size);

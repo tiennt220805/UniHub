@@ -35,7 +35,18 @@ class SearchWorkshopsTest {
         var startTime = Instant.parse("2026-01-01T00:00:00Z");
         var entry =
                 new WorkshopCatalogEntry(
-                        workshopId, "Intro to Kubernetes", "Room 101", startTime, "PUBLISHED");
+                        workshopId,
+                        "Intro to Kubernetes",
+                        "Room 101",
+                        startTime,
+                        "PUBLISHED",
+                        "Ada Lovelace",
+                        startTime.plusSeconds(7200),
+                        60,
+                        42,
+                        true,
+                        new java.math.BigDecimal("150000.00"),
+                        "covers/" + workshopId + "/a.webp");
         var page = new WorkshopCatalogPage(List.of(entry), 0, 20, 1L, 1);
         when(catalog.search(criteria)).thenReturn(page);
 
@@ -48,6 +59,14 @@ class SearchWorkshopsTest {
         assertThat(item.location()).isEqualTo("Room 101");
         assertThat(item.startTime()).isEqualTo(startTime);
         assertThat(item.status()).isEqualTo("PUBLISHED");
+        assertThat(item.speakerName()).isEqualTo("Ada Lovelace");
+        assertThat(item.endTime()).isEqualTo(startTime.plusSeconds(7200));
+        assertThat(item.capacity()).isEqualTo(60);
+        assertThat(item.seatsTaken()).isEqualTo(42);
+        assertThat(item.paid()).isTrue();
+        assertThat(item.price()).isEqualByComparingTo("150000.00");
+        // The card gets a path on the application's own origin, never the bucket key itself.
+        assertThat(item.coverImageUrl()).isEqualTo("/media/covers/" + workshopId + "/a.webp");
         assertThat(result.page()).isEqualTo(0);
         assertThat(result.size()).isEqualTo(20);
         assertThat(result.totalElements()).isEqualTo(1L);
@@ -120,7 +139,14 @@ class SearchWorkshopsTest {
                                 "Intro",
                                 "Room 101",
                                 Instant.parse("2026-01-01T00:00:00Z"),
-                                "PUBLISHED")),
+                                "PUBLISHED",
+                                "Ada Lovelace",
+                                Instant.parse("2026-01-01T02:00:00Z"),
+                                30,
+                                10,
+                                false,
+                                null,
+                                null)),
                 0,
                 20,
                 1L,

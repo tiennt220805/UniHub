@@ -58,6 +58,8 @@ security:
 paths:
   /api/v1/workshops:
     $ref: './paths/workshop.yaml#/workshops'
+  /api/v1/admin/workshops:
+    $ref: './paths/workshop.yaml#/managedWorkshops'
   /api/v1/workshops/{id}:
     $ref: './paths/workshop.yaml#/workshopById'
   /api/v1/workshops/{id}/publish:

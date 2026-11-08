@@ -87,6 +87,7 @@ class RedissonWorkshopCacheIT extends IntegrationTestSupport {
                 true,
                 new BigDecimal("150000.50"),
                 true,
+                "covers/" + id.value() + "/a.jpg",
                 Instant.parse("2026-10-01T00:00:00Z"));
     }
 
@@ -112,7 +113,7 @@ class RedissonWorkshopCacheIT extends IntegrationTestSupport {
         cache.putDetail(snapshot);
 
         assertThat(cache.findDetail(id)).contains(snapshot);
-        var key = "unihub:cache:workshop:detail:" + id.value();
+        var key = "unihub:cache:workshop:detail:v2:" + id.value();
         var raw = (String) redis.getBucket(key, StringCodec.INSTANCE).get();
         assertThat(raw).startsWith("{").contains("\"title\":\"Intro to Kubernetes\"");
         assertThat(raw).as("no storage key leaks into the cache").doesNotContain("brochureS3Key");
@@ -152,7 +153,14 @@ class RedissonWorkshopCacheIT extends IntegrationTestSupport {
                                         "Intro",
                                         "Room 101",
                                         Instant.parse("2026-12-01T09:00:00Z"),
-                                        "PUBLISHED")),
+                                        "PUBLISHED",
+                                        "Ada Lovelace",
+                                        Instant.parse("2026-12-01T11:00:00Z"),
+                                        30,
+                                        10,
+                                        true,
+                                        new BigDecimal("150000.50"),
+                                        "covers/x/y.png")),
                         0,
                         20,
                         1L,
@@ -162,7 +170,9 @@ class RedissonWorkshopCacheIT extends IntegrationTestSupport {
         cache.putList(criteria, page);
 
         assertThat(cache.findList(criteria)).contains(page);
-        assertThat(key).startsWith("unihub:cache:workshop:list:");
+        // The shape generation is part of the key: an entry written by the other release of a
+        // rollout (INV-15) has another shape and must never be read as this one.
+        assertThat(key).startsWith("unihub:cache:workshop:list:v2:");
         assertThat(ttlMillis(key)).isBetween(25_000L, 30_000L);
     }
 

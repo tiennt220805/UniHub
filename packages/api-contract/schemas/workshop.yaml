@@ -72,6 +72,8 @@ Workshop:
         row it read, catchable by contract tests or a mock server (e.g.
         Prism) validating this response against the schema, not just by
         trusting the backend got it right.
+    coverImageUrl:
+      $ref: '#/CoverImageUrl'
     hasBrochure:
       type: boolean
       description: >-
@@ -111,8 +113,14 @@ WorkshopSummary:
     Catalog list-view projection — deliberately thinner than `Workshop`,
     matching `../../../docs/technical-design/modules/workshop.md` §2's
     `unihub:cache:workshop:list:{filterHash}` shape. A browsing list of
-    dozens of rows doesn't carry every detail field.
-  required: [id, title, location, startTime, status]
+    dozens of rows doesn't carry every detail field. It carries what a catalog
+    card draws and nothing else: the card must never need a `getWorkshop` call
+    per row (Phase 8, D117). `seatsTaken` comes from the same 30-second cache
+    entry as the rest of the page, so it can be up to 30 seconds stale — a client
+    shows a level ("plenty", "almost full", "full"), never the exact count, and
+    leaves the exact, near-real-time figure to `getWorkshop`. Not a source for
+    any registration decision either.
+  required: [id, title, location, startTime, status, speakerName, endTime, capacity, seatsTaken, isPaid]
   properties:
     id:
       type: string
@@ -126,6 +134,50 @@ WorkshopSummary:
       format: date-time
     status:
       $ref: '#/WorkshopStatus'
+    speakerName:
+      type: string
+      maxLength: 255
+    endTime:
+      type: string
+      format: date-time
+    capacity:
+      type: integer
+      minimum: 0
+    seatsTaken:
+      type: integer
+      minimum: 0
+      description: Up to 30 seconds stale on this projection (see the schema description).
+    isPaid:
+      type: boolean
+    price:
+      type: [number, 'null']
+      format: double
+      description: Present iff `isPaid` is `true`; same rule as `Workshop.price`.
+    coverImageUrl:
+      $ref: '#/CoverImageUrl'
+  if:
+    properties:
+      isPaid:
+        const: true
+  then:
+    required: [price]
+    properties:
+      price:
+        type: number
+        exclusiveMinimum: 0
+  else:
+    properties:
+      price:
+        type: 'null'
+
+CoverImageUrl:
+  type: [string, 'null']
+  description: >-
+    Path of the workshop's cover image on the application's own origin (`/media/covers/{workshopId}/{uuid}.{jpg|png|webp}`),
+    `null` while the workshop has none — the Web then draws its own placeholder (Phase 8, D123). Served
+    anonymously by the edge, never by this API: every operation but the payment webhook counts against the
+    rate limiter, so a page of twenty images must not cost twenty API calls. The key is immutable (a new
+    upload is a new key), so a client may cache the image for a year.
 
 WorkshopStatus:
   type: string
