@@ -11,6 +11,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/shared/ui/alert-dialog'
+import { toast } from '@/shared/store/toast-store'
 import { Button } from '@/shared/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from '@/shared/ui/dialog'
 import {
@@ -137,6 +138,16 @@ export function SpikePage() {
               <SheetDescription>Nội dung ngăn bên.</SheetDescription>
             </SheetContent>
           </Sheet>
+        </section>
+      )}
+
+      {shows('toast') && (
+        // The <Toaster /> itself is mounted once in app/App.tsx, like in the real app.
+        <section aria-label="Toast" className="flex gap-3">
+          <Button onClick={() => toast.success('Đã lưu thay đổi.')}>Hiện thông báo</Button>
+          <Button variant="destructive" onClick={() => toast.error('Không lưu được.')}>
+            Hiện lỗi
+          </Button>
         </section>
       )}
 

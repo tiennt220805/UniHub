@@ -95,12 +95,14 @@ describe.each(Object.entries(modes))('palette B, %s', (_mode, tokens) => {
   })
 })
 
-describe('the destructive button variant (button.tsx: bg-destructive/10, dark: /20) stays readable', () => {
+describe('the destructive button variant (button.tsx: bg-destructive/10, hover /15; dark /20, hover /22) stays readable', () => {
   it.each([
     ['light', 0.1],
+    ['light, hovered', 0.15],
     ['dark', 0.2],
+    ['dark, hovered', 0.22],
   ] as const)('%s: destructive text on its tinted surface', (mode, alpha) => {
-    const tokens = modes[mode]
+    const tokens = modes[mode.startsWith('dark') ? 'dark' : 'light']
     // The tint sits on the page background and on a card; the lower of the two is the one that matters.
     for (const surface of ['background', 'card']) {
       const tinted = over(tokens.destructive, tokens[surface], alpha)

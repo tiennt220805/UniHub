@@ -34,6 +34,9 @@ export default defineConfig(({ mode }) => {
     test: {
       environment: 'jsdom',
       setupFiles: ['./src/testing/setup.ts'],
+      // Vitest leaves dependencies to Node by default, and Node would load the real react-remove-scroll from inside Radix,
+      // not the CSP-safe stand-in the alias above gives the browser. Run Radix through Vite so a test sees what production sees.
+      server: { deps: { inline: [/node_modules\/(@radix-ui|radix-ui)\//] } },
     },
   }
 })

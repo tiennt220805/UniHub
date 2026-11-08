@@ -188,7 +188,24 @@ Every new UI library goes through the spike first. A library that needs a CSP ex
 
 ## 9. Components (`apps/web/src/shared/ui`)
 
-Present: `button` (the stock shadcn one, restyled at 2.6), `theme-toggle`, and the unstyled shadcn primitives from the spike (`dialog`,
-`sheet`, `popover`, `dropdown-menu`, `tabs`). Present too, unstyled: `alert-dialog`. Planned at 2.6, after G1: Input (including the native date and datetime-local variants, §7), Textarea, Badge, Card, Skeleton,
-EmptyState, ErrorState, Toast (own, because of §7), Pagination. There is no `Select` (§7) and no `DateTimePicker` library. Each one knows tokens and behaviour only; a status, a permission or a
-Vietnamese domain phrase lives in the feature that uses it.
+Each one knows tokens and behaviour only; a status, a permission or a Vietnamese domain phrase lives in the feature that uses it.
+The few generic words in them ("Đóng", "Trước", "Sau", "Phân trang") are interface chrome, not domain copy.
+
+| Component | File | Notes |
+|---|---|---|
+| Button | `button.tsx` | variants `default`, `outline`, `secondary`, `ghost`, `destructive`, `link`; sizes `xs`, `sm`, `default` (40 px), `lg` (44 px, the touch target), `icon*`. Solid focus ring, `primary-hover`, press scale only under `motion-safe` |
+| Input, Textarea | `input.tsx` | 16 px at every breakpoint; `input` border (3:1); the same control is the native `date` and `datetime-local` input (D134) |
+| Field, Label, FieldHint, FieldError | `field.tsx` | the error is an icon plus words; the caller wires `htmlFor` and `aria-describedby` |
+| Badge | `badge.tsx` | tones `success`, `warning`, `destructive`, `info`, `muted`, `highlight`; the words and icon come from the feature |
+| Card | `card.tsx` | `Card`, `CardHeader`, `CardTitle` (an `h3`, changeable with `asChild`), `CardDescription`, `CardContent`, `CardFooter` |
+| Skeleton | `skeleton.tsx` | decorative; pulses only under `motion-safe` |
+| EmptyState, ErrorState | `state-panel.tsx` | title, description and action are passed in; an `ErrorState` is `role="alert"` |
+| Pagination | `pagination.tsx` | zero-based `page`, as the API's; first, last and a window around the current page; renders nothing for one page |
+| Toast | `toaster.tsx` + `shared/store/toast-store.ts` | `toast.success / info / error(message, { action })`; `<Toaster />` is mounted once in `app/App.tsx`. Both live regions are in the DOM from the start; an error never auto-dismisses; a timer pauses on hover and focus |
+| Dialog, AlertDialog, Sheet | `dialog.tsx`, `alert-dialog.tsx`, `sheet.tsx` | Radix, with the scroll lock of §7; scrim 50 %; close button "Đóng" |
+| Popover, DropdownMenu | `popover.tsx`, `dropdown-menu.tsx` | Radix; hover and selection use `accent` (the green surface) |
+| Tabs | `tabs.tsx` | underlined; the active tab is darker, bolder and underlined with `primary`; solid focus ring |
+| ThemeToggle | `theme-toggle.tsx` | light / dark / follow the system |
+
+There is no `Select` (§7, D132) and no `DateTimePicker` library (D134). Pages that are not redesigned yet still use these components: the
+button's new look reaches them early, which is intended.
