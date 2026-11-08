@@ -7,7 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * {@code unihub.payment.breaker.*} (payment.md §2, §3, §5; checklist D12, D17). One circuit breaker
  * for every gateway call; the time limit and the retries are per call-site. Everything has the
  * documented default, so only a test needs to set any of them (a shorter open state, a lower
- * minimum number of calls). {@code minimumNumberOfCalls} is 10 and recalibrated in Phase 8.
+ * minimum number of calls). {@code minimumNumberOfCalls} is 10 and recalibrated in Phase 9.
  *
  * @param windowSize calls the failure rate is judged over (count-based)
  * @param failureRateThreshold percent of the window that failing opens the circuit

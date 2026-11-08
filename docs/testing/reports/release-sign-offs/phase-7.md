@@ -1,5 +1,7 @@
 # Phase 7 Sign-Off — Kubernetes Deployment
 
+> **Renumbering note (2026-11-08, Phase 8 checklist D106):** after this file was written, the owner inserted a Web UI phase as **Phase 8** (`checklists/phase-8-web-ui.md`) and load testing became **Phase 9**. Every "Phase 8" in the body below means load testing, i.e. today's Phase 9 (rows M-71 … M-74). The body is left as it was written.
+
 Copy of `phase-template.md` §2–§6 for Phase 7. Bare filenames follow that template's citation convention (`test-plan.md`, `test-strategy.md` in `../../strategy/`; `test-matrix.md` in `../`). The evidence is in `../phase-7-cluster-checks.md` (the cluster runs) and `../phase-7-ci-checks.md` (CI/CD); the plan is `checklists/phase-7-kubernetes.md`.
 
 **Status: SIGNED by the owner on 2026-11-08 (§6).** Prepared by Claude Code on 2026-11-08 from the checklist (Mục 0 decided 2026-11-05, D81–D104; Mục 1–12 done; Mục 13 is this file). The same day the owner answered "Chấp nhận tất cả" (B1) and "Coi tiêu chí là schema" (B2), then read this file and signed: "Tôi đã đọc và tôi cũng đã kí"; the signature line of §6 was filled in by the owner in the file. **The signature names the four conditions B1–B4 as read, including B3, and §5 as read; what it does and does not settle is recorded under §6.** Every box in §3 and §4 is ticked against evidence that was observed; the limits of that evidence are in §5.

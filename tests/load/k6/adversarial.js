@@ -2,7 +2,7 @@
 // (docs/testing/non-functional/performance-load.md §2.2; Phase 3 checklist D30, M-36).
 //
 // A SMOKE CHECK, not an evidence gate: Phase 3's gate is the JUnit/Testcontainers suite (M-28..M-32).
-// Phase 8 reruns this same script at full topology. K6 only ever exercises the full-stack variant.
+// Phase 9 reruns this same script at full topology. K6 only ever exercises the full-stack variant.
 //
 // One iteration per VU. Each VU posts `createRegistration` for the one workshop with a key of its own;
 // a 503 is retried after its Retry-After with the SAME Idempotency-Key until a definitive answer, at

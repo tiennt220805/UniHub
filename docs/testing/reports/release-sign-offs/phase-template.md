@@ -4,7 +4,7 @@ This file is the physical-level completion of `../../strategy/test-plan.md` §1'
 
 **Living template — blank fields are by design.** This file and `../test-matrix.md` are the only two files in `docs/testing/` allowed to carry unfilled content, because they record *progress*, not decisions. Every `___`, empty table row and unticked `☐` in §2–§6 is a field for whoever uses the template, not something left incomplete. **This file is never filled in itself**: it is copied once per phase (§1), and the copy is the record. Nothing in the template body records a real sign-off; §7 is an illustration and says so.
 
-**Out of scope, and where it actually lives:** the exit criteria themselves — this template has a column to copy them into, and never restates them (`../../strategy/test-plan.md` §1); which INV rows belong to which phase (`../../strategy/test-plan.md` §3, `../../strategy/test-strategy.md` §2); how the ≥80% coverage gate is measured (`../../test-levels/unit-testing.md` §3); which CI stages exist at which phase (`../../strategy/test-strategy.md` §4, `../../../technical-design/platform/deployment-and-cicd.md` §5); the traceability rows the checklist points at (`../test-matrix.md`); the Phase 7 preconditions P1–P4 and the Phase 8 nine-row evidence rule (both are in `../../strategy/test-plan.md` §1 and are copied like any other criterion). Load-test result artifacts and coverage reports are CI artifacts and are not attached here (`../../strategy/test-strategy.md` §6).
+**Out of scope, and where it actually lives:** the exit criteria themselves — this template has a column to copy them into, and never restates them (`../../strategy/test-plan.md` §1); which INV rows belong to which phase (`../../strategy/test-plan.md` §3, `../../strategy/test-strategy.md` §2); how the ≥80% coverage gate is measured (`../../test-levels/unit-testing.md` §3); which CI stages exist at which phase (`../../strategy/test-strategy.md` §4, `../../../technical-design/platform/deployment-and-cicd.md` §5); the traceability rows the checklist points at (`../test-matrix.md`); the Phase 7 preconditions P1–P4 and the Phase 9 nine-row evidence rule (both are in `../../strategy/test-plan.md` §1 and are copied like any other criterion). Load-test result artifacts and coverage reports are CI artifacts and are not attached here (`../../strategy/test-strategy.md` §6).
 
 **Citation convention:** bare filenames are resolved by folder — `test-plan.md`, `test-strategy.md` live in `../../strategy/`; `coding-standards.md` in `../../guidelines/`; `unit-testing.md` in `../../test-levels/`; `test-matrix.md` in `../`. `proposal.md` is at `../../../` (the `docs/` root); `CLAUDE.md` is at the repository root; `IMPLEMENTATION-READINESS.md` is at `../../`.
 
@@ -24,17 +24,17 @@ This file is the physical-level completion of `../../strategy/test-plan.md` §1'
 
 ## 1. Purpose and When to Use
 
-**Rationale:** `test-plan.md` §1's Guarantee says no phase is complete on functionality alone — each phase's exit criteria must be met before the next phase's work begins. A criterion that was "checked" only in the developer's head is indistinguishable, a month later, from one that was never checked. One reusable template, copied per phase, gives all eight phases the same evidentiary bar and keeps the record short enough to actually be filled in.
+**Rationale:** `test-plan.md` §1's Guarantee says no phase is complete on functionality alone — each phase's exit criteria must be met before the next phase's work begins. A criterion that was "checked" only in the developer's head is indistinguishable, a month later, from one that was never checked. One reusable template, copied per phase, gives all nine phases the same evidentiary bar and keeps the record short enough to actually be filled in.
 
 **Model:**
 
 | Use it when | Do not use it for |
 |---|---|
-| A phase's work is believed done and the next phase is about to start (`test-plan.md` §1, Phases 1–8) | A release version, a deployment approval, or any external sign-off — none exists in this project |
+| A phase's work is believed done and the next phase is about to start (`test-plan.md` §1, Phases 1–9) | A release version, a deployment approval, or any external sign-off — none exists in this project |
 | Re-checking a phase after a change that could have undone its exit criteria | Recording load-test numbers or coverage percentages — those are CI artifacts |
 | | Deferring an invariant — §5 forbids it |
 
-**How to use it:** copy sections 2–6 into a new file `release-sign-offs/phase-<N>.md` (`<N>` = 1…8 — this file's own naming decision; `test-plan.md` names only the folder), fill the copy, and leave this file untouched. There is one template for all eight phases; do not create eight templates, and do not hard-code one phase's criteria into it.
+**How to use it:** copy sections 2–6 into a new file `release-sign-offs/phase-<N>.md` (`<N>` = 1…9 — this file's own naming decision; `test-plan.md` names only the folder), fill the copy, and leave this file untouched. There is one template for all nine phases; do not create eight templates, and do not hard-code one phase's criteria into it.
 
 **Guarantees:** a phase is complete only when a filled copy exists in which every box in §3 and §4 is ticked, every deferral is in §5, and §6 is confirmed. A phase whose copy has an unticked box is not complete, whatever the code does.
 
@@ -48,7 +48,7 @@ This file is the physical-level completion of `../../strategy/test-plan.md` §1'
 
 | Field | Value |
 |---|---|
-| Phase (1–8, `proposal.md` §15 / `test-plan.md` §1) | ___ |
+| Phase (1–9, `proposal.md` §15 / `test-plan.md` §1) | ___ |
 | Phase name | ___ |
 | Date | ___ |
 | Commit SHA the checklist was run against | ___ |
@@ -61,7 +61,7 @@ This file is the physical-level completion of `../../strategy/test-plan.md` §1'
 
 ## 3. Exit Criteria
 
-**Rationale:** this template is shared by all eight phases, so it cannot carry any one phase's criteria; it carries the *slots* for them. The authoritative text is the **Exit criteria** cell of this phase's row in `test-plan.md` §1. Each cell is a run of semicolon-separated claims; each claim is one row here, so each can be ticked or not on its own.
+**Rationale:** this template is shared by all nine phases, so it cannot carry any one phase's criteria; it carries the *slots* for them. The authoritative text is the **Exit criteria** cell of this phase's row in `test-plan.md` §1. Each cell is a run of semicolon-separated claims; each claim is one row here, so each can be ticked or not on its own.
 
 **Model:** copy the criteria verbatim (do not paraphrase — a paraphrase can quietly weaken a claim), one per row, and cite the evidence that satisfies it: the `../test-matrix.md` row key (`M-nn`) plus the CI run, or the real `Class#method` name.
 
@@ -93,7 +93,7 @@ This file is the physical-level completion of `../../strategy/test-plan.md` §1'
 | U7 | `../test-matrix.md` is updated for **every** row of this phase — Status, and real `Class#method` names in **Test case(s)** (no `chưa viết` on a `Passing` row). Ticked by hand; nothing checks it automatically | Read this phase's rows | ☐ |
 | U8 | `../test-matrix.md` §4 (Coverage Gaps) and §5 (Reference Table) are refreshed to this sign-off — they are snapshots (`../test-matrix.md` §3) | Recount from the Status column and update both | ☐ |
 
-**Guarantees:** these eight checks apply unchanged to all eight phases; a phase may answer "N/A — <reason>" to U3 only, and only when it adds no core business-logic service. U1 is not negotiable and cannot be answered N/A.
+**Guarantees:** these eight checks apply unchanged to all nine phases; a phase may answer "N/A — <reason>" to U3 only, and only when it adds no core business-logic service. U1 is not negotiable and cannot be answered N/A.
 
 ---
 

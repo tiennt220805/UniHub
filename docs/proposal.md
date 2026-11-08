@@ -328,7 +328,8 @@ The project is delivered incrementally, with each phase building on a working sy
 | **Phase 5 — Offline Check-in**                  | Digital ticket issuance (issued to and displayed via the Web Application), offline-capable scanning, and check-in reconciliation; Mobile Application build (React Native / Expo), staff-only, covering Check-in Staff's offline scanning workflow.                                                                               |
 | **Phase 6 — Observability**                     | Metrics, dashboards, and request tracing across the system.                                                                                                   |
 | **Phase 7 — Kubernetes Deployment**             | Deployment of the full system to the local Kubernetes cluster, including automated recovery and CI/CD.                                                        |
-| **Phase 8 — Performance & Concurrency Testing** | Load testing against the documented registration surge and the overbooking-adversarial scenario; final validation against the success criteria in Section 12. |
+| **Phase 8 — Web UI**                            | Redesign of the Web Application (design system with light and dark themes, student and administration screens, workshop management, cover images) and the minimal backend support those screens need; delivered before load testing so that Phase 9 runs against the final Web Application.|
+| **Phase 9 — Performance & Concurrency Testing** | Load testing against the documented registration surge and the overbooking-adversarial scenario; final validation against the success criteria in Section 12. |
 
 ---
 

@@ -12,7 +12,7 @@ deployable (Phase 3 checklist D30).
 | `run-adversarial-smoke.sh` | All of the above, once, against a local stack |
 
 Phase 3 runs this **once, locally, as a smoke check**. It is not an evidence gate (the gate is the
-Testcontainers suite, M-28..M-32) and is not in CI. Phase 8 reruns the same script at full topology.
+Testcontainers suite, M-28..M-32) and is not in CI. Phase 9 reruns the same script at full topology.
 Start-up commands are at the top of `run-adversarial-smoke.sh`.
 
 `tokens.json` and `ids.txt` are git-ignored; the JWT secret is only ever read from the environment (INV-18).

@@ -1,5 +1,7 @@
 # Phase 7 — Kubernetes Deployment: Checklist Triển Khai
 
+> **Ghi chú đánh số lại (2026-11-08, D106 của `checklists/phase-8-web-ui.md`):** sau khi file này được viết, owner chen một phase Web UI làm **Phase 8** và kiểm thử tải đổi thành **Phase 9**. Mọi "Phase 8" và nhãn `P8` trong thân file này đều chỉ kiểm thử tải, tức Phase 9 hiện nay (M-71 … M-74). Thân file giữ nguyên như lúc viết.
+
 > **Mục đích file này:** checklist *thực thi* cho Phase 7, cùng vai trò với `phase-1-foundation.md` … `phase-6-observability.md`. Nó không thay thế `docs/testing/strategy/test-plan.md` §1 (nguồn thẩm quyền cho exit criteria và bảng P1–P4), `docs/testing/reports/test-matrix.md` (trạng thái từng test) hay `docs/testing/reports/release-sign-offs/phase-template.md` (sign-off). File này chỉ **tổng hợp và sắp thứ tự công việc**, trỏ vào 3 file đó làm bằng chứng. Nơi có mâu thuẫn, 3 file kia luôn đúng.
 >
 > **Cách dùng:** tick `[x]` khi xong thật, không tick trước. Mỗi mục nên có commit tương ứng. Cập nhật **Trạng thái tổng thể** sau mỗi buổi làm việc.

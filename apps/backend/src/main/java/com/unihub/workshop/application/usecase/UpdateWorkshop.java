@@ -71,7 +71,7 @@ class UpdateWorkshop implements UpdateWorkshopUseCase {
         try {
             saved = workshops.save(workshop);
         } catch (OptimisticConflictException refused) {
-            // A seat claim or another edit moved the version first (D3). Counted for the Phase 8
+            // A seat claim or another edit moved the version first (D3). Counted for the Phase 9
             // review of the shared version; the caller still gets the 409.
             metrics.editConflicted();
             throw refused;

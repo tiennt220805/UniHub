@@ -548,7 +548,7 @@ export const env = { apiBaseUrl: parsed.VITE_API_BASE_URL }
   a promise, and a `409` after a non-zero count is a normal outcome, not an error state. The
   detail query uses `staleTime` 3s and `refetchInterval` 5s for seats, **only** while the tab is
   visible and the detail page is mounted (`refetchIntervalInBackground: false`) — checklist D15.
-  The load this adds at peak (~2,400 rps at 12,000 concurrent users) is a Phase 8 review point.
+  The load this adds at peak (~2,400 rps at 12,000 concurrent users) is a Phase 9 review point.
 - **Status polling.** `getPayment` and `getRegistration` poll every 2s while a payment or a paid
   registration is not final — including the "payment `SUCCEEDED`, registration still `RESERVED`"
   window (`technical-design/modules/registration.md` §5). Polling stops at a final state, or after

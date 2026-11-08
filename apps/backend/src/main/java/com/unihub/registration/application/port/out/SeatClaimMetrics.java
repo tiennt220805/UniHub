@@ -1,7 +1,7 @@
 package com.unihub.registration.application.port.out;
 
 /**
- * The counters the Phase 8 review of the shared {@code workshops.version} reads (observability.md
+ * The counters the Phase 9 review of the shared {@code workshops.version} reads (observability.md
  * §4).
  */
 public interface SeatClaimMetrics {

@@ -1,5 +1,7 @@
 # Phase 3 Sign-Off — Concurrency Protection
 
+> **Renumbering note (2026-11-08, Phase 8 checklist D106):** after this file was written, the owner inserted a Web UI phase as **Phase 8** (`checklists/phase-8-web-ui.md`) and load testing became **Phase 9**. Every "Phase 8" in the body below means load testing, i.e. today's Phase 9 (rows M-71 … M-74). The body is left as it was written.
+
 Copy of `phase-template.md` §2–§6 for Phase 3. Bare filenames follow that template's citation convention (`test-plan.md`, `test-strategy.md` in `../../strategy/`; `test-matrix.md` in `../`).
 
 **Status: signed — Phase 3 complete.** Every box in §3 and §4 is ticked against evidence that was observed, every deferral is in §5, and §6 was signed by Nguyễn Thành Tiến on 2026-10-28. Nothing in this file is evidence of a result that was not observed; each cell says what was run and where.

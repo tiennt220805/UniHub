@@ -1,5 +1,7 @@
 # Phase 7 — Kiểm tay trên cluster Minikube (task 5.1, 5.3, 5.6, 5.7, 6.1, 6.3, 6.4, 7.1–7.6, 8.1–8.6)
 
+> **Ghi chú đánh số lại (2026-11-08, D106 của `checklists/phase-8-web-ui.md`):** sau khi file này được viết, owner chen một phase Web UI làm **Phase 8** và kiểm thử tải đổi thành **Phase 9**. Mọi "Phase 8" và nhãn `P8` trong thân file này đều chỉ kiểm thử tải, tức Phase 9 hiện nay (M-71 … M-74). Thân file giữ nguyên như lúc viết.
+
 > **Mục đích.** Các IT và test tĩnh của Phase 7 chứng minh từng mảnh (manifest khớp mã, stub trả đúng cái adapter gọi, migration tương thích). Chúng **không** chứng minh rằng các manifest chạy được trong một cluster có Istio. Tài liệu này ghi những gì đã chạy trên cluster, bằng chứng của từng bước, và những gì **chưa** chạy.
 > **Đây là các bản luyện tập:** task 5.x và 6.x chạy dưới `PeerAuthentication` PERMISSIVE (riêng `backend-api` và `rabbitmq` STRICT từ 6.1), task 7.5–7.6 dưới STRICT trong cả hai namespace nhưng trên cluster đã dùng từ 5.7, không phải một lần deploy mới. Bản bằng chứng chính thức chạy lại ở Mục 10, dưới STRICT, trên một lần deploy mới (D96). Một ô trống là một khoảng trống, không phải một lần đạt.
 

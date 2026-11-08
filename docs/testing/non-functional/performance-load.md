@@ -1,10 +1,10 @@
 # Performance & Load Testing — UniHub Non-Functional Testing
 
-This file is the physical-level completion of `../strategy/test-strategy.md` §3–§4's Load / adversarial-concurrency row and its §7 Reference Table entry — the two scenarios named there (12,000 CCU / 10-minute surge; 500 VUs vs. the last 10 seats) — and of `test-plan.md` Phase 3's first K6 adversarial draft and Phase 8's full-topology runs, for the question those files leave open: *what exact K6 profile, identities, environment and pass/fail thresholds turn "prove peak load capacity" into a repeatable run?* Nothing here overrides `test-strategy.md`/`test-plan.md`/`proposal.md` §12 — where this file and they appear to disagree, those are the authority and this file has a bug.
+This file is the physical-level completion of `../strategy/test-strategy.md` §3–§4's Load / adversarial-concurrency row and its §7 Reference Table entry — the two scenarios named there (12,000 CCU / 10-minute surge; 500 VUs vs. the last 10 seats) — and of `test-plan.md` Phase 3's first K6 adversarial draft and Phase 9's full-topology runs, for the question those files leave open: *what exact K6 profile, identities, environment and pass/fail thresholds turn "prove peak load capacity" into a repeatable run?* Nothing here overrides `test-strategy.md`/`test-plan.md`/`proposal.md` §12 — where this file and they appear to disagree, those are the authority and this file has a bug.
 
 **Out of scope, and where it actually lives:** the anti-overbooking layered proof itself — the full-stack / lock-disabled / DB-only variants are JUnit concurrency tests, the Phase 3 evidence gate, and K6 cannot disable a layer from outside (`../guidelines/test-design-techniques.md` §3.1, `../guidelines/coding-standards.md` §4, `test-plan.md` Phase 3); fault injection while the system is under load (`resilience-testing.md`); adversarial security vectors (`security-testing.md`); the never-call-real-Stripe/S3 rule that still binds at full scale (`../guidelines/mocking-guidelines.md` §1); the Kustomize overlays and Minikube deploy mechanics (`../../technical-design/platform/deployment-and-cicd.md` §3–§4).
 
-**Gating:** none. Load testing never runs in CI (`test-strategy.md` §3–§4). It is a **dedicated session** on the full Minikube topology, an evidence gate for Phase 8 sign-off only.
+**Gating:** none. Load testing never runs in CI (`test-strategy.md` §3–§4). It is a **dedicated session** on the full Minikube topology, an evidence gate for Phase 9 sign-off only.
 
 **Citation convention:** design files cited by bare name (`payment.md`, `registration.md`, `messaging.md`, `distributed-coordination.md`, `observability.md`, `auth-and-identity.md`, `checkin.md`, `workshop.md`, `notification.md`, `deployment-and-cicd.md`, `database-schema.md`) live under `../../technical-design/modules/` or `../../technical-design/platform/`; `architecture.md`, `proposal.md`, `requirement.md` and `CLAUDE.md` are at the repository's `docs/` root and root respectively.
 
@@ -34,7 +34,7 @@ This file is the physical-level completion of `../strategy/test-strategy.md` §3
 | Concurrency Correctness | Exactly the remaining seats succeed; all others get a clear, immediate "unavailable" | §2.2 Adversarial | Outcome counts + SQL (§4) |
 | Overbooking | 0% — zero seats sold or held beyond capacity across all load-test scenarios | §2.1 and §2.2 | Post-run SQL, INV-06 (§4) |
 
-**Guarantees:** a Phase 8 sign-off needs every threshold in §4 evidenced from a run made under §3's checklist. A run that skipped the checklist is a smoke run, not evidence.
+**Guarantees:** a Phase 9 sign-off needs every threshold in §4 evidenced from a run made under §3's checklist. A run that skipped the checklist is a smoke run, not evidence.
 
 ---
 
@@ -105,7 +105,7 @@ Load-test scripts live in `tests/load/k6/` at the repository root (decided 2026-
 
 ### 2.2 Scenario B — Adversarial: 500 VUs vs. the last 10 seats
 
-**Rationale:** `requirement.md` §3.2 defines it: 500 VUs competing for the last 10 seats of one workshop, expecting `409` (or an accurate "sold out") for later arrivals, with neither Distributed Locking nor Optimistic Locking bypassed. **Relationship to Phase 3:** `test-plan.md` Phase 3's evidence gate is the JUnit/Testcontainers concurrency suite; alongside it, Phase 3 authors *this K6 script* and runs it once locally as a smoke check only. Phase 8 reruns the **same script** at full topology — same logic, different scale and environment. K6 only ever exercises the full-stack variant; the lock-disabled and DB-only proofs exist only in the JUnit suite.
+**Rationale:** `requirement.md` §3.2 defines it: 500 VUs competing for the last 10 seats of one workshop, expecting `409` (or an accurate "sold out") for later arrivals, with neither Distributed Locking nor Optimistic Locking bypassed. **Relationship to Phase 3:** `test-plan.md` Phase 3's evidence gate is the JUnit/Testcontainers concurrency suite; alongside it, Phase 3 authors *this K6 script* and runs it once locally as a smoke check only. Phase 9 reruns the **same script** at full topology — same logic, different scale and environment. K6 only ever exercises the full-stack variant; the lock-disabled and DB-only proofs exist only in the JUnit suite.
 
 **Model:**
 
@@ -163,7 +163,7 @@ Between runs, reset to an identical clean data state (§3). The mesh mode (STRIC
 
 ## 3. Environment & Execution Checklist
 
-**Rationale:** `proposal.md` §16 reserves the full topology at scale for dedicated sessions because it strains developer hardware, and `test-strategy.md` §5 schedules the load runs at Phase 8. Two environment facts decide whether the numbers mean anything.
+**Rationale:** `proposal.md` §16 reserves the full topology at scale for dedicated sessions because it strains developer hardware, and `test-strategy.md` §5 schedules the load runs at Phase 9. Two environment facts decide whether the numbers mean anything.
 
 **Model:**
 
@@ -174,7 +174,7 @@ Between runs, reset to an identical clean data state (§3). The mesh mode (STRIC
 - [ ] `make deploy-loadtest` completed, migration Job finished (`deployment-and-cicd.md` §4); 3 `backend-api` pods `Ready`, replica `Ready`.
 - [ ] Data reset to a known state: seeded users and workshops only; zero `registrations`, `payments`, `check_in_scans`, `idempotency_keys`; `seats_taken` at its seeded value. **TODO: the reset mechanism (snapshot restore vs. re-seed) is unspecified.**
 - [ ] Redis clean of `unihub:ratelimit:*` and `unihub:lock:*` keys left by a previous run; cache state deliberately chosen and recorded — **TODO: cold or warm catalog cache for the surge.**
-- [ ] `paymentGateway` breaker `CLOSED` (`resilience4j_circuitbreaker_state`, `observability.md` §4); WireMock stub up. **TODO: stub placement** (if in `unihub`, Phase 7 placed the payment-gateway stub in `unihub`, sidecar-injected, which STRICT requires; confirm that placement for the Phase 8 runs).
+- [ ] `paymentGateway` breaker `CLOSED` (`resilience4j_circuitbreaker_state`, `observability.md` §4); WireMock stub up. **TODO: stub placement** (if in `unihub`, Phase 7 placed the payment-gateway stub in `unihub`, sidecar-injected, which STRICT requires; confirm that placement for the Phase 9 runs).
 - [ ] RabbitMQ queues empty, `unihub.parking-lot` = 0; `unihub_outbox_oldest_pending_age_seconds` ≈ 0; `unihub_postgres_replica_lag_seconds` ≈ 0.
 - [ ] Prometheus scraping, Grafana dashboards up; alert state cleared so any alert that fires is attributable to this run.
 - [ ] Tokens minted within the lifetime window (§2.3), `RUN_ID` set fresh (so idempotency keys from a prior run can't collide).

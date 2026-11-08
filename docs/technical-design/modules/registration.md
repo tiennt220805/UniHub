@@ -66,7 +66,7 @@ finally:
   handle.close()                      -- AFTER commit or rollback, never before
 ```
 
-**Version shared with organizer edits (Phase 2 checklist D3, Q3):** `workshops.version` is bumped by seat claims and by organizer edits alike, so a claim can lose a race to an edit. The claim retries internally (3 attempts) instead of answering `409` to a student who did nothing wrong; an organizer edit never writes `seats_taken` (`../platform/database-schema.md` §3.1). Revisit thresholds for Phase 8 are in that section.
+**Version shared with organizer edits (Phase 2 checklist D3, Q3):** `workshops.version` is bumped by seat claims and by organizer edits alike, so a claim can lose a race to an edit. The claim retries internally (3 attempts) instead of answering `409` to a student who did nothing wrong; an organizer edit never writes `seats_taken` (`../platform/database-schema.md` §3.1). Revisit thresholds for Phase 9 are in that section.
 
 **Lock adapter per phase (Phase 2 checklist D4, Q11):** the port is `SeatLock.tryAcquire(workshopId, waitTimeout, leaseTime)` returning a handle that is closed after commit (`../../guidelines/backend-coding-standards.md` §19.2, §25). **Phase 2** uses an in-process adapter — one lock per workshop, `tryLock` with the 2 s wait, entries cleaned up when unused; it ignores the lease and does **not** coordinate across instances, so in Phase 2 the database check is the only cross-instance guard (recorded in `../../testing/reports/test-matrix.md` §4.5 with the adapter). **Phase 3** replaces it with the Redisson lock whose parameters are tabled above, including the fail-closed `503` when Redis is unreachable (INV-08, M-34). Phase 3 decisions (checklist D20, D21, 2026-10-26):
 

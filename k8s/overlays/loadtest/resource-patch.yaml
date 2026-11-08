@@ -1,6 +1,6 @@
 # Kept after the first cluster run (2026-11-06, phase-7-cluster-checks.md), which measured IDLE use only: an API pod
 # 512-524 MiB, Postgres 79-86 MiB, the node at 42% of its 10 GiB with Istio, no OOMKilled. Nothing was measured under load, so
-# these numbers are not final (Phase 8). The API's 1 Gi limit is what the base already has (an API process held 621 MiB
+# these numbers are not final (Phase 9). The API's 1 Gi limit is what the base already has (an API process held 621 MiB
 # under a 768 Mi limit in Docker, so a smaller limit is not safe); the Postgres numbers are smaller than the design
 # document's 1000m/2Gi, which together with Istio and Prometheus/Grafana/Tempo do not fit 10 GB of Minikube.
 apiVersion: apps/v1

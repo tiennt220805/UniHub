@@ -32,7 +32,7 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 | C4 | Latency và vị trí đặt WireMock stub | Q |
 | C5 | Ngưỡng error rate, định nghĩa "remains available", latency của `409`, endpoint nào là "registration-confirmation" | Q |
 | C6 | Cách xử lý limiter per-IP khi chạy K6 từ một nguồn | Q |
-| C9 | Tải của việc poll số ghế (`staleTime` 3s / `refetchInterval` 5s khi tab hiển thị — ~2.400 rps ở 12.000 CCU, nặng hơn nếu cache M-08 bị hoãn) `minimumNumberOfCalls = 10`, cửa sổ breaker đếm theo lời gọi (≈ 2 lời gọi mỗi charge) và trần ≈ 6,5s của charge đồng bộ: hiệu chỉnh theo số liệu Phase 8 (Phase 2 checklist D15, D12, C37) | Q |
+| C9 | Tải của việc poll số ghế (`staleTime` 3s / `refetchInterval` 5s khi tab hiển thị — ~2.400 rps ở 12.000 CCU, nặng hơn nếu cache M-08 bị hoãn) `minimumNumberOfCalls = 10`, cửa sổ breaker đếm theo lời gọi (≈ 2 lời gọi mỗi charge) và trần ≈ 6,5s của charge đồng bộ: hiệu chỉnh theo số liệu Phase 9 (Phase 2 checklist D15, D12, C37) | Q |
 | C7 | Retry cap và biến thể paid của adversarial; số lần lặp so sánh mesh; cache lạnh/ấm; cơ chế reset dữ liệu; vị trí script K6; `preAllocatedVUs` | Q |
 | C8 | Kiểm tra cột `users` theo DDL cho dữ liệu load test (phần permission của Student đã giải quyết, xem bên dưới) | V |
 
@@ -83,7 +83,7 @@ Ký hiệu: **Q** = cần bạn/team quyết; **V** = verify lúc implementation
 | B4 | Response status khi S3 unreachable | `503` problem `storage-unavailable` ở `confirmBrochureUpload` (Phase 5 checklist D60; `workshop.md` §8, `resilience-testing.md` §2.6); built and asserted by `ObjectStorageOutageIT` (M-51, `Passing`, 2026-11-02) | 2026-10-30 |
 | D4 | Mobile test runner; CI job cho test mobile | Jest + `jest-expo` + React Native Testing Library; job CI `mobile` độc lập (typecheck, lint, Jest), không build EAS trong CI (Phase 5 checklist D57); job đã chạy xanh trên `5c22341` | 2026-10-30 |
 | D1 | Required status checks trên `main` | Yêu cầu cả năm check: `lint`, `unit-test`, `integration-test`, `contract-diff`, `secret-scan-gitleaks` (`technical-design/platform/deployment-and-cicd.md` §5) | 2026-09-24 |
-| E2 | `minimumNumberOfCalls` của breaker | 10, override được trong test; hiệu chỉnh lại ở Phase 8 (`payment.md` §2; Phase 2 checklist D12) | 2026-10-14 |
+| E2 | `minimumNumberOfCalls` của breaker | 10, override được trong test; hiệu chỉnh lại ở Phase 9 (`payment.md` §2; Phase 2 checklist D12) | 2026-10-14 |
 | E6 (một phần) | Phase sở hữu test chữ ký webhook S-17 | Phase 2, dòng `test-matrix.md` M-79 (Phase 2 checklist D13) | 2026-10-14 |
 | C8 (một phần) | Permission của Student | `REGISTRATION_CREATE`, seed bằng `V4` (`database-schema.md` §10.1; Phase 2 checklist D7) | 2026-10-14 |
 | F4 | Fixture replica (`pg_basebackup`, `pg_hba`) | Đã chạy thật: `ReplicaIntegrationTestSupport` clone Master bằng `pg_basebackup` qua bridge network mặc định, thêm dòng `host replication` vào `pg_hba.conf` rồi reload; `ReplicaFixtureIT` chứng minh standby nhận schema, pause replay làm replica cũ, resume thì hội tụ (Phase 2 checklist §1.1) | 2026-10-14 |

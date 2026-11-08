@@ -111,7 +111,7 @@ The elevated Integration share (~25% vs. a typical ~15%) is intentional: it is t
 | Secret scan (Gitleaks) | Every push/PR to `main`, in parallel with stages 1–4; `build-and-push` (stage 5) `needs:` it (`deployment-and-cicd.md` §5's Security Scan Jobs ADR) | Yes — a required status check on `main` once the manual branch-protection setup (`deployment-and-cicd.md` §5) is done | Zero findings; justified false positives go in the committed allowlist |
 | Security scans (Semgrep SAST, OWASP Dependency-Check) | Every push/PR to `main`, in parallel with — not inside — stages 1–5 | No — non-blocking until each meets that ADR's promotion conditions | Findings reported and visible; not enforced |
 | E2E (Playwright) | Pre-release only, tied to `test-plan.md` §1 Phase 7's Minikube smoke-test deliverable (`../test-levels/e2e-testing.md` §3) | No — evidence gate for Phase 7+ sign-off, not a per-push CI gate | Full Playwright suite passes against a fresh Minikube deploy |
-| Load / adversarial-concurrency (K6/JMeter) | Dedicated sessions only (§5), scheduled per `test-plan.md` (first local, smoke-only draft in Phase 3 — not an evidence gate; full-topology evidence run in Phase 8) | No — evidence gate for a phase, not a per-push CI gate | 0% overbooking; full success-criteria table (§12) at Phase 8 |
+| Load / adversarial-concurrency (K6/JMeter) | Dedicated sessions only (§5), scheduled per `test-plan.md` (first local, smoke-only draft in Phase 3 — not an evidence gate; full-topology evidence run in Phase 9) | No — evidence gate for a phase, not a per-push CI gate | 0% overbooking; full success-criteria table (§12) at Phase 9 |
 
 **Guarantees:** steps 1–5 and the Gitleaks secret scan are the only gates a routine commit must clear; the Gitleaks secret scan is the one added gate (INV-18); the Semgrep and Dependency-Check scans run on every push but gate nothing until promoted. Load testing intentionally never runs on every push — `proposal.md` §16's resource-consumption risk row already decided this (full topology reserved for dedicated sessions) — so its absence from the per-push pipeline is a documented trade-off, not a gap.
 
@@ -127,7 +127,7 @@ The elevated Integration share (~25% vs. a typical ~15%) is intentional: it is t
 |---|---|---|
 | Local dev | Ephemeral Testcontainers (single Postgres/Redis/RabbitMQ container each), no Kubernetes, no Istio | Every day, every `./gradlew test` run |
 | CI (GitHub Actions) | Same ephemeral Testcontainers, spun per pipeline run | Every push/PR (§4, stages 1–4) |
-| Full topology (Minikube) | Full K8s manifests, replicas, Istio sidecars, RabbitMQ, Prometheus/Grafana | Dedicated load-test sessions only, per the schedule owned by `test-plan.md` (as of this writing: the Phase 8 full-topology runs — Phase 3 stays on local/Testcontainers, see `test-plan.md` §1) — never a routine dev/CI dependency |
+| Full topology (Minikube) | Full K8s manifests, replicas, Istio sidecars, RabbitMQ, Prometheus/Grafana | Dedicated load-test sessions only, per the schedule owned by `test-plan.md` (as of this writing: the Phase 9 full-topology runs — Phase 3 stays on local/Testcontainers, see `test-plan.md` §1) — never a routine dev/CI dependency |
 
 **Guarantees:** correctness (unit + integration + contract) is provable without ever standing up the full topology. Only throughput/latency/overbooking-under-real-load claims require it, and those are scheduled events (`test-plan.md`), not a standing requirement for every commit.
 

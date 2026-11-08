@@ -8,7 +8,7 @@
 |---|---|
 | Phase | 8 — Web UI |
 | Ngày bắt đầu | 2026-11-08 (checklist soạn cùng ngày, sau buổi phỏng vấn owner) |
-| Trạng thái tổng thể | `☑ Chưa bắt đầu` / `☐ Đang làm` / `☐ Chờ sign-off` / `☐ Hoàn tất` — **Mục 0A (D105–D116) owner chốt qua phỏng vấn 2026-11-08; Mục 0 (Q1–Q12 → D117–D128, C72 → D129) owner chốt cùng ngày: Q1, Q2 trả lời riêng, Q3–Q12 + C72 + hai mặc định D110/D115 "chấp nhận tất cả đề xuất". Mục 0B (C63–C73) chờ xử lý trong các Mục tương ứng** |
+| Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☑ Đang làm` / `☐ Chờ sign-off` / `☐ Hoàn tất` — **Mục 0A (D105–D116) owner chốt qua phỏng vấn 2026-11-08; Mục 0 (Q1–Q12 → D117–D128, C72 → D129) owner chốt cùng ngày: Q1, Q2 trả lời riêng, Q3–Q12 + C72 + hai mặc định D110/D115 "chấp nhận tất cả đề xuất". Mục 0B (C63–C73) chờ xử lý trong các Mục tương ứng** (C63 xong cùng Mục 1). **Mục 1 (đánh số lại → Phase 9) xong 2026-11-08** |
 | Nhánh làm việc | `main` (push thẳng, không PR) |
 | Phạm vi | `apps/web` (thiết kế lại toàn bộ + màn hình còn thiếu theo SRS) và **phần backend tối thiểu** mà các màn hình đó cần (D105). **Không** gồm `apps/mobile` (D107) |
 | INV liên quan | Không INV mới. Giữ nguyên: INV-06 (không cập nhật ghế/trạng thái lạc quan trên UI), idempotency key cho `createRegistration`/`chargePayment`, RBAC theo permission, INV-15 (migration `V9` chỉ mở rộng), CSP `'self'` |
@@ -139,7 +139,7 @@ Primary và "thành công" cùng sắc xanh, nên mọi trạng thái (Đã xác
 
 ## 0B. Đối soát chéo — mâu thuẫn và rủi ro tìm thấy (2026-11-08)
 
-- [ ] **C63** `proposal.md` §15 không có phase UI; Phase 8 ở đó là kiểm thử tải → Mục 1.
+- [x] **C63** `proposal.md` §15 không có phase UI; Phase 8 ở đó là kiểm thử tải → Mục 1. *(Xong 2026-11-08, cùng Mục 1.)*
 - [ ] **C64** `web-coding-standards.md` §13 #10 (không có danh sách workshop `DRAFT`) → đóng bởi Q3.
 - [ ] **C65** `WorkshopSummary` thiếu dữ liệu cho thẻ catalog đã duyệt ở trang xem trước → Q1.
 - [ ] **C66** URL presigned `http://minio:9000` (`k8s/base/kustomization.yaml:45`) không tới được từ trình duyệt; CSP `connect-src 'self'` → Q4.
@@ -155,10 +155,10 @@ Primary và "thành công" cùng sắc xanh, nên mọi trạng thái (Đã xác
 
 ## 1. Đánh số lại: kiểm thử tải → Phase 9 (D106, C63)
 
-- [ ] 1.1 `proposal.md` §15: thêm dòng "Phase 8 — Web UI", đổi dòng kiểm thử tải thành Phase 9 `[— không dòng]`
-- [ ] 1.2 `test-matrix.md`: cột Phase của M-71 … M-74 → 9; "Rows by phase" thêm `8: 7` (M-82 … M-88) và `9: 4`
-- [ ] 1.3 `IMPLEMENTATION-READINESS.md` C9, E2; **thêm ghi chú đánh số lại** vào `phase-7.md` (không sửa bảng §5 đã ký, xem 1.4); `test-plan.md`, `performance-load.md`, `test-strategy.md`, `e2e-testing.md` và các tài liệu khác nhắc "Phase 8" theo nghĩa kiểm thử tải
-- [ ] 1.4 Kiểm tra bằng `grep -rn "Phase 8" docs checklists CLAUDE.md`: mọi chỗ còn lại đều nghĩa là Web UI. Sign-off đã ký (`phase-1.md` … `phase-7.md`) là hồ sơ lịch sử: **chỉ thêm ghi chú**, không sửa nội dung đã ký
+- [x] 1.1 `proposal.md` §15: thêm dòng "Phase 8 — Web UI", đổi dòng kiểm thử tải thành Phase 9 `[— không dòng]` *(Xong 2026-11-08: "Phase 8" và "Phase 9" cùng độ rộng nên bảng không phải căn lại.)*
+- [x] 1.2 `test-matrix.md`: cột Phase của M-71 … M-74 → 9; "Rows by phase" thêm `8: 7` (M-82 … M-88) và `9: 4` *(Xong 2026-11-08, **lệch có chủ ý so với dòng trên:** ô "Rows by phase" là tổng khớp với 81 dòng của bảng, mà M-82 … M-88 chưa tồn tại, nên chỉ ghi `9: 4`; **`8: 7` thêm ở 10.1/10.3** cùng lúc các dòng được tạo. Cùng lý do, bảng §4.1 "Not started, by phase" chỉ đổi dòng `8` thành `9`; dòng Phase 8 thêm ở Mục 10. Dòng "Phase" của §2.2 ghi "1–9".)*
+- [x] 1.3 `IMPLEMENTATION-READINESS.md` C9, E2; **thêm ghi chú đánh số lại** vào `phase-7.md` (không sửa bảng §5 đã ký, xem 1.4); `test-plan.md`, `performance-load.md`, `test-strategy.md`, `e2e-testing.md` và các tài liệu khác nhắc "Phase 8" theo nghĩa kiểm thử tải *(Xong 2026-11-08. Ngoài các file tên ở trên còn đổi: `database-schema.md`, `payment.md`, `registration.md`, `observability.md`, `deployment-and-cicd.md`, `mocking-guidelines.md`, `phase-template.md` (cũng "1–8" → "1–9", "eight phases" → "nine phases"), `backend-coding-standards.md`, `web-coding-standards.md:551`; comment, không đổi hành vi, ở 4 file Java, `k8s/overlays/loadtest/resource-patch.yaml`, `tests/load/k6/README.md`, `tests/load/k6/adversarial.js`; `test-plan.md` thêm dòng Phase 8 — Web UI ở cả hai bảng; `CLAUDE.md` chỉ đổi câu "is next". Ghi chú đánh số lại thêm vào đầu `phase-3.md`, `phase-7.md` (đã ký), ba checklist đã đóng `phase-2/3/7-*.md` và `phase-7-cluster-checks.md`: **các checklist đã đóng và báo cáo cluster không có tên trong 1.4, nên Claude Code áp cùng quy tắc "chỉ thêm ghi chú"** vì sửa D3/D12/D29 là sửa bản ghi quyết định đã có ngày; owner đổi ý được.)*
+- [x] 1.4 Kiểm tra bằng `grep -rn "Phase 8" docs checklists CLAUDE.md`: mọi chỗ còn lại đều nghĩa là Web UI. Sign-off đã ký (`phase-1.md` … `phase-7.md`) là hồ sơ lịch sử: **chỉ thêm ghi chú**, không sửa nội dung đã ký *(Xong 2026-11-08. Lệnh grep đúng chữ không thể trống, vì hồ sơ lịch sử giữ "Phase 8 = kiểm thử tải". Kết quả kiểm: mọi hit còn lại là (i) Web UI: `proposal.md:331`, `test-plan.md` §1 và bảng exit criteria, `CLAUDE.md`, file này; hoặc (ii) nằm trong sáu file lịch sử có ghi chú đánh số lại ở đầu file: `release-sign-offs/phase-3.md`, `phase-7.md`, `checklists/phase-2-registration-payment.md`, `phase-3-concurrency-protection.md`, `phase-7-kubernetes.md`, `reports/phase-7-cluster-checks.md`. Quét thêm các cách viết khác (`P8`, "1–8", "1…8", "eight phases", cột Phase của matrix, `README.md` gốc, `.github/`, `observability/`, `apps/*/README.md`): không còn sót ở file sống.)*
 
 ## 2. Nền móng design system — cổng G1
 
