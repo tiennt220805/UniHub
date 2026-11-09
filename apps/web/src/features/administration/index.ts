@@ -1,3 +1,7 @@
 export { ManagedWorkshopList } from './components/ManagedWorkshopList'
+export { WorkshopActionsMenu } from './components/WorkshopActionsMenu'
+export { WorkshopCreateForm } from './components/WorkshopCreateForm'
+export { WorkshopEditor } from './components/WorkshopEditor'
 export { WorkshopStatusBadge } from './components/WorkshopStatusBadge'
-export type { ManagedWorkshop } from './api/requests'
+export { WorkshopStatusCard } from './components/WorkshopStatusCard'
+export type { CreateWorkshopRequest, ManagedWorkshop, Workshop as ManagedWorkshopDetail } from './api/requests'

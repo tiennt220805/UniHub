@@ -11,3 +11,21 @@ export type WorkshopStatus = components['schemas']['WorkshopStatus']
 // the public listWorkshops, whose cache key and payload stay what the load model of Phase 9 counts on.
 export const listManagedWorkshops = (filters: ManagedWorkshopFilters) =>
   request<ManagedWorkshopList>(`/api/v1/admin/workshops${toQueryString(filters)}`)
+
+export type Workshop = components['schemas']['Workshop']
+export type CreateWorkshopRequest = components['schemas']['CreateWorkshopRequest']
+export type UpdateWorkshopRequest = components['schemas']['UpdateWorkshopRequest']
+
+const workshopPath = (id: string) => `/api/v1/workshops/${encodeURIComponent(id)}`
+const json = (body: unknown): RequestInit => ({ headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
+export const createWorkshop = (body: CreateWorkshopRequest) => request<Workshop>('/api/v1/workshops', { method: 'POST', ...json(body) })
+
+// PATCH with only the fields that changed (D155): the contract has no `version`, so a stale form can overwrite another
+// editor's change to a field it sends, and to none it does not.
+export const updateWorkshop = (id: string, body: UpdateWorkshopRequest) =>
+  request<Workshop>(workshopPath(id), { method: 'PATCH', ...json(body) })
+
+export const publishWorkshop = (id: string) => request<Workshop>(`${workshopPath(id)}/publish`, { method: 'POST' })
+
+export const cancelWorkshop = (id: string) => request<Workshop>(`${workshopPath(id)}/cancel`, { method: 'POST' })

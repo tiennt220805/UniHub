@@ -6,6 +6,7 @@
 
 const OFFSET = '+07:00'
 const YMD = /^(\d{4})-(\d{2})-(\d{2})$/
+const DATE_TIME_LOCAL = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/
 
 const ymdParts = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Ho_Chi_Minh',
@@ -73,6 +74,21 @@ export function clock(instant: string): string {
 export function dayBadge(instant: string): { day: string; month: string } {
   const [, m, d] = ymdOf(instant).split('-')
   return { day: String(Number(d)), month: `Thg ${Number(m)}` }
+}
+
+/**
+ * The value of an `<input type="datetime-local">` (`YYYY-MM-DDTHH:mm`) for an instant: the wall clock in Vietnam, whatever
+ * zone the browser is in (D161). Seconds are dropped, which is all the control can show.
+ */
+export function toDateTimeLocal(instant: string): string {
+  return `${ymdOf(instant)}T${clock(instant)}`
+}
+
+/** The UTC instant (ISO 8601) of a `datetime-local` value read as Vietnam time; `null` for a value that is not one. */
+export function fromDateTimeLocal(value: string): string | null {
+  if (!DATE_TIME_LOCAL.test(value)) return null
+  const date = new Date(`${value}:00.000${OFFSET}`)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
 /** "dd/mm/yyyy" for a ymd, the way a filter is quoted back to the user. */

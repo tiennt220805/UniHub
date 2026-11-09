@@ -1,4 +1,4 @@
-import { List, type LucideIcon } from 'lucide-react'
+import { List, Plus, type LucideIcon } from 'lucide-react'
 
 import { Permission } from '@/features/auth'
 
@@ -15,4 +15,5 @@ export type AdminNavItem = {
 
 export const ADMIN_NAV: readonly AdminNavItem[] = [
   { to: '/admin/workshops', label: 'Danh sách workshop', icon: List, anyOf: [Permission.WORKSHOP_EDIT] },
+  { to: '/admin/workshops/new', label: 'Tạo workshop', icon: Plus, anyOf: [Permission.WORKSHOP_CREATE] },
 ]

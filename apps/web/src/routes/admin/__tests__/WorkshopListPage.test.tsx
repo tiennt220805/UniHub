@@ -205,6 +205,91 @@ describe('WorkshopListPage', () => {
   })
 })
 
+describe('WorkshopListPage: the row menu (D166)', () => {
+  const draft = aWorkshopSummary({ id: 'd1', title: 'Bản nháp A', status: 'DRAFT', seatsTaken: 0 })
+  const live = aWorkshopSummary({ id: 'p1', title: 'Đã công bố B', status: 'PUBLISHED' })
+  const gone = aWorkshopSummary({ id: 'c1', title: 'Đã hủy C', status: 'CANCELLED' })
+
+  const open = async (user: ReturnType<typeof userEvent.setup>, title: string) =>
+    user.click(await screen.findByRole('button', { name: `Thao tác với ${title}` }))
+
+  it('offers edit, the report, publish and cancel for a draft, and publishes it after a confirmation', async () => {
+    let published = 0
+    const queries = serveList(() => HttpResponse.json(aWorkshopPage([draft])))
+    server.use(
+      http.post('/api/v1/workshops/d1/publish', () => {
+        published += 1
+        return HttpResponse.json({ ...draft, status: 'PUBLISHED', version: 2, hasBrochure: false })
+      }),
+    )
+    asManager()
+    const user = userEvent.setup()
+    renderRoute('/admin/workshops')
+
+    await open(user, 'Bản nháp A')
+    expect(screen.getByRole('menuitem', { name: 'Sửa thông tin' })).toHaveAttribute('href', '/admin/workshops/d1')
+    expect(screen.getByRole('menuitem', { name: 'Xem báo cáo' })).toHaveAttribute('href', '/admin/workshops/d1/report')
+    expect(screen.getByRole('menuitem', { name: 'Hủy bản nháp' })).toBeInTheDocument()
+    await user.click(screen.getByRole('menuitem', { name: 'Công bố' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: 'Công bố workshop?' })
+    expect(published).toBe(0)
+    const before = queries.length
+    await user.click(within(dialog).getByRole('button', { name: 'Công bố' }))
+
+    await waitFor(() => expect(published).toBe(1))
+    await waitFor(() => expect(queries.length).toBeGreaterThan(before)) // the list is read again, never patched by hand
+  })
+
+  it('offers cancel but not publish for a published workshop, and nothing that changes a cancelled one', async () => {
+    serveList(() => HttpResponse.json(aWorkshopPage([live, gone])))
+    asManager()
+    const user = userEvent.setup()
+    renderRoute('/admin/workshops')
+
+    await open(user, 'Đã công bố B')
+    expect(screen.queryByRole('menuitem', { name: 'Công bố' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Hủy workshop' })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+
+    await open(user, 'Đã hủy C')
+    expect(screen.getByRole('menuitem', { name: 'Xem thông tin' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Công bố' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /^Hủy/ })).not.toBeInTheDocument()
+  })
+
+  it('leaves the report out of the menu without REPORT_VIEW', async () => {
+    serveList(() => HttpResponse.json(aWorkshopPage([live])))
+    signInAs({ permissions: ['WORKSHOP_EDIT'] })
+    const user = userEvent.setup()
+    renderRoute('/admin/workshops')
+    await open(user, 'Đã công bố B')
+    expect(screen.queryByRole('menuitem', { name: 'Xem báo cáo' })).not.toBeInTheDocument()
+  })
+
+  it('cancels a published workshop with the honest confirmation', async () => {
+    let cancelled = 0
+    serveList(() => HttpResponse.json(aWorkshopPage([live])))
+    server.use(
+      http.post('/api/v1/workshops/p1/cancel', () => {
+        cancelled += 1
+        return HttpResponse.json({ ...live, status: 'CANCELLED' })
+      }),
+    )
+    asManager()
+    const user = userEvent.setup()
+    renderRoute('/admin/workshops')
+
+    await open(user, 'Đã công bố B')
+    await user.click(screen.getByRole('menuitem', { name: 'Hủy workshop' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Hủy workshop này?' })
+    expect(dialog).toHaveTextContent('Đăng ký hiện có không bị hủy tự động.')
+    await user.click(within(dialog).getByRole('button', { name: 'Hủy workshop' }))
+
+    await waitFor(() => expect(cancelled).toBe(1))
+  })
+})
+
 describe('AdminIndexPage (/admin)', () => {
   it('goes to the list for WORKSHOP_EDIT', async () => {
     serveList()

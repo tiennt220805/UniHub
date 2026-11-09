@@ -2,6 +2,8 @@ import { type RouteObject } from 'react-router'
 
 import { Permission } from '@/features/auth'
 import { AdminIndexPage } from '@/routes/admin/AdminIndexPage'
+import { WorkshopCreatePage } from '@/routes/admin/WorkshopCreatePage'
+import { WorkshopEditPage } from '@/routes/admin/WorkshopEditPage'
 import { WorkshopListPage } from '@/routes/admin/WorkshopListPage'
 import { WorkshopReportPage } from '@/routes/admin/WorkshopReportPage'
 import { SignInPage } from '@/routes/auth/SignInPage'
@@ -53,6 +55,25 @@ export const routes: RouteObject[] = [
         element: (
           <RequirePermission anyOf={[Permission.WORKSHOP_EDIT]}>
             <WorkshopListPage />
+          </RequirePermission>
+        ),
+      },
+      {
+        // createWorkshop is guarded by WORKSHOP_CREATE. Declared before ':workshopId' so "new" is not read as an id.
+        path: 'workshops/new',
+        element: (
+          <RequirePermission anyOf={[Permission.WORKSHOP_CREATE]}>
+            <WorkshopCreatePage />
+          </RequirePermission>
+        ),
+      },
+      {
+        // The page of one workshop: getWorkshop (a manager reads the Master) is let in by either permission; the form is
+        // editable, and publish and cancel are offered, only with WORKSHOP_EDIT (D166).
+        path: 'workshops/:workshopId',
+        element: (
+          <RequirePermission anyOf={[Permission.WORKSHOP_CREATE, Permission.WORKSHOP_EDIT]}>
+            <WorkshopEditPage />
           </RequirePermission>
         ),
       },

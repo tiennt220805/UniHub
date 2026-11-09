@@ -1,7 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { formatPrice } from '../format'
-import { addDays, clock, dayBadge, dayHeading, endOfDay, endOfWeek, isYmd, startOfDay, ymdOf } from '../vn-time'
+import {
+  addDays,
+  clock,
+  dayBadge,
+  dayHeading,
+  endOfDay,
+  endOfWeek,
+  fromDateTimeLocal,
+  isYmd,
+  startOfDay,
+  toDateTimeLocal,
+  ymdOf,
+} from '../vn-time'
 
 describe('vn-time', () => {
   it('reads the calendar day in Vietnam, not in UTC', () => {
@@ -59,5 +71,43 @@ describe('formatPrice', () => {
   it('writes the number with the suffix "đ" (D146)', () => {
     expect(formatPrice(150000)).toBe('150.000 đ')
     expect(formatPrice(99500)).toBe('99.500 đ')
+  })
+})
+
+// The control's value is a wall clock with no zone. These run with the process in a zone that is not Vietnam's (and has
+// daylight saving), so a helper that quietly used the browser's zone would fail here.
+describe('vn-time: datetime-local (D161)', () => {
+  beforeAll(() => {
+    vi.stubEnv('TZ', 'America/Los_Angeles')
+  })
+  afterAll(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('runs in a zone that is not Vietnam (otherwise the tests below prove nothing)', () => {
+    expect(new Date('2026-11-15T12:00:00Z').getTimezoneOffset()).not.toBe(-420)
+  })
+
+  it('reads the value as Vietnam time, whatever the zone of the machine', () => {
+    expect(fromDateTimeLocal('2026-11-15T13:30')).toBe('2026-11-15T06:30:00.000Z')
+    expect(fromDateTimeLocal('2026-07-01T00:00')).toBe('2026-06-30T17:00:00.000Z')
+  })
+
+  it('writes an instant as the Vietnam wall clock, including across midnight in UTC', () => {
+    expect(toDateTimeLocal('2026-11-15T06:30:00Z')).toBe('2026-11-15T13:30')
+    expect(toDateTimeLocal('2026-11-10T18:00:00Z')).toBe('2026-11-11T01:00')
+    expect(toDateTimeLocal('2026-11-15T17:00:00Z')).toBe('2026-11-16T00:00')
+  })
+
+  it('round-trips a minute-precise instant', () => {
+    const instant = '2026-03-08T10:15:00.000Z' // the night a US zone changes its clock
+    expect(fromDateTimeLocal(toDateTimeLocal(instant))).toBe(instant)
+  })
+
+  it('refuses what is not a datetime-local value', () => {
+    expect(fromDateTimeLocal('')).toBeNull()
+    expect(fromDateTimeLocal('2026-11-15')).toBeNull()
+    expect(fromDateTimeLocal('2026-11-15T13:30:00')).toBeNull()
+    expect(fromDateTimeLocal('2026-13-45T25:61')).toBeNull()
   })
 })
