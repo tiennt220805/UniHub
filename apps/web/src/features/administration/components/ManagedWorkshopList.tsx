@@ -152,8 +152,8 @@ export function ManagedWorkshopList({ workshopPath, createPath, renderCover, ren
   const clearSearch = () => update({ q: '' })
 
   return (
-    <div className="grid gap-4">
-      <Tabs value={search.tab} onValueChange={(tab) => update({ tab: tab as ManagedTab })} className="gap-3">
+    <div className="grid min-w-0 gap-4">
+      <Tabs value={search.tab} onValueChange={(tab) => update({ tab: tab as ManagedTab })} className="min-w-0 gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <TabsList aria-label="Trạng thái">
             {MANAGED_TABS.map((tab) => (
@@ -178,7 +178,7 @@ export function ManagedWorkshopList({ workshopPath, createPath, renderCover, ren
           </div>
         </div>
 
-        <TabsContent value={search.tab} className="grid gap-4">
+        <TabsContent value={search.tab} className="grid min-w-0 gap-4">
           {query.isPending ? (
             <ListSkeleton />
           ) : data === undefined ? (
@@ -187,7 +187,7 @@ export function ManagedWorkshopList({ workshopPath, createPath, renderCover, ren
             <EmptyPanel search={search} createPath={createPath} onClearSearch={clearSearch} />
           ) : (
             <>
-              <div className={cn('overflow-x-auto rounded-2xl border border-border bg-card', query.isPlaceholderData && 'opacity-60')}>
+              <div className={cn('relative overflow-x-auto rounded-2xl border border-border bg-card', query.isPlaceholderData && 'opacity-60')}>
                 <table className="w-full min-w-[720px] border-collapse text-sm">
                   <caption className="sr-only">Danh sách workshop</caption>
                   <thead>

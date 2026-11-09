@@ -68,7 +68,7 @@ export function AttendanceList({ workshopId, page, onPageChange, checkedInCount 
         />
       ) : (
         <>
-          <div className={cn('overflow-x-auto rounded-xl border border-border', query.isPlaceholderData && 'opacity-60')}>
+          <div className={cn('relative overflow-x-auto rounded-xl border border-border', query.isPlaceholderData && 'opacity-60')}>
             <table className="w-full border-collapse text-sm">
               <caption className="sr-only">Lượt check-in, sớm nhất trước</caption>
               <thead>

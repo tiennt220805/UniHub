@@ -18,7 +18,7 @@ export function WorkshopListPage() {
   const cache = useWorkshopCache()
 
   return (
-    <main className="mx-auto grid w-full max-w-7xl gap-5 px-6 py-8 lg:px-8">
+    <main className="mx-auto grid w-full min-w-0 max-w-7xl gap-5 px-6 py-8 lg:px-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl leading-[38px] font-bold text-foreground">Workshop</h1>
