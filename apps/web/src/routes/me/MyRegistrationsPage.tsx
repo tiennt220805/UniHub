@@ -1,8 +1,10 @@
 import { Link, useSearchParams } from 'react-router'
 
-import { MyRegistrationList, useMyRegistrations } from '@/features/registrations'
+import { MyRegistrationList, useMyRegistrations, type RegistrationSummary } from '@/features/registrations'
 import { Button } from '@/shared/ui/button'
-import { WorkshopName } from './WorkshopName'
+import { Pagination } from '@/shared/ui/pagination'
+import { useHasStarted } from './use-has-started'
+import { PastFlag, WorkshopHeading, WorkshopThumbnail } from './WorkshopParts'
 
 const PAGE_SIZE = 20
 
@@ -13,8 +15,40 @@ function pageFrom(params: URLSearchParams): number {
   return Number.isInteger(page) && page >= 0 ? page : 0
 }
 
-// The signed-in user's own registrations (listMyRegistrations is scoped to the caller). Every row
-// links to its own page, which shows the QR e-ticket of a confirmed one (D56) or why there is none.
+// The main action of a row follows the status (D150): the ticket of a confirmed registration (quieter once the workshop
+// has started), payment of a held paid one, the details of anything else. Every row also links to its own page.
+function RegistrationActions({ registration }: { registration: RegistrationSummary }) {
+  const started = useHasStarted(registration.workshopId)
+  const page = `/me/registrations/${registration.id}`
+  if (registration.status === 'CONFIRMED') {
+    return (
+      <Button asChild variant={started ? 'outline' : 'default'} size="lg" className="col-span-2 sm:col-span-1">
+        <Link to={page}>Xem vé</Link>
+      </Button>
+    )
+  }
+  if (registration.status === 'RESERVED' && registration.ticketType === 'PAID') {
+    return (
+      <>
+        <Button asChild size="lg">
+          <Link to={`/me/checkout/${registration.id}`}>Thanh toán</Link>
+        </Button>
+        <Button asChild variant="link" size="lg">
+          <Link to={page}>Chi tiết</Link>
+        </Button>
+      </>
+    )
+  }
+  return (
+    <Button asChild variant="outline" size="lg" className="col-span-2 sm:col-span-1">
+      <Link to={page}>Chi tiết</Link>
+    </Button>
+  )
+}
+
+// The signed-in user's own registrations (listMyRegistrations is scoped to the caller), newest registration first. There
+// is no "upcoming / past" grouping: the summary carries no workshop time and the list is ordered by when the user
+// registered, so a group would wait for every workshop to load and be cut in two by the paging (D150).
 export function MyRegistrationsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const page = pageFrom(searchParams)
@@ -24,42 +58,21 @@ export function MyRegistrationsPage() {
   const goTo = (next: number) => setSearchParams(next === 0 ? {} : { page: String(next) })
 
   return (
-    <main className="mx-auto max-w-3xl space-y-4 p-6">
-      <h1 className="text-2xl font-semibold text-foreground">Đăng ký của tôi</h1>
+    <main className="mx-auto max-w-4xl space-y-5 px-4 py-6 md:px-6 md:py-8">
+      <h1 className="text-[28px] leading-9 font-bold tracking-tight md:text-3xl md:leading-[38px]">Đăng ký của tôi</h1>
       <MyRegistrationList
         query={registrations}
-        renderWorkshop={(workshopId) => <WorkshopName workshopId={workshopId} />}
-        renderActions={(registration) => (
-          <>
-            <Link to={`/me/registrations/${registration.id}`} className="text-sm text-primary underline">
-              {registration.status === 'CONFIRMED' ? 'Xem vé' : 'Chi tiết'}
-            </Link>
-            {registration.status === 'RESERVED' && registration.ticketType === 'PAID' && (
-              <Link to={`/me/checkout/${registration.id}`} className="text-sm text-primary underline">
-                Thanh toán
-              </Link>
-            )}
-          </>
-        )}
+        renderThumbnail={(workshopId) => <WorkshopThumbnail workshopId={workshopId} />}
+        renderWorkshop={(workshopId) => <WorkshopHeading workshopId={workshopId} />}
+        renderFlags={(workshopId) => <PastFlag workshopId={workshopId} />}
+        renderActions={(registration) => <RegistrationActions registration={registration} />}
+        emptyAction={
+          <Button asChild>
+            <Link to="/workshops">Xem danh sách workshop</Link>
+          </Button>
+        }
       />
-      {totalPages > 1 && (
-        <nav aria-label="Phân trang" className="flex items-center gap-3">
-          <Button variant="outline" size="sm" disabled={page === 0} onClick={() => goTo(page - 1)}>
-            Trang trước
-          </Button>
-          <span className="text-sm text-muted-foreground">
-            Trang {page + 1} / {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page + 1 >= totalPages}
-            onClick={() => goTo(page + 1)}
-          >
-            Trang sau
-          </Button>
-        </nav>
-      )}
+      <Pagination page={page} pageCount={totalPages} onPageChange={goTo} className="pt-2" />
     </main>
   )
 }

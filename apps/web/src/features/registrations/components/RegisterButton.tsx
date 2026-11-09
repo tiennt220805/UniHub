@@ -1,11 +1,10 @@
 import { CircleAlert, CircleCheck, Clock, Info, Loader2, Lock } from 'lucide-react'
-import type { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router'
 
 import { problemSlug } from '@/shared/api/errors'
 import { MAX_AUTOMATIC_RETRIES } from '@/shared/api/retry'
-import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
+import { Notice } from '@/shared/ui/notice'
 import { useRegisterForWorkshop } from '../api/mutations'
 import type { Registration } from '../api/requests'
 import { registrationErrorMessage } from '../model/error-messages'
@@ -17,16 +16,6 @@ type Props = {
   canRegister: boolean
   /** Fires once, with the new registration. A paid one is RESERVED and still needs payment. */
   onRegistered: (registration: Registration) => void
-}
-
-// A message in a coloured box, always with an icon and words: a state never rides on colour alone (D115).
-function Notice({ tone, icon: Icon, role, children }: { tone: string; icon: typeof Info; role?: 'status' | 'alert'; children: ReactNode }) {
-  return (
-    <div role={role} className={cn('flex items-start gap-2.5 rounded-lg p-3 text-sm', tone)}>
-      <Icon aria-hidden="true" className="mt-0.5 size-4.5 shrink-0" />
-      <div className="min-w-0">{children}</div>
-    </div>
-  )
 }
 
 export function RegisterButton({ workshopId, signedIn, canRegister, onRegistered }: Props) {
@@ -47,7 +36,7 @@ export function RegisterButton({ workshopId, signedIn, canRegister, onRegistered
   }
   if (!canRegister) {
     return (
-      <Notice tone="bg-muted text-foreground" icon={Lock}>
+      <Notice tone="muted" icon={Lock}>
         Tài khoản của bạn không có quyền đăng ký workshop.
       </Notice>
     )
@@ -55,7 +44,7 @@ export function RegisterButton({ workshopId, signedIn, canRegister, onRegistered
   if (registration) {
     return registration.status === 'CONFIRMED' ? (
       <div className="grid gap-2">
-        <Notice tone="bg-primary-soft text-primary-text" icon={CircleCheck} role="status">
+        <Notice tone="success" icon={CircleCheck} role="status">
           Đăng ký thành công. Chỗ của bạn đã được xác nhận.
         </Notice>
         <Link to={`/me/registrations/${registration.id}`} className="text-sm font-semibold text-primary-text underline-offset-4 hover:underline">
@@ -63,7 +52,7 @@ export function RegisterButton({ workshopId, signedIn, canRegister, onRegistered
         </Link>
       </div>
     ) : (
-      <Notice tone="bg-warning-soft text-warning" icon={Clock} role="status">
+      <Notice tone="warning" icon={Clock} role="status">
         Đã giữ chỗ cho bạn. Đang chuyển tới thanh toán…
       </Notice>
     )
@@ -74,7 +63,7 @@ export function RegisterButton({ workshopId, signedIn, canRegister, onRegistered
   if (error && !isPending && slug === 'already-registered') {
     return (
       <div className="grid gap-3">
-        <Notice tone="bg-info-soft text-info" icon={Info} role="alert">
+        <Notice tone="info" icon={Info} role="alert">
           <b className="block font-semibold">{registrationErrorMessage(error)}</b>
           {error.problem?.correlationId && <span className="block">Mã tham chiếu: {error.problem.correlationId}</span>}
         </Notice>
@@ -88,7 +77,7 @@ export function RegisterButton({ workshopId, signedIn, canRegister, onRegistered
   return (
     <div className="grid gap-3">
       {error && !isPending && (
-        <Notice tone="bg-destructive-soft text-destructive" icon={CircleAlert} role="alert">
+        <Notice tone="destructive" icon={CircleAlert} role="alert">
           <b className="block font-semibold">{registrationErrorMessage(error)}</b>
           {slug === 'sold-out' && <span className="block">Chỗ giữ nhưng chưa thanh toán có thể được trả lại sau 15 phút.</span>}
           {error.problem?.correlationId && <span className="block">Mã tham chiếu: {error.problem.correlationId}</span>}

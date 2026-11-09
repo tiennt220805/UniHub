@@ -27,9 +27,12 @@ export function LoadError({
       <ErrorState
         className={className}
         title="Bạn đang gửi quá nhiều yêu cầu."
-        description={
-          error.retryAfterSeconds === null ? 'Vui lòng thử lại sau.' : `Vui lòng thử lại sau ${error.retryAfterSeconds} giây.`
-        }
+        description={[
+          error.retryAfterSeconds === null ? 'Vui lòng thử lại sau.' : `Vui lòng thử lại sau ${error.retryAfterSeconds} giây.`,
+          error.problem?.correlationId ? `Mã tham chiếu: ${error.problem.correlationId}` : null,
+        ]
+          .filter(Boolean)
+          .join(' ')}
       />
     )
   }

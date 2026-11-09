@@ -12,10 +12,10 @@ export function TicketQrCode({ value }: { value: string }) {
     <QRCodeSVG
       value={value}
       level="Q"
-      size={256}
+      size={288}
       marginSize={4}
       title="Mã QR e-ticket"
-      className="h-auto max-w-full"
+      className="h-auto w-full max-w-72 md:max-w-64"
     />
   )
 }

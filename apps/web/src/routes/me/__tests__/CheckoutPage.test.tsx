@@ -485,6 +485,104 @@ describe('CheckoutPage: the registration it pays for', () => {
   })
 })
 
+describe('CheckoutPage: the hold clock, the steps and the summary (D148)', () => {
+  const holdFor = (seconds: number) =>
+    aReservedRegistration({ holdExpiresAt: new Date(Date.now() + seconds * 1000).toISOString() })
+
+  it('the number is a timer, not a status: a screen reader is not told every second', async () => {
+    serveCheckout({ registration: holdFor(10 * 60) })
+    renderRoute(PATH)
+
+    const timer = await screen.findByRole('timer')
+    expect(timer).toHaveTextContent(/^(09|10):\d\d$/)
+    expect(timer.closest('[role="status"]')).toBeNull()
+  })
+
+  it('announces the hold when the page opens, with words and no number that changes', async () => {
+    serveCheckout({ registration: holdFor(10 * 60) })
+    renderRoute(PATH)
+
+    const announcement = await screen.findByText(/Chỗ của bạn được giữ đến \d\d:\d\d\./)
+    expect(announcement).toHaveAttribute('role', 'status')
+    expect(announcement).toHaveClass('sr-only')
+  })
+
+  it('says "less than 5 minutes" and then "less than 1 minute" at the milestones, in words and in the box', async () => {
+    serveCheckout({ registration: holdFor(4 * 60) })
+    renderRoute(PATH)
+
+    expect(await screen.findByText('Còn dưới 5 phút giữ chỗ.')).toHaveClass('sr-only')
+    expect(screen.getByText('Sắp hết giờ giữ chỗ')).toBeInTheDocument()
+  })
+
+  it('says "less than 1 minute" when under a minute is left', async () => {
+    serveCheckout({ registration: holdFor(40) })
+    renderRoute(PATH)
+
+    expect(await screen.findByText('Còn dưới 1 phút giữ chỗ.')).toHaveClass('sr-only')
+  })
+
+  it('has no clock once the payment has succeeded and only the confirmation is awaited', async () => {
+    serveCheckout({ registration: holdFor(10 * 60), payment: aPayment({ status: 'SUCCEEDED' }) })
+    renderRoute(`${PATH}?payment=${PAYMENT_ID}`)
+
+    expect(await screen.findByText('Đang xác nhận đăng ký của bạn…')).toBeInTheDocument()
+    expect(screen.queryByRole('timer')).not.toBeInTheDocument()
+  })
+
+  it('shows three steps and marks the one the server is at', async () => {
+    serveCheckout({ registration: holdFor(10 * 60) })
+    renderRoute(PATH)
+
+    const steps = within(await screen.findByRole('list', { name: 'Các bước' })).getAllByRole('listitem')
+    expect(steps).toHaveLength(3)
+    expect(steps[1]).toHaveAttribute('aria-current', 'step')
+    expect(steps[1]).toHaveTextContent('Bạn đang ở bước này')
+  })
+
+  it('moves the marker to the confirmation while a paid registration waits for it', async () => {
+    serveCheckout({ registration: holdFor(10 * 60), payment: aPayment({ status: 'SUCCEEDED' }) })
+    renderRoute(`${PATH}?payment=${PAYMENT_ID}`)
+
+    const steps = within(await screen.findByRole('list', { name: 'Các bước' })).getAllByRole('listitem')
+    expect(steps[2]).toHaveAttribute('aria-current', 'step')
+    expect(steps[2]).toHaveTextContent('Đang xác nhận')
+  })
+
+  it('a confirmed registration offers its ticket, with every step behind it', async () => {
+    serveCheckout({ registration: aRegistration({ ticketType: 'PAID', status: 'CONFIRMED', id: REGISTRATION_ID }) })
+    renderRoute(PATH)
+
+    expect(await screen.findByRole('link', { name: 'Xem vé' })).toHaveAttribute('href', `/me/registrations/${REGISTRATION_ID}`)
+    expect(screen.getByRole('list', { name: 'Các bước' })).toBeInTheDocument()
+  })
+
+  it('names the workshop and its fee, and links back to it', async () => {
+    serveCheckout({ registration: holdFor(10 * 60) })
+    renderRoute(PATH)
+
+    const summary = await screen.findByRole('region', { name: 'Workshop bạn đăng ký' })
+    expect(await within(summary).findByText('150.000 đ')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '← Chi tiết workshop' })).toBeInTheDocument()
+  })
+
+  it('"Thanh toán" is the one heading of that name', async () => {
+    serveCheckout({ registration: holdFor(10 * 60) })
+    renderRoute(PATH)
+
+    await screen.findByRole('timer')
+    expect(screen.getAllByRole('heading', { name: /Thanh toán/ })).toHaveLength(1)
+  })
+
+  it('an expired registration points to other workshops', async () => {
+    serveCheckout({ registration: aRegistration({ ticketType: 'PAID', status: 'EXPIRED' }) })
+    renderRoute(PATH)
+
+    expect(await screen.findByRole('link', { name: 'Xem workshop khác' })).toHaveAttribute('href', '/workshops')
+    expect(screen.queryByRole('list', { name: 'Các bước' })).not.toBeInTheDocument()
+  })
+})
+
 describe('CheckoutPage: who may open it', () => {
   it('sends an anonymous visitor to sign-in', async () => {
     serveCheckout()

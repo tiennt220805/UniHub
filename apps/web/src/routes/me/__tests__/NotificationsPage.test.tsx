@@ -59,13 +59,13 @@ describe('NotificationsPage', () => {
     expect(document.querySelector('main img, main b')).toBeNull()
   })
 
-  it('links a confirmation to the e-ticket page of its registration, old rows included, and nothing else', async () => {
+  it('links a confirmation to its e-ticket page, old rows included, and a workshop change to the workshop (D151)', async () => {
     server.use(
       http.get('/api/v1/notifications', () =>
         HttpResponse.json(
           aNotificationPage([
             aNotification({ id: 'n3', type: 'WORKSHOP_CANCELLED', relatedEntityType: 'WORKSHOP', relatedEntityId: 'w-1' }),
-            aNotification({ id: 'n2', type: 'WORKSHOP_RESCHEDULED', relatedEntityType: 'WORKSHOP', relatedEntityId: 'w-1' }),
+            aNotification({ id: 'n2', type: 'WORKSHOP_RESCHEDULED', relatedEntityType: 'WORKSHOP', relatedEntityId: 'w-2' }),
             aNotification({ id: 'n1', type: 'REGISTRATION_CONFIRMED', relatedEntityId: 'reg-1' }),
             // A row stored before Phase 5: same type, wording that never mentioned a ticket.
             aNotification({ id: 'n0', type: 'REGISTRATION_CONFIRMED', relatedEntityId: 'reg-0', body: 'Đã xác nhận.' }),
@@ -78,10 +78,56 @@ describe('NotificationsPage', () => {
     renderRoute('/me/notifications')
 
     const rows = await screen.findAllByRole('listitem')
-    expect(within(rows[0]).queryByRole('link')).not.toBeInTheDocument()
-    expect(within(rows[1]).queryByRole('link')).not.toBeInTheDocument()
+    expect(within(rows[0]).getByRole('link', { name: 'Xem workshop' })).toHaveAttribute('href', '/workshops/w-1')
+    expect(within(rows[1]).getByRole('link', { name: 'Xem workshop' })).toHaveAttribute('href', '/workshops/w-2')
     expect(within(rows[2]).getByRole('link', { name: 'Xem vé' })).toHaveAttribute('href', '/me/registrations/reg-1')
     expect(within(rows[3]).getByRole('link', { name: 'Xem vé' })).toHaveAttribute('href', '/me/registrations/reg-0')
+    // One link each, and a confirmation never points at a workshop nor a workshop change at a ticket.
+    expect(within(rows[0]).getAllByRole('link')).toHaveLength(1)
+    expect(within(rows[2]).queryByRole('link', { name: 'Xem workshop' })).not.toBeInTheDocument()
+  })
+
+  it('draws no link for a row whose pointer is not the kind its type expects', async () => {
+    server.use(
+      http.get('/api/v1/notifications', () =>
+        HttpResponse.json(
+          aNotificationPage([
+            aNotification({ id: 'n1', type: 'WORKSHOP_CANCELLED', relatedEntityType: 'REGISTRATION', relatedEntityId: 'x' }),
+            aNotification({ id: 'n0', type: 'REGISTRATION_CONFIRMED', relatedEntityType: 'WORKSHOP', relatedEntityId: 'y' }),
+          ]),
+        ),
+      ),
+    )
+    signInAs()
+
+    renderRoute('/me/notifications')
+
+    const rows = await screen.findAllByRole('listitem')
+    expect(within(rows[0]).queryByRole('link')).not.toBeInTheDocument()
+    expect(within(rows[1]).queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  it('names the kind of each notification in words, and has no unread mark or count (M-81)', async () => {
+    server.use(
+      http.get('/api/v1/notifications', () =>
+        HttpResponse.json(
+          aNotificationPage([
+            aNotification({ id: 'n3', type: 'WORKSHOP_CANCELLED', relatedEntityType: 'WORKSHOP' }),
+            aNotification({ id: 'n2', type: 'WORKSHOP_RESCHEDULED', relatedEntityType: 'WORKSHOP' }),
+            aNotification({ id: 'n1', type: 'REGISTRATION_CONFIRMED' }),
+          ]),
+        ),
+      ),
+    )
+    signInAs()
+
+    renderRoute('/me/notifications')
+
+    const rows = await screen.findAllByRole('listitem')
+    expect(within(rows[0]).getByText('Đã hủy')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('Đổi lịch')).toBeInTheDocument()
+    expect(within(rows[2]).getByText('Đã xác nhận')).toBeInTheDocument()
+    expect(screen.queryByText(/chưa đọc|đánh dấu đã đọc/i)).not.toBeInTheDocument()
   })
 
   it('says so when there is nothing yet', async () => {
@@ -146,19 +192,19 @@ describe('NotificationsPage', () => {
     const user = userEvent.setup()
     const { router } = renderRoute('/me/notifications?page=1')
 
-    expect(await screen.findByText('Trang 2 / 3')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Trang sau' }))
+    expect(await screen.findByRole('button', { name: 'Trang 2' })).toHaveAttribute('aria-current', 'page')
+    await user.click(screen.getByRole('button', { name: 'Sau' }))
 
-    expect(await screen.findByText('Trang 3 / 3')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Trang 3' })).toHaveAttribute('aria-current', 'page')
     expect(asked).toEqual(['1/20', '2/20'])
     expect(router.state.location.search).toBe('?page=2')
-    expect(screen.getByRole('button', { name: 'Trang sau' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Sau' })).toBeDisabled()
 
-    await user.click(screen.getByRole('button', { name: 'Trang trước' }))
-    await user.click(screen.getByRole('button', { name: 'Trang trước' }))
-    expect(await screen.findByText('Trang 1 / 3')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Trước' }))
+    await user.click(screen.getByRole('button', { name: 'Trước' }))
+    expect(await screen.findByRole('button', { name: 'Trang 1' })).toHaveAttribute('aria-current', 'page')
     expect(router.state.location.search).toBe('')
-    expect(screen.getByRole('button', { name: 'Trang trước' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Trước' })).toBeDisabled()
   })
 
   it('treats a nonsense page as the first page', async () => {

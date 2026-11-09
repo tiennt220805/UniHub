@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 
 import type { AppError } from '@/shared/api/errors'
+import { LoadError } from '@/shared/components/LoadError'
 import { NotFound } from '@/shared/components/NotFound'
 import { formatDateTime, formatPrice } from '@/shared/lib/format'
 import { Badge } from '@/shared/ui/badge'
@@ -11,7 +12,6 @@ import { Button } from '@/shared/ui/button'
 import { Skeleton } from '@/shared/ui/skeleton'
 import type { Workshop } from '../api/requests'
 import { seatFill, seatLevel } from '../model/seat-level'
-import { LoadError } from './LoadError'
 import { WorkshopCover } from './WorkshopCover'
 
 type Props = {

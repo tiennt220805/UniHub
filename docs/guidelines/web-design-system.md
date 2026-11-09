@@ -123,7 +123,15 @@ The **text is not free**: where it already exists in the code it stays, because 
 | `WorkshopStatus.CANCELLED` / `COMPLETED` | destructive / info | Workshop này đã bị hủy. / Workshop này đã kết thúc. | existing notice, `WorkshopDetailView.tsx` | x-circle / flag |
 | `WorkshopStatus.DRAFT` / `PUBLISHED` | muted / success | Nháp / Đã công bố | badge text for the admin list (S10), new and approved at G1; no existing label | pencil / globe |
 | Seat level (catalog, D118) | success / warning / destructive | Còn chỗ / Sắp hết / Hết chỗ | owner's wording in D118 | check / clock / x-circle beside the words (D147, 2026-11-09) |
+| `Notification.type` `REGISTRATION_CONFIRMED` / `WORKSHOP_RESCHEDULED` / `WORKSHOP_CANCELLED` | success / info / destructive | Đã xác nhận / Đổi lịch / Đã hủy | new, G3 (D151); no existing label (the notification's own `title` and `body` are stored text) | check-circle / calendar-clock / x-circle |
+| Hold countdown (D148) | neutral / warning / destructive | Chỗ của bạn được giữ trong (+ "Sắp hết giờ giữ chỗ" under 5 minutes) / "Đã hết thời gian giữ chỗ." at 0 | existing text; the warning words are new | clock / clock / timer; timer-off at 0 |
 | Ticket type | highlight / muted | Có phí / Miễn phí | existing in `MyRegistrationList.tsx`; `Có phí` is **asserted by E2E** (`student-journey.spec.ts`) | none |
+
+**What a screen reader is told (7.4).** The seat count and the countdown change without being announced: the countdown's number is a `role="timer"`
+(no announcement) and a separate, visually hidden `role="status"` changes its words only when the page opens ("Chỗ của bạn được giữ đến HH:mm."),
+with under 5 minutes left and with under 1 minute left; the end is the visible "Đã hết thời gian giữ chỗ." itself. The words are written to the node
+by an effect after the first render, because a live region that arrives with its text already inside is announced unreliably. The payment status and
+the registration status, which a person is waiting for, are visible `role="status"` notices that appear when they change.
 
 Strings the Playwright suites assert and that therefore may not change without the spec in the same commit (C68): `Đăng ký tham dự`,
 `Đăng ký thành công. Chỗ của bạn đã được xác nhận.`, `Xem vé`, `Mã QR e-ticket` (image name), `Thanh toán` (heading and button),
@@ -194,9 +202,10 @@ The few generic words in them ("Đóng", "Trước", "Sau", "Phân trang") are i
 | Component | File | Notes |
 |---|---|---|
 | Button | `button.tsx` | variants `default`, `outline`, `secondary`, `ghost`, `destructive`, `link`; sizes `xs`, `sm`, `default` (40 px), `lg` (44 px, the touch target), `icon*`. Solid focus ring, `primary-hover`, press scale only under `motion-safe` |
-| Input, Textarea | `input.tsx` | 16 px at every breakpoint; `input` border (3:1); the same control is the native `date` and `datetime-local` input (D134) |
+| Input, Textarea | `input.tsx` (the shared class string is `control-classes.ts`) | 16 px at every breakpoint; `input` border (3:1); the same control is the native `date` and `datetime-local` input (D134) |
 | Field, Label, FieldHint, FieldError | `field.tsx` | the error is an icon plus words; the caller wires `htmlFor` and `aria-describedby` |
 | Badge | `badge.tsx` | tones `success`, `warning`, `destructive`, `info`, `muted`, `highlight`; the words and icon come from the feature |
+| Notice | `notice.tsx` | a message in a tinted box with a required icon; tones `success`, `warning`, `destructive`, `info`, `muted` (the Badge's pairs); `role="status"` for something that arrives, `role="alert"` for a failure |
 | Card | `card.tsx` | `Card`, `CardHeader`, `CardTitle` (an `h3`, changeable with `asChild`), `CardDescription`, `CardContent`, `CardFooter` |
 | Skeleton | `skeleton.tsx` | decorative; pulses only under `motion-safe` |
 | EmptyState, ErrorState | `state-panel.tsx` | title, description and action are passed in; an `ErrorState` is `role="alert"` |

@@ -1,4 +1,5 @@
 import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
@@ -134,7 +135,7 @@ describe('RegistrationTicketPage', () => {
   it.each([
     [404, 'Không tìm thấy đăng ký.'],
     [400, 'Không tìm thấy đăng ký.'],
-    [429, 'Bạn đang gửi quá nhiều yêu cầu. Vui lòng thử lại sau.'],
+    [429, 'Bạn đang gửi quá nhiều yêu cầu.'],
     [500, 'Không tải được thông tin đăng ký.'],
   ])('answers %i with a message and, when the server sent one, its correlation id', async (status, message) => {
     server.use(http.get('/api/v1/registrations/:id', () => problem(status, { correlationId: 'corr-7' })))
@@ -145,6 +146,55 @@ describe('RegistrationTicketPage', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(message)
     expect(alert).toHaveTextContent('Mã tham chiếu: corr-7')
+  })
+
+  it('keeps the QR on white and at a size a phone screen can be read from, at level Q (D152)', async () => {
+    serveRegistration(issued())
+    serveWorkshop()
+    signInAs()
+
+    renderRoute(PATH)
+
+    const qr = await screen.findByRole('img', { name: 'Mã QR e-ticket' })
+    // The panel is white whatever the theme, and the symbol carries its own white quiet zone.
+    expect(qr.parentElement).toHaveClass('bg-white')
+    expect(qr.querySelector('path')).toHaveAttribute('fill', '#FFFFFF')
+    // 288 px at most on a phone, 256 from md up: never below the 256 a camera can read from another screen.
+    expect(qr).toHaveAttribute('width', '288')
+    expect(qr).toHaveClass('max-w-72', 'md:max-w-64')
+  })
+
+  it('shows the status in words and the ticket type, with the instruction and the brightness hint', async () => {
+    serveRegistration(issued({ ticketType: 'PAID' }))
+    serveWorkshop()
+    signInAs()
+
+    renderRoute(PATH)
+
+    const ticket = await screen.findByRole('region', { name: 'E-ticket' })
+    expect(within(ticket).getByText('Đã xác nhận')).toBeInTheDocument()
+    expect(within(ticket).getByText(/Có phí · Đăng ký lúc/)).toBeInTheDocument()
+    expect(within(ticket).getByText('Xuất trình mã QR này cho nhân viên check-in tại cửa workshop.')).toBeInTheDocument()
+    const hint = within(ticket).getByText('Tăng độ sáng màn hình khi đưa vé cho nhân viên.')
+    expect(hint).toHaveClass('md:hidden')
+  })
+
+  it('offers a retry when the registration cannot be loaded', async () => {
+    let calls = 0
+    server.use(
+      http.get('/api/v1/registrations/:id', () => {
+        calls += 1
+        return calls === 1 ? problem(500) : HttpResponse.json(issued())
+      }),
+    )
+    serveWorkshop()
+    signInAs()
+    const user = userEvent.setup()
+
+    renderRoute(PATH)
+
+    await user.click(await screen.findByRole('button', { name: 'Thử lại' }))
+    expect(await screen.findByRole('img', { name: 'Mã QR e-ticket' })).toBeInTheDocument()
   })
 
   it('shows a loading state before the registration arrives', async () => {
@@ -167,7 +217,7 @@ describe('RegistrationTicketPage', () => {
 
     const qr = await screen.findByRole('img', { name: 'Mã QR e-ticket' })
     expect(qr).toBeInTheDocument()
-    expect(within(screen.getByRole('main')).getByRole('link', { name: 'Workshop' })).toHaveAttribute(
+    expect(await within(screen.getByRole('main')).findByRole('link', { name: 'Workshop' })).toHaveAttribute(
       'href',
       `/workshops/${aWorkshop().id}`,
     )

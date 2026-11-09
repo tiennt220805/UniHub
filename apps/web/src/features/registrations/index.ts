@@ -8,6 +8,7 @@ export type {
 } from './api/requests'
 export { HoldCountdown } from './components/HoldCountdown'
 export { MyRegistrationList } from './components/MyRegistrationList'
+export { RegistrationStatusBadge } from './components/RegistrationStatusBadge'
 export { RegisterButton } from './components/RegisterButton'
 export { TicketQrCode } from './components/TicketQrCode'
 export { RegistrationTicketView } from './components/RegistrationTicketView'

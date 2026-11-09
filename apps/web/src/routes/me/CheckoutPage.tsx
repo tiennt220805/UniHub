@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
+import { CircleCheck, CircleX, Loader2, Info, TimerOff } from 'lucide-react'
 import { Link, useParams, useSearchParams } from 'react-router'
 
 import {
@@ -15,14 +16,20 @@ import {
   HoldCountdown,
   isRegistrationFinal,
   registrationKeys,
+  RegistrationStatusBadge,
   useRegistration,
 } from '@/features/registrations'
+import { useWorkshop } from '@/features/workshops'
 import type { AppError } from '@/shared/api/errors'
+import { LoadError } from '@/shared/components/LoadError'
 import { env } from '@/shared/config/env'
 import { useCountdown } from '@/shared/hooks/use-countdown'
 import { usePollWindow } from '@/shared/hooks/use-poll-window'
 import { Button } from '@/shared/ui/button'
-import { WorkshopName } from './WorkshopName'
+import { Notice } from '@/shared/ui/notice'
+import { Skeleton } from '@/shared/ui/skeleton'
+import { CheckoutSteps } from './CheckoutSteps'
+import { CheckoutSummary } from './CheckoutSummary'
 
 const STATUS_POLL_MS = 2_000
 
@@ -48,6 +55,7 @@ export function CheckoutPage() {
   const registration = useRegistration(registrationId)
   const payment = usePayment(paymentId)
   const holdLeft = useCountdown(registration.data?.holdExpiresAt)
+  const workshopPrice = useWorkshop(registration.data?.workshopId ?? '', { enabled: registration.data !== undefined }).data?.price ?? null
 
   // Poll while there is a payment to follow and nothing has settled: not a failure the student can
   // retry, and the registration still RESERVED — which includes the window where the payment has
@@ -97,12 +105,24 @@ export function CheckoutPage() {
   }
 
   if (registration.isPending) {
-    return <Frame>Đang tải…</Frame>
+    return (
+      <Frame>
+        <div role="status" aria-busy="true" className="grid gap-4">
+          <span className="sr-only">Đang tải…</span>
+          <Skeleton className="h-40 rounded-xl" />
+          <Skeleton className="h-48 rounded-xl" />
+        </div>
+      </Frame>
+    )
   }
   if (registration.isError) {
     return (
       <Frame>
-        <p role="alert">{loadErrorMessage(registration.error)}</p>
+        <LoadError
+          error={registration.error}
+          message={loadErrorMessage(registration.error)}
+          onRetry={() => void registration.refetch()}
+        />
       </Frame>
     )
   }
@@ -110,71 +130,134 @@ export function CheckoutPage() {
   const current = registration.data
   const canPay =
     current.status === 'RESERVED' && (payment.data === undefined || isPaymentRetryable(payment.data.status))
+  // Once the money is taken a countdown means nothing: what is left is the confirmation, which is not on a clock (D148).
+  const showCountdown = current.status === 'RESERVED' && payment.data?.status !== 'SUCCEEDED'
+  const showSteps = current.status === 'RESERVED' || current.status === 'CONFIRMED'
 
   return (
-    <Frame>
-      <p className="text-muted-foreground">
-        <WorkshopName workshopId={current.workshopId} />
-      </p>
+    <Frame workshopId={current.workshopId}>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-x-6">
+        {showCountdown && (
+          // Below `lg` this is a bar that stays under the top bar while the page scrolls; from `lg` it is the top of the side column.
+          <div className="sticky top-14 z-30 -mx-4 border-b border-border bg-background px-4 py-2 md:top-16 md:-mx-6 md:px-6 lg:static lg:col-start-2 lg:row-start-1 lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0">
+            <HoldCountdown registration={current} size="lg" />
+            <p className="mt-2 hidden text-xs text-muted-foreground lg:block">
+              Hết giờ giữ chỗ, chỗ được trả lại cho người khác.
+            </p>
+          </div>
+        )}
 
-      {current.status === 'CONFIRMED' && (
-        <p role="status" className="rounded-md bg-muted p-3 text-foreground">
-          Đăng ký của bạn đã được xác nhận.{' '}
-          <Link to="/me/registrations" className="underline">
-            Xem đăng ký của tôi
-          </Link>
-        </p>
-      )}
-      {(current.status === 'EXPIRED' || current.status === 'CANCELLED') && (
-        <p role="status" className="rounded-md bg-muted p-3 text-foreground">
-          {current.status === 'EXPIRED'
-            ? 'Đã hết thời gian giữ chỗ cho đăng ký này.'
-            : 'Đăng ký này đã bị hủy.'}
-        </p>
-      )}
-      {current.status === 'RESERVED' && <HoldCountdown registration={current} />}
+        <div className="grid gap-5 lg:col-start-1 lg:row-span-2 lg:row-start-1">
+          <CheckoutSummary workshopId={current.workshopId} />
 
-      {paymentId !== null && payment.isPending && <p>Đang tải trạng thái thanh toán…</p>}
-      {payment.isError && (
-        <p role="alert">Không tải được trạng thái thanh toán. Vui lòng thử làm mới trang.</p>
-      )}
-      {payment.data && <PaymentStatusNotice payment={payment.data} />}
-      {payment.data?.status === 'SUCCEEDED' && current.status === 'RESERVED' && (
-        <p role="status">Đang xác nhận đăng ký của bạn…</p>
-      )}
+          {current.status === 'CONFIRMED' && (
+            <div className="grid gap-3">
+              <Notice tone="success" icon={CircleCheck} role="status">
+                Đăng ký của bạn đã được xác nhận.{' '}
+                <Link to="/me/registrations" className="font-semibold underline underline-offset-4">
+                  Xem đăng ký của tôi
+                </Link>
+              </Notice>
+              <Button asChild size="lg" className="h-12">
+                <Link to={`/me/registrations/${current.id}`}>Xem vé</Link>
+              </Button>
+            </div>
+          )}
+          {current.status === 'EXPIRED' && (
+            <div className="grid gap-2">
+              <Notice tone="muted" icon={TimerOff} role="status">
+                Đã hết thời gian giữ chỗ cho đăng ký này.
+              </Notice>
+              <Link to="/workshops" className="text-sm font-semibold text-primary-text underline-offset-4 hover:underline">
+                Xem workshop khác
+              </Link>
+            </div>
+          )}
+          {current.status === 'CANCELLED' && (
+            <Notice tone="destructive" icon={CircleX} role="status">
+              Đăng ký này đã bị hủy.
+            </Notice>
+          )}
 
-      {pollWindow.expired && (
-        <div className="space-y-2">
-          <p role="status">Vẫn đang xử lý. Kết quả sẽ hiện ra ngay khi có.</p>
-          <Button
-            variant="outline"
-            onClick={() => {
-              pollWindow.restart()
-              void refetchRegistration()
-              void refetchPayment()
-            }}
-          >
-            Làm mới
-          </Button>
+          {paymentId !== null && payment.isPending && (
+            <Notice tone="info" icon={Loader2} role="status" className="[&>svg]:motion-safe:animate-spin">
+              Đang tải trạng thái thanh toán…
+            </Notice>
+          )}
+          {payment.isError && (
+            <Notice tone="destructive" icon={Info} role="alert">
+              Không tải được trạng thái thanh toán. Vui lòng thử làm mới trang.
+            </Notice>
+          )}
+          {payment.data && <PaymentStatusNotice payment={payment.data} />}
+          {payment.data?.status === 'SUCCEEDED' && current.status === 'RESERVED' && (
+            <Notice tone="info" icon={Loader2} role="status" className="[&>svg]:motion-safe:animate-spin">
+              Đang xác nhận đăng ký của bạn…
+            </Notice>
+          )}
+
+          {pollWindow.expired && (
+            <div className="grid justify-items-start gap-2">
+              <Notice tone="muted" icon={Info} role="status" className="w-full">
+                Vẫn đang xử lý. Kết quả sẽ hiện ra ngay khi có.
+              </Notice>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  pollWindow.restart()
+                  void refetchRegistration()
+                  void refetchPayment()
+                }}
+              >
+                Làm mới
+              </Button>
+            </div>
+          )}
+
+          {canPay && (
+            <CheckoutForm
+              registrationId={registrationId}
+              testMode={env.paymentTestMode}
+              disabled={holdLeft === 0}
+              amount={payment.data?.amount ?? workshopPrice}
+              onCharged={onCharged}
+            />
+          )}
         </div>
-      )}
 
-      {canPay && (
-        <CheckoutForm
-          registrationId={registrationId}
-          testMode={env.paymentTestMode}
-          disabled={holdLeft === 0}
-          onCharged={onCharged}
-        />
-      )}
+        {showSteps && (
+          <aside
+            aria-label="Tiến trình"
+            className={`hidden rounded-xl border border-border bg-card p-5 lg:col-start-2 lg:block ${showCountdown ? 'lg:row-start-2' : 'lg:row-start-1'}`}
+          >
+            <div className="mb-5 flex items-center justify-between gap-2">
+              <h2 className="text-lg leading-6 font-semibold">Giữ chỗ</h2>
+              <RegistrationStatusBadge status={current.status} />
+            </div>
+            <CheckoutSteps registration={current} payment={payment.data} />
+          </aside>
+        )}
+      </div>
     </Frame>
   )
 }
 
-function Frame({ children }: { children: React.ReactNode }) {
+// A link back to the workshop once it is known, then the heading. "Thanh toán" is the page's one heading of that name
+// (the E2E finds the page by it), so no other heading here may contain the words.
+function Frame({ children, workshopId }: { children: React.ReactNode; workshopId?: string }) {
   return (
-    <main className="mx-auto max-w-3xl space-y-4 p-6">
-      <h1 className="text-2xl font-semibold text-foreground">Thanh toán</h1>
+    <main className="mx-auto max-w-6xl px-4 py-4 md:px-6 md:py-6">
+      {workshopId ? (
+        <Link
+          to={`/workshops/${workshopId}`}
+          className="inline-flex min-h-11 items-center text-sm font-medium text-muted-foreground hover:underline"
+        >
+          ← Chi tiết workshop
+        </Link>
+      ) : (
+        <div className="min-h-11" />
+      )}
+      <h1 className="mb-5 text-[28px] leading-9 font-bold tracking-tight md:text-3xl md:leading-[38px]">Thanh toán</h1>
       {children}
     </main>
   )

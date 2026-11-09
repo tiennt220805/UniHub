@@ -3,7 +3,8 @@ import { defineConfig, devices } from '@playwright/test'
 // Browser checks that need no cluster: they run against a production build of apps/web served by `vite preview` on
 // localhost (Phase 8 checklist 2.3, 2.4). The build is the real one, so it carries the production
 // Content-Security-Policy <meta>; the only difference is VITE_SPIKE=true, which adds the /__spike page that the CSP
-// spike (specs-local/spike.spec.ts) opens. It is built into node_modules, never into apps/web/dist.
+// spike (specs-local/spike.spec.ts) opens, and VITE_PAYMENT_TEST_MODE=true, which shows the checkout's test-token
+// dropdown (specs-local/student-screens.spec.ts looks at the real payment form). It is built into node_modules, never into apps/web/dist.
 //
 //   npm run test:local        (from tests/e2e)
 //
@@ -27,7 +28,7 @@ export default defineConfig({
   use: { baseURL: `http://${host}:${port}`, trace: 'retain-on-failure' },
   webServer: {
     command:
-      `cd ${web} && VITE_SPIKE=true npx vite build --outDir ${outDir} --emptyOutDir` +
+      `cd ${web} && VITE_SPIKE=true VITE_PAYMENT_TEST_MODE=true npx vite build --outDir ${outDir} --emptyOutDir` +
       ` && npx vite preview --outDir ${outDir} --host ${host} --port ${port} --strictPort`,
     url: `http://${host}:${port}/login`,
     reuseExistingServer: false,

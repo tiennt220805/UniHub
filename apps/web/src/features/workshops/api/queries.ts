@@ -27,10 +27,11 @@ export const useWorkshops = (filters: WorkshopFilters, options: { enabled?: bool
  * only while the calling page is mounted. The count stays advisory: a 409 after a non-zero count is
  * a normal outcome, never an error state.
  */
-export const useWorkshop = (id: string, options: { liveSeats?: boolean } = {}) =>
+export const useWorkshop = (id: string, options: { liveSeats?: boolean; enabled?: boolean } = {}) =>
   useQuery({
     queryKey: workshopKeys.detail(id),
     queryFn: () => getWorkshop(id),
+    enabled: options.enabled ?? true,
     ...(options.liveSeats && {
       staleTime: SEATS_STALE_MS,
       refetchInterval: SEATS_POLL_MS,

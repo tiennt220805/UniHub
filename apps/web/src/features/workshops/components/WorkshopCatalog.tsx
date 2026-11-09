@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 
+import { LoadError } from '@/shared/components/LoadError'
 import { Button } from '@/shared/ui/button'
 import { EmptyState } from '@/shared/ui/state-panel'
 import { Pagination } from '@/shared/ui/pagination'
@@ -11,7 +12,6 @@ import { useCatalogSearch } from '../hooks/use-catalog-search'
 import { activeFilterCount, hasBackwardsRange, toApiFilters, type CatalogSearch } from '../model/catalog-filters'
 import { groupByDay } from '../model/day-groups'
 import { CatalogFilters } from './CatalogFilters'
-import { LoadError } from './LoadError'
 import { WorkshopCardGrid } from './WorkshopCard'
 
 type Props = {

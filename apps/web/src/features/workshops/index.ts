@@ -1,7 +1,7 @@
 export { workshopKeys } from './api/keys'
 export { useWorkshop, useWorkshops } from './api/queries'
 export type { Workshop, WorkshopFilters, WorkshopListResponse, WorkshopSummary } from './api/requests'
-export { LoadError } from './components/LoadError'
 export { WorkshopCardGrid } from './components/WorkshopCard'
+export { WorkshopCover } from './components/WorkshopCover'
 export { WorkshopCatalog, WorkshopGridSkeleton } from './components/WorkshopCatalog'
 export { WorkshopDetailView } from './components/WorkshopDetailView'

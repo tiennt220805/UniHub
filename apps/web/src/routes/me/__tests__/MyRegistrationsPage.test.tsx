@@ -93,6 +93,81 @@ describe('MyRegistrationsPage', () => {
     expect(within(rows[3]).getByRole('link', { name: 'Chi tiết' })).toHaveAttribute('href', '/me/registrations/late')
   })
 
+  it('flags a workshop that has already started as "Đã qua", and no other (D150)', async () => {
+    server.use(
+      http.get('/api/v1/workshops/:id', ({ params }) =>
+        HttpResponse.json(
+          aWorkshop({
+            id: String(params.id),
+            title: `Workshop ${String(params.id).slice(0, 4)}`,
+            startTime: params.id === 'oldw0000' ? '2020-01-01T09:00:00+07:00' : '2999-01-01T09:00:00+07:00',
+          }),
+        ),
+      ),
+      http.get('/api/v1/registrations', () =>
+        HttpResponse.json(
+          aRegistrationPage([
+            aRegistrationSummary({ id: 'r1', workshopId: 'oldw0000', status: 'CONFIRMED' }),
+            aRegistrationSummary({ id: 'r2', workshopId: 'neww0000', status: 'CONFIRMED' }),
+          ]),
+        ),
+      ),
+    )
+    signInAs()
+
+    renderRoute('/me/registrations')
+
+    const rows = await screen.findAllByRole('listitem')
+    expect(await within(rows[0]).findByText('Đã qua')).toBeInTheDocument()
+    expect(await within(rows[1]).findByRole('link', { name: 'Workshop neww' })).toBeInTheDocument()
+    expect(within(rows[1]).queryByText('Đã qua')).not.toBeInTheDocument()
+  })
+
+  it('keeps the row usable when its workshop cannot be read', async () => {
+    server.use(
+      http.get('/api/v1/workshops/:id', () => problem(500)),
+      http.get('/api/v1/registrations', () =>
+        HttpResponse.json(aRegistrationPage([aRegistrationSummary({ id: 'r1', status: 'CONFIRMED' })])),
+      ),
+    )
+    signInAs()
+
+    renderRoute('/me/registrations')
+
+    const row = (await screen.findAllByRole('listitem'))[0]
+    expect(await within(row).findByRole('link', { name: 'Workshop' })).toBeInTheDocument()
+    expect(within(row).getByText('Đã xác nhận')).toBeInTheDocument()
+    expect(within(row).getByRole('link', { name: 'Xem vé' })).toBeInTheDocument()
+  })
+
+  it('leads out of an empty list to the catalog', async () => {
+    server.use(http.get('/api/v1/registrations', () => HttpResponse.json(aRegistrationPage([]))))
+    signInAs()
+
+    renderRoute('/me/registrations')
+
+    expect(await screen.findByRole('link', { name: 'Xem danh sách workshop' })).toHaveAttribute('href', '/workshops')
+  })
+
+  it('offers a retry after an error and loads the list when it works again', async () => {
+    let calls = 0
+    server.use(
+      http.get('/api/v1/registrations', () => {
+        calls += 1
+        return calls === 1
+          ? problem(500, { correlationId: 'corr-1' })
+          : HttpResponse.json(aRegistrationPage([]))
+      }),
+    )
+    signInAs()
+    const user = userEvent.setup()
+
+    renderRoute('/me/registrations')
+
+    await user.click(await screen.findByRole('button', { name: 'Thử lại' }))
+    expect(await screen.findByText('Bạn chưa đăng ký workshop nào.')).toBeInTheDocument()
+  })
+
   it('says so when there is nothing yet', async () => {
     server.use(http.get('/api/v1/registrations', () => HttpResponse.json(aRegistrationPage([]))))
     signInAs()
@@ -120,13 +195,13 @@ describe('MyRegistrationsPage', () => {
     const user = userEvent.setup()
     const { router } = renderRoute('/me/registrations?page=1')
 
-    expect(await screen.findByText('Trang 2 / 3')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Trang sau' }))
+    expect(await screen.findByRole('button', { name: 'Trang 2' })).toHaveAttribute('aria-current', 'page')
+    await user.click(screen.getByRole('button', { name: 'Sau' }))
 
-    expect(await screen.findByText('Trang 3 / 3')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Trang 3' })).toHaveAttribute('aria-current', 'page')
     expect(asked).toEqual(['1/20', '2/20'])
     expect(router.state.location.search).toBe('?page=2')
-    expect(screen.getByRole('button', { name: 'Trang sau' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Sau' })).toBeDisabled()
   })
 
   it('treats a nonsense page as the first page', async () => {
