@@ -16,6 +16,7 @@ import { NotFoundPage } from '@/routes/public/NotFoundPage'
 import { WorkshopCatalogPage } from '@/routes/public/WorkshopCatalogPage'
 import { WorkshopDetailPage } from '@/routes/public/WorkshopDetailPage'
 import { AdminLayout } from './AdminLayout'
+import { ADMIN_ACCESS } from './admin-nav'
 import { StudentLayout } from './StudentLayout'
 import { RequirePermission } from './guards/RequirePermission'
 import { RequireSession } from './guards/RequireSession'
@@ -33,9 +34,6 @@ const spikeRoutes: RouteObject[] =
         },
       ]
     : []
-
-// Whoever holds any one of these may enter /admin (S9). Each page inside still asks for its own permission.
-const ADMIN_ACCESS = [Permission.WORKSHOP_CREATE, Permission.WORKSHOP_EDIT, Permission.REPORT_VIEW]
 
 export const routes: RouteObject[] = [
   {

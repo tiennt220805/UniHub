@@ -28,6 +28,13 @@ function SidebarBody({ collapsible }: { collapsible: boolean }) {
 
   return (
     <>
+      {/* The way back to the student pages is the first thing in the sidebar, as the way in is in the student bar. */}
+      {wrap(
+        <Link to="/workshops" title="Về trang sinh viên" className={cn(linkClasses, 'border border-sidebar-border bg-card')}>
+          <House aria-hidden="true" className="size-[18px] shrink-0" />
+          <span className={label}>Về trang sinh viên</span>
+        </Link>,
+      )}
       {items.length > 0 && (
         <nav aria-label="Quản trị" className="grid gap-1">
           {items.map((item) => (
@@ -44,12 +51,6 @@ function SidebarBody({ collapsible }: { collapsible: boolean }) {
       )}
 
       <div className={cn('mt-auto grid gap-2 border-t border-sidebar-border pt-3', collapsible && 'justify-items-center lg:justify-items-stretch')}>
-        {wrap(
-          <Link to="/workshops" title="Về trang sinh viên" className={linkClasses}>
-            <House aria-hidden="true" className="size-[18px] shrink-0" />
-            <span className={label}>Về trang sinh viên</span>
-          </Link>,
-        )}
         <ThemeToggle className={cn(collapsible && 'flex-col lg:flex-row', 'justify-self-center lg:justify-self-start')} />
         {session && (
           <div className="grid gap-2 px-1">

@@ -1,13 +1,14 @@
-import { Bell, Menu } from 'lucide-react'
+import { Bell, LayoutDashboard, Menu } from 'lucide-react'
 import type { ComponentProps, ReactNode } from 'react'
 import { Link, NavLink, Outlet } from 'react-router'
 
-import { useSession, useSignOut } from '@/features/auth'
+import { hasAnyPermission, useSession, useSignOut } from '@/features/auth'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import { Logo } from '@/shared/ui/logo'
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from '@/shared/ui/sheet'
 import { ThemeToggle } from '@/shared/ui/theme-toggle'
+import { ADMIN_ACCESS } from './admin-nav'
 
 // The frame around the student pages (G1, D136): a top bar, with the links in the bar from `md` up and behind a menu
 // sheet below it. Its job is navigation and who is signed in; the role labels are display text ("Student"), never an
@@ -31,13 +32,15 @@ function NavItem({ mobile, ...props }: Omit<ComponentProps<typeof NavLink>, 'cla
   )
 }
 
-function Links({ signedIn, mobile }: { signedIn: boolean; mobile?: boolean }) {
+function Links({ signedIn, canAdminister, mobile }: { signedIn: boolean; canAdminister: boolean; mobile?: boolean }) {
   const wrap = (node: ReactNode) => (mobile ? <SheetClose asChild>{node}</SheetClose> : node)
   return (
     <>
       {wrap(<NavItem to="/workshops" mobile={mobile}>Workshop</NavItem>)}
       {signedIn && wrap(<NavItem to="/me/registrations" mobile={mobile}>Đăng ký của tôi</NavItem>)}
       {signedIn && wrap(<NavItem to="/me/notifications" mobile={mobile}>Thông báo</NavItem>)}
+      {/* On a phone the way into administration is a link in the menu; from `md` up it is the button in the bar. */}
+      {mobile && canAdminister && wrap(<NavItem to="/admin" mobile>Quản trị</NavItem>)}
     </>
   )
 }
@@ -45,6 +48,8 @@ function Links({ signedIn, mobile }: { signedIn: boolean; mobile?: boolean }) {
 export function StudentLayout() {
   const session = useSession()
   const signOut = useSignOut()
+  // Shown by permission, never by role name (Rules #13): whoever may enter /admin is offered the way in.
+  const canAdminister = session !== null && hasAnyPermission(session, ADMIN_ACCESS)
 
   return (
     <>
@@ -55,11 +60,19 @@ export function StudentLayout() {
           </Link>
 
           <nav aria-label="Điều hướng chính" className="hidden flex-1 items-center gap-1 md:flex">
-            <Links signedIn={!!session} />
+            <Links signedIn={!!session} canAdminister={canAdminister} />
           </nav>
 
           <div className="ml-auto hidden items-center gap-3 md:flex">
             <ThemeToggle />
+            {canAdminister && (
+              <Button asChild size="sm">
+                <Link to="/admin">
+                  <LayoutDashboard aria-hidden="true" />
+                  Quản trị
+                </Link>
+              </Button>
+            )}
             {session ? (
               <>
                 <span className="text-sm text-muted-foreground">{session.user.fullName}</span>
@@ -92,7 +105,7 @@ export function StudentLayout() {
                 <SheetTitle className="text-lg font-semibold">Menu</SheetTitle>
                 <SheetDescription className="sr-only">Các mục điều hướng và cài đặt hiển thị.</SheetDescription>
                 <nav aria-label="Điều hướng chính" className="mt-4 grid gap-1">
-                  <Links signedIn={!!session} mobile />
+                  <Links signedIn={!!session} canAdminister={canAdminister} mobile />
                 </nav>
                 <div className="mt-auto grid gap-3 border-t border-border pt-4">
                   <div className="flex items-center justify-between text-sm text-muted-foreground">

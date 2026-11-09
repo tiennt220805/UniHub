@@ -53,3 +53,5 @@ Every browser test also fails on a `securitypolicyviolation` event or a CSP erro
 Content-Security-Policy `<meta>`; the one difference is `VITE_SPIKE=true`, which adds the `/__spike` page. The build goes into
 `apps/web/node_modules/.spike-dist`, never into `apps/web/dist`. These specs are Phase 8 evidence (the UI-library CSP spike, task 2.3, and
 the light/dark theme, task 2.4, and the two frames at 1280, 900 and 360 px, task 2.7); they do not replace the cluster suite above, and `support/page-health.ts` is the same CSP watcher both use.
+
+**With a real backend running on `localhost:8080`** (a developer's `bootRun`), run it as `UNIHUB_API_PROXY_TARGET=http://127.0.0.1:1 npm run test:local`: `vite preview` inherits the dev proxy, so the specs that use a fake session token (`layouts.spec.ts`, `theme.spec.ts`) would otherwise be answered `401` by the real API and end their session. The specs that stub the API with `page.route` (`student-screens`, `admin-screens`) are not affected.

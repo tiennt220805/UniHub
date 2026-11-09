@@ -17,3 +17,7 @@ export const ADMIN_NAV: readonly AdminNavItem[] = [
   { to: '/admin/workshops', label: 'Danh sách workshop', icon: List, anyOf: [Permission.WORKSHOP_EDIT] },
   { to: '/admin/workshops/new', label: 'Tạo workshop', icon: Plus, anyOf: [Permission.WORKSHOP_CREATE] },
 ]
+
+// Whoever holds any one of these may enter /admin (S9), and is shown the way in from the student frame. Each page inside still
+// asks for its own permission.
+export const ADMIN_ACCESS: readonly Permission[] = [Permission.WORKSHOP_CREATE, Permission.WORKSHOP_EDIT, Permission.REPORT_VIEW]

@@ -29,7 +29,9 @@ export default defineConfig(({ mode }) => {
       // Paths in packages/api-contract already carry the /api/v1 prefix, so forward /api as-is to the
       // Backend API (server.port is not overridden in application.yml → Spring Boot default 8080).
       proxy: {
-        '/api': 'http://localhost:8080',
+        // `vite preview` inherits this proxy, so the local browser suite (tests/e2e/playwright.local.config.ts) points it at a port
+        // where nothing listens when a real backend is running on this machine: its sessions are fake tokens.
+        '/api': process.env.UNIHUB_API_PROXY_TARGET ?? 'http://localhost:8080',
         // Covers and uploads reach the bucket on this same origin (Phase 8 D120; vite-plugins/storage-proxy.ts).
         ...storageProxy(process.env.UNIHUB_STORAGE_PROXY_TARGET ?? 'http://127.0.0.1:9000'),
       },

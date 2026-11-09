@@ -1,8 +1,9 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { cleanup, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 
+import { endSession } from '@/features/auth'
 import { aWorkshopReport } from '@/testing/factories/report'
 import { signInAs } from '@/testing/factories/session'
 import { aWorkshopPage, WORKSHOP_ID } from '@/testing/factories/workshop'
@@ -40,6 +41,60 @@ describe('StudentLayout', () => {
     expect(screen.getByText('Nguyễn Văn An')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Đăng xuất' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Đăng nhập' })).not.toBeInTheDocument()
+  })
+
+  it('offers the way into administration to whoever holds an admin permission, by permission and not by role name', async () => {
+    emptyCatalog()
+    for (const permissions of [['WORKSHOP_CREATE'], ['WORKSHOP_EDIT'], ['REPORT_VIEW']] as const) {
+      signInAs({ permissions: [...permissions] }) // the factory names the role "Student": the role decides nothing
+      renderRoute('/workshops')
+      expect(await screen.findByRole('link', { name: 'Quản trị' })).toHaveAttribute('href', '/admin')
+      cleanup()
+    }
+  })
+
+  it('shows no way into administration to a student, or to someone signed out', async () => {
+    emptyCatalog()
+    signInAs() // REGISTRATION_CREATE only
+    renderRoute('/workshops')
+    await screen.findByRole('navigation', { name: 'Điều hướng chính' })
+    expect(screen.queryByRole('link', { name: 'Quản trị' })).not.toBeInTheDocument()
+    cleanup()
+
+    endSession()
+    renderRoute('/workshops')
+    await screen.findByRole('link', { name: 'Đăng nhập' })
+    expect(screen.queryByRole('link', { name: 'Quản trị' })).not.toBeInTheDocument()
+  })
+
+  it('the phone menu has the way into administration for an admin, and following it opens the admin frame', async () => {
+    emptyCatalog()
+    server.use(http.get('/api/v1/admin/workshops', () => HttpResponse.json(aWorkshopPage([]))))
+    signInAs({ permissions: ['WORKSHOP_CREATE', 'WORKSHOP_EDIT', 'REPORT_VIEW'] })
+    const user = userEvent.setup()
+    const { router } = renderRoute('/workshops')
+    await user.click(screen.getByRole('button', { name: 'Mở menu' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Menu' })
+    await user.click(within(sheet).getByRole('link', { name: 'Quản trị' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/admin/workshops'))
+    expect(await screen.findByRole('complementary', { name: 'Thanh bên quản trị' })).toBeInTheDocument()
+  })
+
+  it('goes there and back: the admin frame leads back to the student pages, which lead to administration again', async () => {
+    emptyCatalog()
+    server.use(http.get('/api/v1/admin/workshops', () => HttpResponse.json(aWorkshopPage([]))))
+    signInAs({ permissions: ['WORKSHOP_CREATE', 'WORKSHOP_EDIT', 'REPORT_VIEW'] })
+    const user = userEvent.setup()
+    const { router } = renderRoute('/workshops')
+
+    await user.click(await screen.findByRole('link', { name: 'Quản trị' }))
+    const side = await screen.findByRole('complementary', { name: 'Thanh bên quản trị' })
+    expect(router.state.location.pathname).toBe('/admin/workshops')
+
+    await user.click(within(side).getByRole('link', { name: 'Về trang sinh viên' }))
+    expect(await screen.findByRole('navigation', { name: 'Điều hướng chính' })).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/workshops')
+    expect(screen.getByRole('link', { name: 'Quản trị' })).toBeInTheDocument()
   })
 
   it('marks the page the user is on', async () => {
