@@ -188,13 +188,13 @@ export function ManagedWorkshopList({ workshopPath, createPath, renderCover, ren
           ) : (
             <>
               <div className={cn('overflow-x-auto rounded-2xl border border-border bg-card', query.isPlaceholderData && 'opacity-60')}>
-                <table className="w-full min-w-[640px] border-collapse text-sm">
+                <table className="w-full min-w-[720px] border-collapse text-sm">
                   <caption className="sr-only">Danh sách workshop</caption>
                   <thead>
                     <tr className="border-b border-border text-left text-xs tracking-wide text-muted-foreground uppercase">
-                      <th scope="col" className="px-4 py-3 font-semibold">Workshop</th>
+                      <th scope="col" className="min-w-72 px-4 py-3 font-semibold">Workshop</th>
                       <th scope="col" className="px-4 py-3 font-semibold">Bắt đầu</th>
-                      <th scope="col" className="hidden px-4 py-3 font-semibold lg:table-cell">Địa điểm</th>
+                      <th scope="col" className="hidden min-w-36 px-4 py-3 font-semibold lg:table-cell">Địa điểm</th>
                       <th scope="col" className="px-4 py-3 font-semibold">Chỗ đã giữ</th>
                       <th scope="col" className="hidden px-4 py-3 font-semibold lg:table-cell">Phí</th>
                       <th scope="col" className="px-4 py-3 font-semibold">Trạng thái</th>
