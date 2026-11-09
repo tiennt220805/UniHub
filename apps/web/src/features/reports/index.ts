@@ -1,4 +1,5 @@
 export { reportKeys } from './api/keys'
-export { useWorkshopReport } from './api/queries'
-export type { WorkshopReport } from './api/requests'
+export { useWorkshopAttendances, useWorkshopReport } from './api/queries'
+export type { Attendance, WorkshopReport } from './api/requests'
+export { AttendanceList } from './components/AttendanceList'
 export { WorkshopReportView } from './components/WorkshopReportView'

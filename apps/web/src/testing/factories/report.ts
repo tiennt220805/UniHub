@@ -16,3 +16,17 @@ export function aWorkshopReport(overrides: Partial<WorkshopReport> = {}): Worksh
     ...overrides,
   }
 }
+
+type AttendanceList = components['schemas']['AttendanceListResponse']
+type Attendance = components['schemas']['AttendanceSummary']
+
+export function anAttendance(overrides: Partial<Attendance> = {}): Attendance {
+  return { registrationId: '3f9a21c4-0000-4000-8000-000000000001', checkedInAt: '2026-11-15T06:32:07Z', ...overrides }
+}
+
+export function aAttendancePage(items: Attendance[], page: Partial<AttendanceList['page']> = {}): AttendanceList {
+  return {
+    items,
+    page: { page: 0, size: 20, totalElements: items.length, totalPages: items.length === 0 ? 0 : 1, ...page },
+  }
+}

@@ -7,10 +7,28 @@ const dateTimeFormat = new Intl.DateTimeFormat('vi-VN', {
   timeStyle: 'short',
 })
 
+const timestampFormat = new Intl.DateTimeFormat('vi-VN', {
+  timeZone: 'Asia/Ho_Chi_Minh',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+})
+
 const numberFormat = new Intl.NumberFormat('vi-VN')
 
 export function formatDateTime(iso: string): string {
   return dateTimeFormat.format(new Date(iso))
+}
+
+/** "15/11/2026 13:32:07", in Vietnam: the moment of a scan, to the second. */
+export function formatTimestamp(iso: string): string {
+  // vi-VN writes the time first ("13:32:07 15/11/2026"); the date leads here, as it does everywhere else on the screen.
+  const p = Object.fromEntries(timestampFormat.formatToParts(new Date(iso)).map((part) => [part.type, part.value]))
+  return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}:${p.second}`
 }
 
 export function formatNumber(value: number): string {

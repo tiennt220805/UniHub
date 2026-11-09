@@ -1,11 +1,12 @@
 import { focusManager } from '@tanstack/react-query'
 import { act, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { aWorkshopReport } from '@/testing/factories/report'
+import { aAttendancePage, aWorkshopReport, anAttendance } from '@/testing/factories/report'
 import { signInAs } from '@/testing/factories/session'
-import { WORKSHOP_ID } from '@/testing/factories/workshop'
+import { aWorkshop, WORKSHOP_ID } from '@/testing/factories/workshop'
 import { server } from '@/testing/msw-server'
 import { problem } from '@/testing/problem'
 import { renderRoute } from '@/testing/render-route'
@@ -19,6 +20,15 @@ afterEach(() => {
 })
 
 const asOrganizer = () => signInAs({ permissions: ['REPORT_VIEW'] })
+
+// The page also reads the workshop (for its title) and the check-in list. A test that is about the figures gets a quiet pair of
+// answers here and overrides one when it is about that call.
+beforeEach(() => {
+  server.use(
+    http.get('/api/v1/workshops/:id', () => problem(404)),
+    http.get('/api/v1/workshops/:id/attendances', () => HttpResponse.json(aAttendancePage([]))),
+  )
+})
 
 function figure(label: string) {
   return screen.getByText(label).closest('div') as HTMLElement
@@ -251,5 +261,144 @@ describe('WorkshopReportPage', () => {
     await waitFor(() => expect(calls).toBeGreaterThanOrEqual(2))
     expect(screen.getByLabelText('Báo cáo workshop')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})
+
+describe('WorkshopReportPage: the ring and the check-in list (D164, D165)', () => {
+  const serveAttendances = (respond: (page: number) => Response) => {
+    const pages: number[] = []
+    server.use(
+      http.get('/api/v1/workshops/:id/attendances', ({ request }) => {
+        const page = Number(new URL(request.url).searchParams.get('page') ?? 0)
+        pages.push(page)
+        return respond(page)
+      }),
+    )
+    return pages
+  }
+
+  it('says how many check-ins out of how many confirmed registrations the ring is made of', async () => {
+    server.use(http.get(URL_PATTERN, () => HttpResponse.json(aWorkshopReport({ confirmedCount: 120, checkedInCount: 86, checkInRate: 86 / 120 }))))
+    asOrganizer()
+    renderRoute(PATH)
+    expect(await screen.findByText('86 lượt check-in / 120 đăng ký đã xác nhận')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'Tỷ lệ check-in' })).toHaveAttribute('aria-valuenow', '72')
+  })
+
+  it('lists check-ins oldest first with the time in Vietnam to the second and the first eight characters of the registration', async () => {
+    server.use(http.get(URL_PATTERN, () => HttpResponse.json(aWorkshopReport())))
+    serveAttendances(() =>
+      HttpResponse.json(
+        aAttendancePage([
+          anAttendance({ registrationId: '3f9a21c4-0000-4000-8000-000000000001', checkedInAt: '2026-11-15T06:32:07Z' }),
+          anAttendance({ registrationId: 'b07e5d18-0000-4000-8000-000000000002', checkedInAt: '2026-11-15T06:35:41Z' }),
+        ]),
+      ),
+    )
+    asOrganizer()
+    renderRoute(PATH)
+
+    const list = await screen.findByRole('region', { name: 'Danh sách điểm danh' })
+    const rows = within(await within(list).findByRole('table')).getAllByRole('row').slice(1)
+    expect(within(rows[0]).getByText('15/11/2026 13:32:07')).toBeInTheDocument()
+    expect(within(rows[0]).getByText('3f9a21c4…')).toHaveAttribute('title', '3f9a21c4-0000-4000-8000-000000000001')
+    expect(within(rows[1]).getByText('15/11/2026 13:35:41')).toBeInTheDocument()
+    expect(list).toHaveTextContent('chưa có tên sinh viên')
+  })
+
+  it('says nobody has checked in yet', async () => {
+    server.use(http.get(URL_PATTERN, () => HttpResponse.json(aWorkshopReport({ checkedInCount: 0, checkInRate: 0 }))))
+    asOrganizer()
+    renderRoute(PATH)
+    expect(await screen.findByRole('heading', { name: 'Chưa có lượt check-in nào' })).toBeInTheDocument()
+  })
+
+  it('pages through the list and keeps the page in the URL', async () => {
+    server.use(http.get(URL_PATTERN, () => HttpResponse.json(aWorkshopReport({ checkedInCount: 45 }))))
+    const pages = serveAttendances((page) =>
+      HttpResponse.json(
+        aAttendancePage([anAttendance({ registrationId: `0000000${page}-0000-4000-8000-000000000001` })], {
+          page,
+          totalElements: 45,
+          totalPages: 3,
+        }),
+      ),
+    )
+    asOrganizer()
+    const user = userEvent.setup()
+    const { router } = renderRoute(PATH)
+    await screen.findByText('00000000…')
+
+    await user.click(screen.getByRole('button', { name: 'Sau' }))
+
+    await screen.findByText('00000001…')
+    expect(pages.at(-1)).toBe(1)
+    expect(router.state.location.search).toBe('?page=1')
+  })
+
+  it('shows the list\'s own error without taking the figures away', async () => {
+    server.use(http.get(URL_PATTERN, () => HttpResponse.json(aWorkshopReport())))
+    serveAttendances(() => problem(500, { correlationId: 'beef01' }))
+    asOrganizer()
+    renderRoute(PATH)
+
+    const list = await screen.findByRole('region', { name: 'Danh sách điểm danh' })
+    expect(await within(list).findByText('Không tải được danh sách điểm danh.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Báo cáo workshop')).toBeInTheDocument()
+  })
+
+  it('does not ask for the list when the report itself cannot be had', async () => {
+    server.use(http.get(URL_PATTERN, () => problem(404)))
+    const pages = serveAttendances(() => HttpResponse.json(aAttendancePage([])))
+    asOrganizer()
+    renderRoute(PATH)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Không tìm thấy workshop này.')
+    expect(pages).toHaveLength(0)
+  })
+
+  it('shows the workshop title when it can be read, and the report still shows when it cannot', async () => {
+    server.use(
+      http.get(URL_PATTERN, () => HttpResponse.json(aWorkshopReport())),
+      http.get('/api/v1/workshops/:id', () => HttpResponse.json(aWorkshop({ title: 'Nhập môn Machine Learning' }))),
+    )
+    signInAs({ permissions: ['REPORT_VIEW', 'WORKSHOP_EDIT'] })
+    renderRoute(PATH)
+    expect(await screen.findByText(/Nhập môn Machine Learning ·/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Sửa workshop' })).toHaveAttribute('href', `/admin/workshops/${WORKSHOP_ID}`)
+  })
+
+  it('offers "Sửa workshop" only with WORKSHOP_EDIT, and a missing title draws nothing', async () => {
+    server.use(http.get(URL_PATTERN, () => HttpResponse.json(aWorkshopReport())))
+    asOrganizer() // REPORT_VIEW only; the workshop read is answered 404 by beforeEach
+    renderRoute(PATH)
+    await screen.findByLabelText('Báo cáo workshop')
+    expect(screen.queryByRole('link', { name: 'Sửa workshop' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('reads the list once more when the report says the number of check-ins moved, and never polls it by itself', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    let report = aWorkshopReport({ checkedInCount: 1 })
+    let listCalls = 0
+    server.use(http.get(URL_PATTERN, () => HttpResponse.json(report)))
+    serveAttendances(() => {
+      listCalls += 1
+      return HttpResponse.json(aAttendancePage([anAttendance()], { totalElements: 1, totalPages: 1 }))
+    })
+    asOrganizer()
+    renderRoute(PATH)
+    await screen.findByText('3f9a21c4…')
+    expect(listCalls).toBe(1)
+
+    // Ten seconds pass with the same count: the report is read again, the list is not.
+    await act(() => vi.advanceTimersByTimeAsync(10_500))
+    expect(listCalls).toBe(1)
+
+    // The count moves: the list is read once.
+    report = aWorkshopReport({ checkedInCount: 2 })
+    await act(() => vi.advanceTimersByTimeAsync(10_500))
+    await waitFor(() => expect(listCalls).toBe(2))
+    await act(() => vi.advanceTimersByTimeAsync(1_000))
+    expect(listCalls).toBe(2) // the count still differs from the list's (replica lag): no loop
   })
 })
