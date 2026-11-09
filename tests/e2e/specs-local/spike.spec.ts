@@ -186,3 +186,38 @@ test('the whole page together raises nothing at load', async ({ page, health }) 
   await page.waitForTimeout(500)
   expect(await violations(page, health)).toEqual([])
 })
+
+// Task 4.4 (D144): the generated cover is SVG with presentation attributes only, and the seat bar sets its width through
+// the CSSOM. Both must survive `style-src 'self'` on all three engines, and be seen to be drawn, not just silent.
+test('the workshop card draws its generated cover and seat bar under the policy, with every family of cover', async ({ page, health }) => {
+  await open(page, 'cards')
+  const cards = page.locator('[data-slot="card"]')
+  await expect(cards).toHaveCount(12)
+  const covers = page.locator('[data-slot="workshop-cover"] svg')
+  await expect(covers).toHaveCount(12)
+  for (const box of await covers.evaluateAll((svgs) => svgs.map((svg) => svg.getBoundingClientRect().width))) {
+    expect(box).toBeGreaterThan(150)
+  }
+  // The shapes carry their colours as attributes: a drawn cover has painted (non-"none") fills.
+  const fills = await covers.evaluateAll((svgs) => svgs.map((svg) => getComputedStyle(svg.querySelector('rect')!).fill))
+  for (const fill of fills) expect(fill).not.toMatch(/none|rgba\(0, 0, 0, 0\)/)
+  // No <style> element and no style="" attribute inside any cover: the two things the policy refuses.
+  expect(await page.locator('[data-slot="workshop-cover"] svg style, [data-slot="workshop-cover"] svg [style]').count()).toBe(0)
+  // All three families are drawn over the twelve ids.
+  const groups = await covers.evaluateAll((svgs) =>
+    svgs.map((svg) => (svg.querySelector('circle') ? 'sun' : svg.querySelectorAll('rect').length > 4 ? 'tiles' : 'bars')),
+  )
+  expect(new Set(groups)).toEqual(new Set(['sun', 'bars', 'tiles']))
+  // The seat bar's width is set from script (the CSSOM, which the policy allows) and is really applied.
+  for (const [level, expected] of [['ok', 10 / 60], ['low', 55 / 60], ['full', 1]] as const) {
+    const meter = page.locator(`[data-level="${level}"]`).first()
+    await expect(meter).toBeVisible()
+    const ratio = await meter.evaluate((element) => {
+      const fill = element.querySelector('[aria-hidden="true"] > div') as HTMLElement
+      return fill.getBoundingClientRect().width / (fill.parentElement as HTMLElement).getBoundingClientRect().width
+    })
+    expect(ratio).toBeGreaterThan(expected - 0.02)
+    expect(ratio).toBeLessThan(expected + 0.02)
+  }
+  expect(await violations(page, health)).toEqual([])
+})

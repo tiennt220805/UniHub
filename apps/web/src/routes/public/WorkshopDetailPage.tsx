@@ -15,8 +15,8 @@ export function WorkshopDetailPage() {
   const navigate = useNavigate()
 
   const onRegistered = (registration: Registration) => {
-    // seatsTaken changed: refresh the detail. WorkshopSummary carries no seat count, so the catalog
-    // lists need no invalidation for a registration.
+    // seatsTaken changed: refresh the detail. The catalog cards carry a seat level from a list the backend caches for
+    // 30 s, so they catch up on their own when the list is read again; no invalidation is needed here.
     void queryClient.invalidateQueries({ queryKey: workshopKeys.detail(workshopId) })
     // A free registration is already CONFIRMED. A paid one is RESERVED and must be paid for.
     if (registration.ticketType === 'PAID') {
@@ -25,19 +25,21 @@ export function WorkshopDetailPage() {
   }
 
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      <Link to="/workshops" className="text-sm text-muted-foreground hover:underline">
-        ← Danh sách workshop
-      </Link>
-      {session !== null && hasAnyPermission(session, [Permission.REPORT_VIEW]) && (
-        <Link
-          to={`/admin/workshops/${workshopId}/report`}
-          className="ml-4 text-sm text-muted-foreground hover:underline"
-        >
-          Xem báo cáo
+    <main className="mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-8">
+      <div className="flex flex-wrap items-center gap-x-5 text-sm">
+        <Link to="/workshops" className="inline-flex min-h-11 items-center font-medium text-muted-foreground hover:underline">
+          ← Danh sách workshop
         </Link>
-      )}
-      <WorkshopDetailView query={workshop}>
+        {session !== null && hasAnyPermission(session, [Permission.REPORT_VIEW]) && (
+          <Link
+            to={`/admin/workshops/${workshopId}/report`}
+            className="inline-flex min-h-11 items-center font-medium text-muted-foreground hover:underline"
+          >
+            Xem báo cáo
+          </Link>
+        )}
+      </div>
+      <WorkshopDetailView query={workshop} catalogPath="/workshops">
         <RegisterButton
           workshopId={workshopId}
           signedIn={session !== null}

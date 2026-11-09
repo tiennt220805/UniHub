@@ -11,6 +11,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/shared/ui/alert-dialog'
+import { WorkshopCardGrid, type WorkshopSummary } from '@/features/workshops'
 import { toast } from '@/shared/store/toast-store'
 import { Button } from '@/shared/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from '@/shared/ui/dialog'
@@ -43,6 +44,23 @@ const SHARE = [
 // `?only=numberflow,charts` renders just those sections, so a violation can be pinned on one library.
 const ONLY = new URLSearchParams(window.location.search).get('only')?.split(',')
 const shows = (section: string) => !ONLY || ONLY.includes(section)
+
+// Task 4.4 (D144): the workshop card with a generated cover, in the three seat levels. Twelve ids so that every family of
+// cover is drawn; none has an image, so nothing is requested from /media.
+const CARD_SAMPLES: WorkshopSummary[] = Array.from({ length: 12 }, (_, i) => ({
+  id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+  title: `Workshop thử số ${i + 1}`,
+  location: 'Phòng A2.301',
+  startTime: '2026-11-11T02:00:00Z',
+  endTime: '2026-11-11T04:30:00Z',
+  status: 'PUBLISHED',
+  speakerName: 'TS. Lê Minh Quân',
+  capacity: 60,
+  seatsTaken: [10, 55, 60][i % 3],
+  isPaid: i % 2 === 0,
+  price: i % 2 === 0 ? 150000 : null,
+  coverImageUrl: null,
+}))
 
 export function SpikePage() {
 
@@ -138,6 +156,12 @@ export function SpikePage() {
               <SheetDescription>Nội dung ngăn bên.</SheetDescription>
             </SheetContent>
           </Sheet>
+        </section>
+      )}
+
+      {shows('cards') && (
+        <section aria-label="Thẻ workshop" className="max-w-5xl">
+          <WorkshopCardGrid items={CARD_SAMPLES} detailPath={(id) => `/workshops/${id}`} />
         </section>
       )}
 

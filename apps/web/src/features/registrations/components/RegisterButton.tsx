@@ -1,6 +1,10 @@
+import { CircleAlert, CircleCheck, Clock, Info, Loader2, Lock } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router'
 
+import { problemSlug } from '@/shared/api/errors'
 import { MAX_AUTOMATIC_RETRIES } from '@/shared/api/retry'
+import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import { useRegisterForWorkshop } from '../api/mutations'
 import type { Registration } from '../api/requests'
@@ -15,6 +19,16 @@ type Props = {
   onRegistered: (registration: Registration) => void
 }
 
+// A message in a coloured box, always with an icon and words: a state never rides on colour alone (D115).
+function Notice({ tone, icon: Icon, role, children }: { tone: string; icon: typeof Info; role?: 'status' | 'alert'; children: ReactNode }) {
+  return (
+    <div role={role} className={cn('flex items-start gap-2.5 rounded-lg p-3 text-sm', tone)}>
+      <Icon aria-hidden="true" className="mt-0.5 size-4.5 shrink-0" />
+      <div className="min-w-0">{children}</div>
+    </div>
+  )
+}
+
 export function RegisterButton({ workshopId, signedIn, canRegister, onRegistered }: Props) {
   const location = useLocation()
   const { register, isPending, retryCount, error, registration } = useRegisterForWorkshop(
@@ -24,42 +38,69 @@ export function RegisterButton({ workshopId, signedIn, canRegister, onRegistered
 
   if (!signedIn) {
     return (
-      <Link to="/login" state={{ from: location }} className="text-primary underline">
-        Đăng nhập để đăng ký
-      </Link>
+      <Button asChild size="lg" className="w-full">
+        <Link to="/login" state={{ from: location }}>
+          Đăng nhập để đăng ký
+        </Link>
+      </Button>
     )
   }
   if (!canRegister) {
     return (
-      <p className="text-sm text-muted-foreground">Tài khoản của bạn không có quyền đăng ký workshop.</p>
+      <Notice tone="bg-muted text-foreground" icon={Lock}>
+        Tài khoản của bạn không có quyền đăng ký workshop.
+      </Notice>
     )
   }
   if (registration) {
+    return registration.status === 'CONFIRMED' ? (
+      <div className="grid gap-2">
+        <Notice tone="bg-primary-soft text-primary-text" icon={CircleCheck} role="status">
+          Đăng ký thành công. Chỗ của bạn đã được xác nhận.
+        </Notice>
+        <Link to={`/me/registrations/${registration.id}`} className="text-sm font-semibold text-primary-text underline-offset-4 hover:underline">
+          Xem vé →
+        </Link>
+      </div>
+    ) : (
+      <Notice tone="bg-warning-soft text-warning" icon={Clock} role="status">
+        Đã giữ chỗ cho bạn. Đang chuyển tới thanh toán…
+      </Notice>
+    )
+  }
+
+  const slug = error ? problemSlug(error) : null
+  // After a 409 already-registered there is nothing left to try: the way on is the registration the user already has (D143).
+  if (error && !isPending && slug === 'already-registered') {
     return (
-      <p role="status" className="rounded-md bg-muted p-3 text-foreground">
-        {registration.status === 'CONFIRMED'
-          ? 'Đăng ký thành công. Chỗ của bạn đã được xác nhận.'
-          : 'Đã giữ chỗ cho bạn. Đang chuyển tới thanh toán…'}
-      </p>
+      <div className="grid gap-3">
+        <Notice tone="bg-info-soft text-info" icon={Info} role="alert">
+          <b className="block font-semibold">{registrationErrorMessage(error)}</b>
+          {error.problem?.correlationId && <span className="block">Mã tham chiếu: {error.problem.correlationId}</span>}
+        </Notice>
+        <Button asChild size="lg" className="w-full">
+          <Link to="/me/registrations">Xem đăng ký của tôi</Link>
+        </Button>
+      </div>
     )
   }
 
   return (
-    <div className="space-y-2">
-      <Button onClick={register} disabled={isPending}>
+    <div className="grid gap-3">
+      {error && !isPending && (
+        <Notice tone="bg-destructive-soft text-destructive" icon={CircleAlert} role="alert">
+          <b className="block font-semibold">{registrationErrorMessage(error)}</b>
+          {slug === 'sold-out' && <span className="block">Chỗ giữ nhưng chưa thanh toán có thể được trả lại sau 15 phút.</span>}
+          {error.problem?.correlationId && <span className="block">Mã tham chiếu: {error.problem.correlationId}</span>}
+        </Notice>
+      )}
+      <Button size="lg" className="w-full" onClick={register} disabled={isPending}>
+        {isPending && <Loader2 aria-hidden="true" className="motion-safe:animate-spin" />}
         {isPending ? 'Đang đăng ký…' : 'Đăng ký tham dự'}
       </Button>
       {isPending && retryCount > 0 && (
         <p role="status" className="text-sm text-muted-foreground">
           Hệ thống đang bận, đang thử lại (lần {retryCount}/{MAX_AUTOMATIC_RETRIES})…
-        </p>
-      )}
-      {error && !isPending && (
-        <p role="alert" className="text-sm text-destructive">
-          {registrationErrorMessage(error)}
-          {error.problem?.correlationId && (
-            <span className="block">Mã tham chiếu: {error.problem.correlationId}</span>
-          )}
         </p>
       )}
     </div>

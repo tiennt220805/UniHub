@@ -12,9 +12,12 @@ export function SignInPage() {
   if (session) return <Navigate to={returnTo} replace />
 
   return (
-    <main className="mx-auto max-w-sm p-6">
-      <h1 className="mb-6 text-2xl font-semibold text-foreground">Đăng nhập</h1>
-      <SignInForm />
+    <main className="mx-auto max-w-md px-4 py-10 md:py-16">
+      <div className="rounded-2xl border border-border bg-card p-6 shadow-sm md:p-8 dark:shadow-none">
+        <h1 className="text-3xl leading-[38px] font-bold text-foreground">Đăng nhập</h1>
+        <p className="mt-1 mb-6 text-muted-foreground">Nhập email và mật khẩu của tài khoản UniHub.</p>
+        <SignInForm />
+      </div>
     </main>
   )
 }

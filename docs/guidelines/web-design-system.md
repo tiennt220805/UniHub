@@ -122,7 +122,7 @@ The **text is not free**: where it already exists in the code it stays, because 
 | `PaymentStatus.REFUNDED` | info | Khoản thanh toán đã được hoàn lại. | existing notice | check-circle |
 | `WorkshopStatus.CANCELLED` / `COMPLETED` | destructive / info | Workshop này đã bị hủy. / Workshop này đã kết thúc. | existing notice, `WorkshopDetailView.tsx` | x-circle / flag |
 | `WorkshopStatus.DRAFT` / `PUBLISHED` | muted / success | Nháp / Đã công bố | badge text for the admin list (S10), new and approved at G1; no existing label | pencil / globe |
-| Seat level (catalog, D118) | success / warning / destructive | Còn chỗ / Sắp hết / Hết chỗ | owner's wording in D118 | none beyond the bar |
+| Seat level (catalog, D118) | success / warning / destructive | Còn chỗ / Sắp hết / Hết chỗ | owner's wording in D118 | check / clock / x-circle beside the words (D147, 2026-11-09) |
 | Ticket type | highlight / muted | Có phí / Miễn phí | existing in `MyRegistrationList.tsx`; `Có phí` is **asserted by E2E** (`student-journey.spec.ts`) | none |
 
 Strings the Playwright suites assert and that therefore may not change without the spec in the same commit (C68): `Đăng ký tham dự`,

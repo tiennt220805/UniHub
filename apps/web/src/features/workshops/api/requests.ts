@@ -3,6 +3,7 @@ import type { components, operations } from '@/shared/api/schema.gen'
 import { toQueryString } from '@/shared/lib/query-string'
 
 export type Workshop = components['schemas']['Workshop']
+export type WorkshopSummary = components['schemas']['WorkshopSummary']
 export type WorkshopListResponse = components['schemas']['WorkshopListResponse']
 export type WorkshopFilters = NonNullable<operations['listWorkshops']['parameters']['query']>
 

@@ -1,8 +1,11 @@
 import { zodResolver } from '@hookform/resolvers/zod'
+import { CircleAlert } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 
 import type { AppError } from '@/shared/api/errors'
 import { Button } from '@/shared/ui/button'
+import { Field, FieldError, Label } from '@/shared/ui/field'
+import { Input } from '@/shared/ui/input'
 import { useSignIn } from '../api/mutations'
 import { signInSchema, toLoginRequest, type SignInForm as SignInValues } from '../model/sign-in.schema'
 
@@ -24,9 +27,6 @@ function errorMessage(error: AppError): string {
   }
 }
 
-const inputClass =
-  'h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive'
-
 export function SignInForm({ onSignedIn }: { onSignedIn?: () => void }) {
   const signIn = useSignIn({ onSuccess: onSignedIn })
   const {
@@ -39,50 +39,49 @@ export function SignInForm({ onSignedIn }: { onSignedIn?: () => void }) {
     <form
       noValidate
       onSubmit={handleSubmit((values) => signIn.mutate(toLoginRequest(values)))}
-      className="space-y-4"
+      className="grid gap-4"
     >
-      <div className="space-y-1">
-        <label htmlFor="email" className="text-sm font-medium">
-          Email
-        </label>
-        <input
+      <Field>
+        <Label htmlFor="email">Email</Label>
+        <Input
           id="email"
           type="email"
           autoComplete="username"
           aria-invalid={errors.email ? true : undefined}
-          className={inputClass}
+          aria-describedby={errors.email ? 'email-error' : undefined}
+          className="h-12"
           {...register('email')}
         />
         {errors.email && (
-          <p role="alert" className="text-sm text-destructive">
+          <FieldError id="email-error" role="alert">
             {errors.email.message}
-          </p>
+          </FieldError>
         )}
-      </div>
-      <div className="space-y-1">
-        <label htmlFor="password" className="text-sm font-medium">
-          Mật khẩu
-        </label>
-        <input
+      </Field>
+      <Field>
+        <Label htmlFor="password">Mật khẩu</Label>
+        <Input
           id="password"
           type="password"
           autoComplete="current-password"
           aria-invalid={errors.password ? true : undefined}
-          className={inputClass}
+          aria-describedby={errors.password ? 'password-error' : undefined}
+          className="h-12"
           {...register('password')}
         />
         {errors.password && (
-          <p role="alert" className="text-sm text-destructive">
+          <FieldError id="password-error" role="alert">
             {errors.password.message}
-          </p>
+          </FieldError>
         )}
-      </div>
+      </Field>
       {signIn.isError && (
-        <p role="alert" className="text-sm text-destructive">
-          {errorMessage(signIn.error)}
-        </p>
+        <div role="alert" className="flex items-start gap-2.5 rounded-lg bg-destructive-soft p-3 text-sm text-destructive">
+          <CircleAlert aria-hidden="true" className="mt-0.5 size-4.5 shrink-0" />
+          <p>{errorMessage(signIn.error)}</p>
+        </div>
       )}
-      <Button type="submit" disabled={signIn.isPending}>
+      <Button type="submit" size="lg" className="w-full" disabled={signIn.isPending}>
         {signIn.isPending ? 'Đang đăng nhập…' : 'Đăng nhập'}
       </Button>
     </form>

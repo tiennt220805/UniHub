@@ -7,8 +7,6 @@ const dateTimeFormat = new Intl.DateTimeFormat('vi-VN', {
   timeStyle: 'short',
 })
 
-// No currency symbol: neither the contract nor docs/technical-design names the currency of
-// Workshop.price, so only the number is rendered.
 const numberFormat = new Intl.NumberFormat('vi-VN')
 
 export function formatDateTime(iso: string): string {
@@ -17,6 +15,14 @@ export function formatDateTime(iso: string): string {
 
 export function formatNumber(value: number): string {
   return numberFormat.format(value)
+}
+
+/**
+ * A workshop's price: the number and the suffix "đ" ("150.000 đ"). The contract does not name the currency of
+ * `Workshop.price`; the suffix is the owner's decision (Phase 8 D146, 2026-11-09), made here and nowhere else.
+ */
+export function formatPrice(value: number): string {
+  return `${numberFormat.format(value)} đ`
 }
 
 const percentFormat = new Intl.NumberFormat('vi-VN', { style: 'percent', maximumFractionDigits: 0 })

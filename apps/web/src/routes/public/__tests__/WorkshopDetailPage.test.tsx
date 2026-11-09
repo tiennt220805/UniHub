@@ -68,8 +68,9 @@ describe('WorkshopDetailPage', () => {
 
     renderRoute(`/workshops/${WORKSHOP_ID}`)
 
-    expect(await screen.findByText('150.000')).toBeInTheDocument()
+    expect(await screen.findByText('150.000 đ')).toBeInTheDocument()
     expect(screen.queryByText('Miễn phí')).not.toBeInTheDocument()
+    expect(screen.getByText(/giữ cho bạn 15 phút để thanh toán/)).toBeInTheDocument()
   })
 
   it('shows "Miễn phí" when isPaid is false', async () => {
@@ -98,12 +99,113 @@ describe('WorkshopDetailPage', () => {
     expect(screen.queryByRole('heading', { name: 'Tóm tắt (AI)' })).not.toBeInTheDocument()
   })
 
-  it('flags a cancelled workshop', async () => {
+  it('flags a cancelled workshop, and offers no way to register for it', async () => {
     serveDetail(aWorkshop({ status: 'CANCELLED' }))
+    signInAs()
 
     renderRoute(`/workshops/${WORKSHOP_ID}`)
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Workshop này đã bị hủy.')
+    await screen.findByRole('heading', { level: 1, name: 'Intro to Distributed Locks' })
+    expect(screen.getByRole('status')).toHaveTextContent('Workshop này đã bị hủy.')
+    expect(screen.getByText('Đã hủy')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Đăng ký tham dự' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Đăng nhập để đăng ký' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Xem workshop khác' })).toHaveAttribute('href', '/workshops')
+  })
+
+  it('flags a finished workshop the same way', async () => {
+    serveDetail(aWorkshop({ status: 'COMPLETED' }))
+    signInAs()
+
+    renderRoute(`/workshops/${WORKSHOP_ID}`)
+
+    await screen.findByRole('heading', { level: 1, name: 'Intro to Distributed Locks' })
+    expect(screen.getByRole('status')).toHaveTextContent('Workshop này đã kết thúc.')
+    expect(screen.queryByRole('button', { name: 'Đăng ký tham dự' })).not.toBeInTheDocument()
+  })
+
+  it('says "Sắp hết" when under a fifth of the seats are left, and not otherwise', async () => {
+    serveDetail(aWorkshop({ capacity: 50, seatsTaken: 41 }))
+
+    renderRoute(`/workshops/${WORKSHOP_ID}`)
+
+    expect(await screen.findByText('Còn 9 / 50 chỗ')).toBeInTheDocument()
+    expect(screen.getByText('Sắp hết')).toBeInTheDocument()
+  })
+
+  it('does not say "Sắp hết" with plenty of seats', async () => {
+    serveDetail(aWorkshop({ capacity: 50, seatsTaken: 15 }))
+
+    renderRoute(`/workshops/${WORKSHOP_ID}`)
+
+    await screen.findByText('Còn 35 / 50 chỗ')
+    expect(screen.queryByText('Sắp hết')).not.toBeInTheDocument()
+  })
+
+  it('keeps the register button when no seat is left on screen: the server decides (D141, INV-06)', async () => {
+    serveDetail(aWorkshop({ capacity: 50, seatsTaken: 50 }))
+    signInAs()
+
+    renderRoute(`/workshops/${WORKSHOP_ID}`)
+
+    await screen.findByText('Hết chỗ')
+    expect(screen.getByRole('button', { name: 'Đăng ký tham dự' })).toBeEnabled()
+  })
+
+  it('reminds the viewer that a workshop has started, without taking the button away (D141)', async () => {
+    serveDetail(aWorkshop({ startTime: '2020-01-01T02:00:00Z', endTime: '2020-01-01T04:00:00Z' }))
+    signInAs()
+
+    renderRoute(`/workshops/${WORKSHOP_ID}`)
+
+    expect(await screen.findByText('Workshop đã bắt đầu.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Đăng ký tham dự' })).toBeEnabled()
+  })
+
+  it('does not say a future workshop has started', async () => {
+    serveDetail(aWorkshop({ startTime: '2099-01-01T02:00:00Z', endTime: '2099-01-01T04:00:00Z' }))
+
+    renderRoute(`/workshops/${WORKSHOP_ID}`)
+
+    await screen.findByRole('heading', { level: 1, name: 'Intro to Distributed Locks' })
+    expect(screen.queryByText('Workshop đã bắt đầu.')).not.toBeInTheDocument()
+  })
+
+  it('draws a generated cover for a workshop without an image', async () => {
+    serveDetail(aWorkshop())
+
+    renderRoute(`/workshops/${WORKSHOP_ID}`)
+
+    await screen.findByRole('heading', { level: 1, name: 'Intro to Distributed Locks' })
+    expect(document.querySelector('[data-slot="workshop-cover"] svg')).not.toBeNull()
+    expect(document.querySelector('[data-slot="workshop-cover"] img')).toBeNull()
+  })
+
+  it('shows the uploaded image when there is one', async () => {
+    serveDetail(aWorkshop({ coverImageUrl: '/media/covers/x.webp' }))
+
+    renderRoute(`/workshops/${WORKSHOP_ID}`)
+
+    await screen.findByRole('heading', { level: 1, name: 'Intro to Distributed Locks' })
+    expect(document.querySelector('[data-slot="workshop-cover"] img')).toHaveAttribute('src', '/media/covers/x.webp')
+  })
+
+  it('shows the speaker once, with the bio when there is one', async () => {
+    serveDetail(aWorkshop({ speakerBio: null }))
+
+    renderRoute(`/workshops/${WORKSHOP_ID}`)
+
+    await screen.findByRole('heading', { name: 'Về diễn giả' })
+    expect(screen.getAllByText('Dr. Lan Nguyen')).toHaveLength(1)
+  })
+
+  it('gives the AI summary a section only when it exists (D142)', async () => {
+    serveDetail(aWorkshop({ aiSummary: 'Locks are advisory.' }))
+
+    renderRoute(`/workshops/${WORKSHOP_ID}`)
+
+    expect(await screen.findByRole('heading', { name: 'Tóm tắt (AI)' })).toBeInTheDocument()
+    expect(screen.getByText('Tạo tự động từ brochure')).toBeInTheDocument()
   })
 
   it('shows "not found" when the API returns 404 (unknown id, or a DRAFT hidden from this caller)', async () => {
@@ -111,7 +213,9 @@ describe('WorkshopDetailPage', () => {
 
     renderRoute(`/workshops/${WORKSHOP_ID}`)
 
-    expect(await screen.findByText('Không tìm thấy workshop.')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Không tìm thấy workshop' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Về trang chủ' })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('link', { name: 'Xem danh sách workshop' })).toHaveAttribute('href', '/workshops')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
@@ -120,7 +224,7 @@ describe('WorkshopDetailPage', () => {
 
     renderRoute('/workshops/not-a-uuid')
 
-    expect(await screen.findByText('Không tìm thấy workshop.')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Không tìm thấy workshop' })).toBeInTheDocument()
   })
 
   it('shows an error message when the API fails', async () => {
@@ -240,6 +344,44 @@ describe('WorkshopDetailPage: the register button', () => {
     await user.click(screen.getByRole('button', { name: 'Đăng ký tham dự' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(message)
+  })
+
+  it('after a 409 already-registered, drops the button and points to the registration the user already has (D143)', async () => {
+    serveCountedDetail()
+    serveRegistration(() => problem(409, { slug: 'already-registered' }))
+    signInAs()
+    const user = userEvent.setup()
+    await openDetail()
+
+    await user.click(screen.getByRole('button', { name: 'Đăng ký tham dự' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Bạn đã đăng ký workshop này rồi.')
+    expect(screen.queryByRole('button', { name: 'Đăng ký tham dự' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Xem đăng ký của tôi' })).toHaveAttribute('href', '/me/registrations')
+  })
+
+  it('adds that an unpaid hold can come back to a sold-out answer', async () => {
+    serveCountedDetail()
+    serveRegistration(() => problem(409, { slug: 'sold-out' }))
+    signInAs()
+    const user = userEvent.setup()
+    await openDetail()
+
+    await user.click(screen.getByRole('button', { name: 'Đăng ký tham dự' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('trả lại sau 15 phút')
+  })
+
+  it('links a confirmed free registration to its ticket', async () => {
+    serveCountedDetail()
+    serveRegistration(() => HttpResponse.json(aRegistration(), { status: 201 }))
+    signInAs()
+    const user = userEvent.setup()
+    await openDetail()
+
+    await user.click(screen.getByRole('button', { name: 'Đăng ký tham dự' }))
+
+    expect(await screen.findByRole('link', { name: /Xem vé/ })).toHaveAttribute('href', `/me/registrations/${aRegistration().id}`)
   })
 
   it('falls back to the status for a 409 whose type it does not know (AC8.3)', async () => {

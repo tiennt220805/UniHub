@@ -1,4 +1,4 @@
-import { Navigate, type RouteObject } from 'react-router'
+import { type RouteObject } from 'react-router'
 
 import { Permission } from '@/features/auth'
 import { WorkshopReportPage } from '@/routes/admin/WorkshopReportPage'
@@ -7,6 +7,8 @@ import { CheckoutPage } from '@/routes/me/CheckoutPage'
 import { MyRegistrationsPage } from '@/routes/me/MyRegistrationsPage'
 import { NotificationsPage } from '@/routes/me/NotificationsPage'
 import { RegistrationTicketPage } from '@/routes/me/RegistrationTicketPage'
+import { HomePage } from '@/routes/public/HomePage'
+import { NotFoundPage } from '@/routes/public/NotFoundPage'
 import { WorkshopCatalogPage } from '@/routes/public/WorkshopCatalogPage'
 import { WorkshopDetailPage } from '@/routes/public/WorkshopDetailPage'
 import { AdminLayout } from './AdminLayout'
@@ -57,7 +59,7 @@ export const routes: RouteObject[] = [
     element: <StudentLayout />,
     children: [
       ...spikeRoutes,
-      { path: '/', element: <Navigate to="/workshops" replace /> },
+      { path: '/', element: <HomePage /> },
       { path: '/workshops', element: <WorkshopCatalogPage /> },
       { path: '/workshops/:workshopId', element: <WorkshopDetailPage /> },
       { path: '/login', element: <SignInPage /> },
@@ -97,6 +99,7 @@ export const routes: RouteObject[] = [
           </RequirePermission>
         ),
       },
+      { path: '*', element: <NotFoundPage /> },
     ],
   },
 ]
