@@ -8,7 +8,7 @@
 |---|---|
 | Phase | 8 — Web UI |
 | Ngày bắt đầu | 2026-11-08 (checklist soạn cùng ngày, sau buổi phỏng vấn owner) |
-| Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☑ Đang làm` / `☐ Chờ sign-off` / `☐ Hoàn tất` — **Mục 0A (D105–D116) owner chốt qua phỏng vấn 2026-11-08; Mục 0 (Q1–Q12 → D117–D128, C72 → D129) owner chốt cùng ngày: Q1, Q2 trả lời riêng, Q3–Q12 + C72 + hai mặc định D110/D115 "chấp nhận tất cả đề xuất". Mục 0B (C63–C73) chờ xử lý trong các Mục tương ứng** (C63 xong cùng Mục 1). **Mục 1 (đánh số lại → Phase 9) xong 2026-11-08; Mục 2 xong 2026-11-09 (token, font, theme, spike CSP, tài liệu, G1 duyệt 2026-11-08 = D130–D136, component dùng chung, hai khung). Mục 3 (backend tối thiểu) xong 2026-11-09 (3.1–3.7; bằng chứng trên cluster qua Istio còn thiếu, là 9.2; chưa push, cần CI xanh trước), Mục 4 (G2) là việc kế tiếp** |
+| Trạng thái tổng thể | `☐ Chưa bắt đầu` / `☑ Đang làm` / `☐ Chờ sign-off` / `☐ Hoàn tất` — **Mục 0A (D105–D116) owner chốt qua phỏng vấn 2026-11-08; Mục 0 (Q1–Q12 → D117–D128, C72 → D129) owner chốt cùng ngày: Q1, Q2 trả lời riêng, Q3–Q12 + C72 + hai mặc định D110/D115 "chấp nhận tất cả đề xuất". Mục 0B (C63–C73) chờ xử lý trong các Mục tương ứng** (C63 xong cùng Mục 1). **Mục 1 (đánh số lại → Phase 9) xong 2026-11-08; Mục 2 xong 2026-11-09 (token, font, theme, spike CSP, tài liệu, G1 duyệt 2026-11-08 = D130–D136, component dùng chung, hai khung). Mục 3 (backend tối thiểu) xong 2026-11-09 (3.1–3.7; bằng chứng trên cluster qua Istio còn thiếu, là 9.2; chưa push, cần CI xanh trước), Mục 4: G2 đã dựng mockup 2026-11-09, D138–D147 chốt theo ủy quyền cùng ngày (D146 tiền tệ còn mở), mockup chờ owner duyệt (4.1), chưa code 4.2–4.6** |
 | Nhánh làm việc | `main` (push thẳng, không PR) |
 | Phạm vi | `apps/web` (thiết kế lại toàn bộ + màn hình còn thiếu theo SRS) và **phần backend tối thiểu** mà các màn hình đó cần (D105). **Không** gồm `apps/mobile` (D107) |
 | INV liên quan | Không INV mới. Giữ nguyên: INV-06 (không cập nhật ghế/trạng thái lạc quan trên UI), idempotency key cho `createRegistration`/`chargePayment`, RBAC theo permission, INV-15 (migration `V9` chỉ mở rộng), CSP `'self'` |
@@ -199,11 +199,27 @@ Primary và "thành công" cùng sắc xanh, nên mọi trạng thái (Đã xác
 
 ## 4. Màn hình sinh viên — cổng G2 (S1–S4, S16)
 
-- [ ] 4.1 **G2:** mockup trang chủ, catalog (có trạng thái rỗng, đang tải, lỗi), chi tiết, đăng nhập, trang lỗi; owner duyệt
+- [ ] 4.1 **G2:** mockup trang chủ, catalog (có trạng thái rỗng, đang tải, lỗi), chi tiết, đăng nhập, trang lỗi; owner duyệt *(Mockup dựng 2026-11-09, **chờ owner duyệt, chưa code 4.2–4.6**: https://claude.ai/artifact/LTjocYstf1X2nvTByRqQ9M — 12 artboard: bảng "nguồn dữ liệu → trạng thái" và các đề xuất, trang chủ, catalog, tám trạng thái catalog, chi tiết, mười hai trạng thái khối đăng ký, đăng nhập + 404/không quyền/503, và bản điện thoại 360 px (trang chủ, catalog sáng/tối, chi tiết sáng/tối). Token lấy từ `index.css`; ảnh bìa tải lên vẽ bằng khối màu thay ảnh. **Điều tra trước khi vẽ (ghi để khỏi tìm lại):** `JdbcWorkshopCatalogQueries` lọc `status = 'PUBLISHED'` và sắp `start_time, id` tăng dần, **không lọc theo thời gian**, và không có chỗ nào trong `src/main` đặt `COMPLETED`, nên workshop đã qua đứng đầu catalog mãi; `aiSummary` chỉ có kiểu null, nên không vẽ "đang tạo tóm tắt"; `getWorkshop` không có dữ kiện "đã đăng ký" (chỉ biết sau `409 already-registered`); `getWorkshop` công khai trả `CANCELLED`/`COMPLETED`. **Mockup chờ owner duyệt; D138–D147 đã chốt theo ủy quyền (bảng dưới).** CI xanh trên `4c84fb6` và `be688ae` (Mục 3).)*
+
+*Owner ủy quyền quyết các đề xuất của G2 cho advisor (2026-11-09), nguyên văn: "Bạn hãy hỏi ý advisor để đưa ra quyết định cho các đề xuất trên. Sau đó hãy ghi lại, commit và push cho tôi". **Đây là ủy quyền quyết định, không phải lời duyệt mockup: 4.1 chưa tick và 4.2–4.6 chưa code cho đến khi owner nói đã duyệt G2.** Giống D63–D80 (Phase 6) và D81–D104 (Phase 7): chốt theo ủy quyền, owner đổi được điểm nào cũng được.*
+
+| D | Quyết định (chốt theo ủy quyền 2026-11-09, owner đổi được) |
+|---|---|
+| D138 | Đường dẫn không có `dateFrom` thì Web gửi 00:00 hôm nay giờ `Asia/Ho_Chi_Minh`, làm tròn về đầu ngày để khóa cache 30 s của danh sách không đổi từng mili giây (backend chỉ lọc `PUBLISHED`, không lọc thời gian, và không có gì đặt `COMPLETED`). Mặc định **không** ghi vào URL; `dateFrom` tường minh trong URL luôn thắng. Phase 9 (k6) phải gửi cùng `dateFrom` đã làm tròn |
+| D139 | Ô ngày → "Từ ngày" 00:00, "Đến ngày" 23:59:59.999, cùng giờ Việt Nam, ISO có `+07:00`. "Sắp diễn ra tuần này" = từ hôm nay đến Chủ nhật (hôm nay là Chủ nhật: chỉ hôm nay), tối đa 3 thẻ, kèm "Xem tất cả N workshop" sang catalog đã lọc đúng khoảng đó |
+| D140 | Nhóm theo ngày giờ Việt Nam trong từng trang; ngày kéo qua trang sau thì trang sau lặp tiêu đề kèm "(tiếp)"; số ở tiêu đề nhóm là số thẻ trong trang |
+| D141 | Nút đăng ký không khóa theo số ghế hay giờ hiển thị (INV-06; chỗ giữ chưa thanh toán có thể được trả lại sau 15 phút). Số hiển thị 0 chỉ thêm lời nhắc; đã qua giờ bắt đầu mà còn `PUBLISHED` chỉ thêm dòng "Workshop đã bắt đầu" (gợi ý từ đồng hồ client) |
+| D142 | **Thu hẹp 4.5:** không vẽ "đang tạo tóm tắt". `workshop.md` §8 giữ `brochure_s3_key` và để `ai_summary` null khi loại brochure, nên "có brochure, chưa có tóm tắt" là đang tạo, bị loại hoặc AI lỗi, không phân biệt được. Mục "Tóm tắt (AI)" hiện khi `aiSummary` có giá trị, nếu không thì ẩn. **6.7 gặp cùng giới hạn (G4 không được hứa lại)** |
+| D143 | **Thu hẹp 4.5:** không vẽ "bạn đã đăng ký" từ lúc tải trang; chỉ biết sau `409 already-registered` khi bấm, khi đó hiện liên kết "Xem đăng ký của tôi". Một yêu cầu `listMyRegistrations` cho mỗi lần xem chi tiết sẽ chạm mô hình tải Phase 9 và rate limiter; chỉ xét lại nếu owner yêu cầu |
+| D144 | Ảnh bìa tự sinh (D123): SVG nội tuyến chỉ dùng thuộc tính trình bày (không `<style>`), ba họ hình và vài cặp màu bảng B, chọn theo băm của `id`. **Qua CSP guard ba engine là điều kiện để tick 4.4** |
+| D145 | Bộ lọc là trạng thái URL; ô chữ gửi sau 500 ms ngừng gõ và cập nhật URL bằng `replace`; đổi ngày hoặc trang thì `push` một mục lịch sử; đổi bộ lọc về trang 1; ô tìm trang chủ sang `/workshops?q=…`; không có chip Miễn phí/Có phí (D119) |
+| D146 | **Không có ký hiệu tiền tệ:** `Workshop.price` không nêu đơn vị ở hợp đồng hay tài liệu, `formatNumber` chỉ in số. Đơn vị tiền là một sự thật, không phải lựa chọn thiết kế, nên ủy quyền không quyết được: **còn mở cho owner** (VND thì thêm "₫" ở một chỗ, bộ định dạng) |
+| D147 | (1) Biểu tượng nhỏ cạnh nhãn mức ghế (dấu tích, đồng hồ, dấu x) **nhận**, vì phục vụ D115; cột biểu tượng của `web-design-system.md` §5 sửa trong commit của 4.4. (2) Lệch thang chữ **bác**: code theo thang D135 đã duyệt ở G1 (36/44 hero, 30/38 H1, 24/32 H2, 20/28 H3); cỡ chữ trên mockup không được nhận |
+
 - [ ] 4.2 Trang chủ S1: giới thiệu ngắn, ô tìm (gửi sang `/workshops?q=`), "Sắp diễn ra tuần này"
 - [ ] 4.3 Catalog S2: bộ lọc là trạng thái URL (chia sẻ link được), nhóm theo ngày, phân trang, debounce ô tìm, `400` khi `dateFrom` sau `dateTo` hiện lỗi gần trường **[M-82]** `[§5 r10]`
 - [ ] 4.4 Thẻ workshop: ảnh bìa hoặc ảnh tự sinh (Q7), ngày giờ, tiêu đề, diễn giả, địa điểm, nhãn Miễn phí / Có phí, mức ghế (Q2)
-- [ ] 4.5 Chi tiết S3: ảnh bìa, tóm tắt AI (có trạng thái "đang tạo tóm tắt"), diễn giả + giới thiệu, địa điểm, thời gian, số ghế trực tiếp (nhịp giữ nguyên), nút đăng ký với các trạng thái: chưa đăng nhập, hết chỗ, đã đăng ký, workshop bị hủy
+- [ ] 4.5 Chi tiết S3: ảnh bìa, tóm tắt AI (có trạng thái "đang tạo tóm tắt"), diễn giả + giới thiệu, địa điểm, thời gian, số ghế trực tiếp (nhịp giữ nguyên), nút đăng ký với các trạng thái: chưa đăng nhập, hết chỗ, đã đăng ký, workshop bị hủy *(D142 và D143 thu hẹp dòng này: không có "đang tạo tóm tắt" và không có "đã đăng ký" từ lúc tải trang; "đã đăng ký" chỉ hiện sau `409`. Thêm trạng thái `COMPLETED` và "đã bắt đầu" (D141).)*
 - [ ] 4.6 Đăng nhập S4, trang lỗi S16 (404, không có quyền, `503` có nút thử lại)
 
 ## 5. Đăng ký, thanh toán, vé, thông báo — cổng G3 (S5–S8)
@@ -223,7 +239,7 @@ Primary và "thành công" cùng sắc xanh, nên mọi trạng thái (Đã xác
 - [ ] 6.4 Sửa / đổi lịch S12: `updateWorkshop` gửi đúng `version` (xung đột `409` hiện thông báo tải lại); đổi giờ thì hộp xác nhận ghi "Sinh viên đã đăng ký sẽ được thông báo" **[M-83]**
 - [ ] 6.5 Publish và hủy: AlertDialog xác nhận, hủy nói rõ hệ quả (thông báo, giải phóng chỗ) **[M-83]**
 - [ ] 6.6 Tải ảnh bìa S13: kéo thả, xem trước, kiểm tra loại/kích thước phía client (UX, backend là nơi thực thi), tiến trình, lỗi `503 storage-unavailable` **[M-84]**
-- [ ] 6.7 Tải brochure S14: PDF, tiến trình, trạng thái tóm tắt AI hiện ở chi tiết **[M-85]**
+- [ ] 6.7 Tải brochure S14: PDF, tiến trình, trạng thái tóm tắt AI hiện ở chi tiết **[M-85]** *(Giới hạn D142: backend không phân biệt được "đang tạo" với "bị loại" (`brochure_s3_key` được giữ khi loại), nên "trạng thái tóm tắt" chỉ có thể là "có tóm tắt" / "chưa có tóm tắt"; muốn hơn thì cần thay đổi backend, ngoài D105. G4 không được hứa lại.)*
 - [ ] 6.8 Báo cáo S15: ô số, biểu đồ (Q10), danh sách điểm danh; giữ region `Báo cáo workshop`
 - [ ] 6.9 Mọi nút và route quản trị gate theo permission, không theo tên vai trò (Rules #13)
 
