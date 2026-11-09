@@ -1,7 +1,7 @@
 import { ChartColumn, ExternalLink } from 'lucide-react'
 import { Link, useLocation, useParams } from 'react-router'
 
-import { WorkshopEditor, WorkshopStatusBadge, WorkshopStatusCard } from '@/features/administration'
+import { BrochureCard, CoverImageCard, isTerminal, WorkshopEditor, WorkshopStatusBadge, WorkshopStatusCard } from '@/features/administration'
 import { hasAnyPermission, Permission, useSession } from '@/features/auth'
 import { useWorkshop } from '@/features/workshops'
 import { LoadError } from '@/shared/components/LoadError'
@@ -27,6 +27,7 @@ export function WorkshopEditPage() {
   const location = useLocation()
   const cache = useWorkshopCache()
   const canEdit = session !== null && hasAnyPermission(session, [Permission.WORKSHOP_EDIT])
+  const canUpload = session !== null && hasAnyPermission(session, [Permission.WORKSHOP_CREATE, Permission.WORKSHOP_EDIT])
   const canReport = session !== null && hasAnyPermission(session, [Permission.REPORT_VIEW])
   const justCreated = (location.state as { created?: boolean } | null)?.created === true
   const workshop = query.data
@@ -105,6 +106,22 @@ export function WorkshopEditPage() {
                   toast.success(changed.status === 'PUBLISHED' ? 'Đã công bố workshop.' : 'Đã hủy workshop.')
                 }}
                 onSettled={() => cache.reread(workshop.id)}
+              />
+              {/* Cover and brochure are uploaded with either permission, but never to a cancelled or completed workshop. */}
+              <CoverImageCard
+                workshopId={workshop.id}
+                coverImageUrl={workshop.coverImageUrl ?? null}
+                canUpload={canUpload && !isTerminal(workshop.status)}
+                onUploaded={() => cache.reread(workshop.id)}
+              />
+              <BrochureCard
+                workshopId={workshop.id}
+                hasBrochure={workshop.hasBrochure}
+                aiSummary={workshop.aiSummary ?? null}
+                canUpload={canUpload && !isTerminal(workshop.status)}
+                onUploaded={() => cache.reread(workshop.id)}
+                onRecheck={() => void query.refetch()}
+                rechecking={query.isFetching}
               />
             </aside>
           </div>
