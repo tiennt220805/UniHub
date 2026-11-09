@@ -24,6 +24,12 @@ type Dialog = 'publish' | 'cancel' | null
 /** A row's "⋯" menu (D166): edit, the report, and the two one-way changes, each behind its confirmation (6.5). */
 export function WorkshopActionsMenu({ workshop, editPath, reportPath, canEdit, onDone, onSettled }: Props) {
   const [dialog, setDialog] = useState<Dialog>(null)
+  // As it was when the dialog was opened: a 409 re-reads the list, the row's status changes, and the dialog must stay to say why.
+  const [asked, setAsked] = useState(workshop)
+  const open = (kind: Exclude<Dialog, null>) => {
+    setAsked(workshop)
+    setDialog(kind)
+  }
   const canPublish = canEdit && workshop.status === 'DRAFT'
   const canCancel = canEdit && !isTerminal(workshop.status)
   const hasChanges = canPublish || canCancel
@@ -53,31 +59,31 @@ export function WorkshopActionsMenu({ workshop, editPath, reportPath, canEdit, o
           )}
           {hasChanges && <DropdownMenuSeparator />}
           {canPublish && (
-            <DropdownMenuItem onSelect={() => setDialog('publish')}>
+            <DropdownMenuItem onSelect={() => open('publish')}>
               <Globe aria-hidden="true" />
               Công bố
             </DropdownMenuItem>
           )}
           {canCancel && (
-            <DropdownMenuItem variant="destructive" onSelect={() => setDialog('cancel')}>
+            <DropdownMenuItem variant="destructive" onSelect={() => open('cancel')}>
               <Ban aria-hidden="true" />
               {workshop.status === 'DRAFT' ? 'Hủy bản nháp' : 'Hủy workshop'}
             </DropdownMenuItem>
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      {canPublish && (
+      {canEdit && (
         <PublishWorkshopDialog
-          workshop={workshop}
+          workshop={asked}
           open={dialog === 'publish'}
           onOpenChange={(open) => setDialog(open ? 'publish' : null)}
           onDone={onDone}
           onSettled={onSettled}
         />
       )}
-      {canCancel && (
+      {canEdit && (
         <CancelWorkshopDialog
-          workshop={workshop}
+          workshop={asked}
           open={dialog === 'cancel'}
           onOpenChange={(open) => setDialog(open ? 'cancel' : null)}
           onDone={onDone}

@@ -89,6 +89,7 @@ export function WorkshopEditPage() {
           )}
           <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
             <WorkshopEditor
+              key={workshop.id}
               workshop={workshop}
               canEdit={canEdit}
               onSaved={(saved) => {
@@ -109,12 +110,14 @@ export function WorkshopEditPage() {
               />
               {/* Cover and brochure are uploaded with either permission, but never to a cancelled or completed workshop. */}
               <CoverImageCard
+                key={`cover-${workshop.id}`}
                 workshopId={workshop.id}
                 coverImageUrl={workshop.coverImageUrl ?? null}
                 canUpload={canUpload && !isTerminal(workshop.status)}
                 onUploaded={() => cache.reread(workshop.id)}
               />
               <BrochureCard
+                key={`brochure-${workshop.id}`}
                 workshopId={workshop.id}
                 hasBrochure={workshop.hasBrochure}
                 aiSummary={workshop.aiSummary ?? null}

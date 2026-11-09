@@ -310,10 +310,15 @@ describe('WorkshopEditPage: publish and cancel', () => {
     expect(posted).toBe(0)
   })
 
-  it('keeps the dialog open with the reason when publishing is refused (409)', async () => {
+  it('keeps the dialog open with the reason when publishing is refused (409), even though the workshop has already moved on', async () => {
+    let status: ManagedWorkshopDetail['status'] = 'DRAFT'
+    let gets = 0
     server.use(
-      http.get(DETAIL, () => HttpResponse.json(published({ status: 'DRAFT' }))),
-      http.post(`${DETAIL}/publish`, () => problem(409)),
+      http.get(DETAIL, () => ((gets += 1), HttpResponse.json(published({ status, seatsTaken: 0 })))),
+      http.post(`${DETAIL}/publish`, () => {
+        status = 'PUBLISHED' // someone else published it first: what the 409 means
+        return problem(409)
+      }),
     )
     asManager()
     const user = userEvent.setup()
@@ -323,6 +328,17 @@ describe('WorkshopEditPage: publish and cancel', () => {
 
     const dialog = await screen.findByRole('alertdialog')
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('Workshop này không còn là bản nháp')
+    // Nothing re-reads the workshop while the reason is on screen: it would take the dialog, and the reason, away.
+    const readsWhileOpen = gets
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(gets).toBe(readsWhileOpen)
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Để sau' }))
+
+    // Closing it reads the workshop again, and the page now shows what someone else did.
+    await waitFor(() => expect(within(screen.getByRole('region', { name: 'Trạng thái' })).getByText('Đã công bố')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'Công bố' })).not.toBeInTheDocument()
   })
 
   it('cancelling a published workshop says only what the backend does, and nothing about seats or money being returned', async () => {
@@ -363,11 +379,15 @@ describe('WorkshopEditPage: publish and cancel', () => {
     expect(within(dialog).getByRole('button', { name: 'Giữ bản nháp' })).toBeInTheDocument()
   })
 
-  it('says it when the workshop was already cancelled (409), and reads the workshop again', async () => {
+  it('says it when the workshop was already cancelled (409), keeps saying it after the page learns so, and reads the workshop once the dialog is closed', async () => {
+    let status: ManagedWorkshopDetail['status'] = 'PUBLISHED'
     let gets = 0
     server.use(
-      http.get(DETAIL, () => ((gets += 1), HttpResponse.json(published()))),
-      http.post(`${DETAIL}/cancel`, () => problem(409)),
+      http.get(DETAIL, () => ((gets += 1), HttpResponse.json(published({ status })))),
+      http.post(`${DETAIL}/cancel`, () => {
+        status = 'CANCELLED'
+        return problem(409)
+      }),
     )
     asManager()
     const user = userEvent.setup()
@@ -375,7 +395,35 @@ describe('WorkshopEditPage: publish and cancel', () => {
     await user.click(await screen.findByRole('button', { name: 'Hủy workshop' }))
     await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Hủy workshop' }))
 
-    expect(await screen.findByText('Workshop này đã bị hủy hoặc đã kết thúc rồi.')).toBeInTheDocument()
-    await waitFor(() => expect(gets).toBeGreaterThan(1))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Workshop này đã bị hủy hoặc đã kết thúc rồi.')
+    const readsWhileOpen = gets
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(gets).toBe(readsWhileOpen)
+
+    await user.click(within(dialog).getByRole('button', { name: 'Giữ workshop' }))
+
+    expect(await screen.findByText('Workshop này đã bị hủy nên không sửa được.')).toBeInTheDocument()
+    expect(gets).toBeGreaterThan(readsWhileOpen)
   })
+
+  it('a refused reschedule closes the dialog and shows the reason in the form, with what was typed still there', async () => {
+    serveWorkshop(published(), () => problem(409))
+    asManager()
+    const user = userEvent.setup()
+    renderRoute(PATH)
+    await screen.findByRole('heading', { level: 1 })
+    fireEvent.change(field(/^Bắt đầu/), { target: { value: '2026-11-15T13:30' } })
+    fireEvent.change(field(/^Kết thúc/), { target: { value: '2026-11-15T16:30' } })
+    await user.click(screen.getByRole('button', { name: 'Lưu thay đổi' }))
+
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Đổi lịch và gửi thông báo' }))
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Workshop có thể vừa được thay đổi ở nơi khác')
+    expect(within(alert).getByRole('button', { name: 'Tải lại' })).toBeInTheDocument()
+    expect(field(/^Bắt đầu/)).toHaveValue('2026-11-15T13:30')
+  })
+
 })

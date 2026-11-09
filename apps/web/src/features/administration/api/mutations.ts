@@ -40,27 +40,27 @@ export function useUpdateWorkshop(workshopId: string, { onSuccess }: Options = {
   })
 }
 
-export function usePublishWorkshop(workshopId: string, { onSuccess, onSettled }: Options & { onSettled?: () => void } = {}) {
+// Publish and cancel, unlike a save, are answered with a 409 when the workshop was already moved by someone else. The dialog that asked
+// keeps the reason on screen, so the lists are NOT re-read at that moment (a row of the tab the user is on would vanish, and its
+// dialog with it): the dialog re-reads them when the user closes it (LifecycleDialogs.tsx).
+export function usePublishWorkshop(workshopId: string, { onSuccess }: Options = {}) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: () => publishWorkshop(workshopId),
-    onSuccess: (workshop) => onSuccess?.(workshop),
-    // A 409 means the list the user acted on was out of date: it is read again whatever the answer was.
-    onSettled: () => {
+    onSuccess: (workshop) => {
       void queryClient.invalidateQueries({ queryKey: adminKeys.managedLists() })
-      onSettled?.()
+      onSuccess?.(workshop)
     },
   })
 }
 
-export function useCancelWorkshop(workshopId: string, { onSuccess, onSettled }: Options & { onSettled?: () => void } = {}) {
+export function useCancelWorkshop(workshopId: string, { onSuccess }: Options = {}) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: () => cancelWorkshop(workshopId),
-    onSuccess: (workshop) => onSuccess?.(workshop),
-    onSettled: () => {
+    onSuccess: (workshop) => {
       void queryClient.invalidateQueries({ queryKey: adminKeys.managedLists() })
-      onSettled?.()
+      onSuccess?.(workshop)
     },
   })
 }

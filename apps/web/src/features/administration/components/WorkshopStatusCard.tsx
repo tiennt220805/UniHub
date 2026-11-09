@@ -19,6 +19,13 @@ type Props = {
 /** The side card of the edit page: status, the seats now, and the two one-way changes (6.5). */
 export function WorkshopStatusCard({ workshop, canEdit, onDone, onSettled }: Props) {
   const [dialog, setDialog] = useState<'publish' | 'cancel' | null>(null)
+  // The workshop as it was when the dialog was opened. A 409 means the status already changed, and the answer to it re-reads the
+  // workshop: the dialog must outlive that, or the reason it is showing disappears with it.
+  const [asked, setAsked] = useState<Pick<Workshop, 'id' | 'title' | 'status'>>(workshop)
+  const open = (kind: 'publish' | 'cancel') => {
+    setAsked({ id: workshop.id, title: workshop.title, status: workshop.status })
+    setDialog(kind)
+  }
   const fill = workshop.capacity > 0 ? Math.min(workshop.seatsTaken / workshop.capacity, 1) : 1
   const canPublish = canEdit && workshop.status === 'DRAFT'
   const canCancel = canEdit && !isTerminal(workshop.status)
@@ -45,29 +52,29 @@ export function WorkshopStatusCard({ workshop, canEdit, onDone, onSettled }: Pro
         <p className="text-xs text-muted-foreground">Số liệu từ cơ sở dữ liệu chính, không qua cache.</p>
       </div>
       {canPublish && (
-        <Button onClick={() => setDialog('publish')}>
+        <Button onClick={() => open('publish')}>
           <Globe aria-hidden="true" />
           Công bố
         </Button>
       )}
       {canCancel && (
-        <Button variant="outline" className="border-destructive text-destructive hover:bg-destructive/10" onClick={() => setDialog('cancel')}>
+        <Button variant="outline" className="border-destructive text-destructive hover:bg-destructive/10" onClick={() => open('cancel')}>
           <Ban aria-hidden="true" />
           {workshop.status === 'DRAFT' ? 'Hủy bản nháp' : 'Hủy workshop'}
         </Button>
       )}
-      {canPublish && (
+      {canEdit && (
         <PublishWorkshopDialog
-          workshop={workshop}
+          workshop={asked}
           open={dialog === 'publish'}
           onOpenChange={(open) => setDialog(open ? 'publish' : null)}
           onDone={onDone}
           onSettled={onSettled}
         />
       )}
-      {canCancel && (
+      {canEdit && (
         <CancelWorkshopDialog
-          workshop={workshop}
+          workshop={asked}
           open={dialog === 'cancel'}
           onOpenChange={(open) => setDialog(open ? 'cancel' : null)}
           onDone={onDone}

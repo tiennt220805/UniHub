@@ -241,6 +241,36 @@ describe('WorkshopListPage: the row menu (D166)', () => {
     await waitFor(() => expect(queries.length).toBeGreaterThan(before)) // the list is read again, never patched by hand
   })
 
+  it('keeps a refused publish on screen when the row leaves the tab behind it, and re-reads the list when the dialog is closed', async () => {
+    let lists = 0
+    let moved = false
+    serveList(() => ((lists += 1), HttpResponse.json(aWorkshopPage(moved ? [] : [draft]))))
+    server.use(
+      http.post('/api/v1/workshops/d1/publish', () => {
+        moved = true // someone else published it: the next list has no draft in it
+        return problem(409)
+      }),
+    )
+    asManager()
+    const user = userEvent.setup()
+    renderRoute('/admin/workshops?status=DRAFT')
+
+    await open(user, 'Bản nháp A')
+    await user.click(screen.getByRole('menuitem', { name: 'Công bố' }))
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Công bố' }))
+
+    const dialog = await screen.findByRole('alertdialog')
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Workshop này không còn là bản nháp')
+    const readsWhileOpen = lists
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(lists).toBe(readsWhileOpen) // the row, and its dialog, are still there
+
+    await user.click(within(dialog).getByRole('button', { name: 'Để sau' }))
+
+    expect(await screen.findByRole('heading', { name: 'Chưa có bản nháp nào' })).toBeInTheDocument()
+    expect(lists).toBeGreaterThan(readsWhileOpen)
+  })
+
   it('offers cancel but not publish for a published workshop, and nothing that changes a cancelled one', async () => {
     serveList(() => HttpResponse.json(aWorkshopPage([live, gone])))
     asManager()

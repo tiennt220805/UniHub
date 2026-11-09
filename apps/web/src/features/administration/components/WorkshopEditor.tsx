@@ -65,7 +65,8 @@ export function WorkshopEditor({ workshop, canEdit, onSaved, onReload }: Props) 
   }
   const confirmedSave = () => {
     const values = form.getValues()
-    update.mutate(toUpdateRequest(values, dirtyFields, workshop))
+    // A refusal closes the dialog: the reason, with "Tải lại" when it applies, is in the form, and what was typed is still there.
+    update.mutate(toUpdateRequest(values, dirtyFields, workshop), { onError: () => setConfirming(false) })
   }
 
   const reload = async () => {

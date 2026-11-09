@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { CircleAlert, TriangleAlert } from 'lucide-react'
 
 import type { AppError } from '@/shared/api/errors'
@@ -13,6 +14,7 @@ import {
   AlertDialogTitle,
 } from '@/shared/ui/alert-dialog'
 import { clock, dayHeading, ymdOf } from '@/shared/lib/vn-time'
+import { adminKeys } from '../api/keys'
 import { useCancelWorkshop, usePublishWorkshop } from '../api/mutations'
 import type { Workshop, WorkshopStatus } from '../api/requests'
 import { cancelErrorMessage, publishErrorMessage } from '../model/workshop-errors'
@@ -25,8 +27,20 @@ type LifecycleProps = {
   onOpenChange: (open: boolean) => void
   /** The server's answer, for the cache effects the feature does not own (the catalog, the detail). */
   onDone: (workshop: Workshop) => void
-  /** After any answer, success or not: the route re-reads what it shows. */
+  /** The dialog is closed after a refusal: the route re-reads what it shows (the lists here are re-read by the dialog itself). */
   onSettled?: () => void
+}
+
+/**
+ * What to do when the user closes a dialog that showed a refusal: read the lists again now, not when the answer came (a 409 means
+ * the status has already moved, and the row the dialog belongs to may leave the tab the user is on).
+ */
+function useRefreshAfterRefusal(onSettled?: () => void) {
+  const queryClient = useQueryClient()
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: adminKeys.managedLists() })
+    onSettled?.()
+  }
 }
 
 function Failure({ error, message }: { error: AppError; message: string }) {
@@ -45,14 +59,17 @@ export function PublishWorkshopDialog({ workshop, open, onOpenChange, onDone, on
       onOpenChange(false)
       onDone(published)
     },
-    onSettled,
   })
+  const refresh = useRefreshAfterRefusal(onSettled)
   return (
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
         if (publish.isPending) return
-        if (!next) publish.reset()
+        if (!next) {
+          if (publish.isError) refresh()
+          publish.reset()
+        }
         onOpenChange(next)
       }}
     >
@@ -92,15 +109,18 @@ export function CancelWorkshopDialog({ workshop, open, onOpenChange, onDone, onS
       onOpenChange(false)
       onDone(cancelled)
     },
-    onSettled,
   })
+  const refresh = useRefreshAfterRefusal(onSettled)
   const isDraft = workshop.status === 'DRAFT'
   return (
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
         if (cancel.isPending) return
-        if (!next) cancel.reset()
+        if (!next) {
+          if (cancel.isError) refresh()
+          cancel.reset()
+        }
         onOpenChange(next)
       }}
     >
