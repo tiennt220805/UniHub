@@ -1,14 +1,12 @@
 import { SlidersHorizontal } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
+import { useDraft } from '@/shared/hooks/use-draft'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import { Field, FieldError, Label } from '@/shared/ui/field'
 import { Input } from '@/shared/ui/input'
 import { activeFilterCount, type CatalogSearch } from '../model/catalog-filters'
-
-/** How long typing must pause before the filter is applied (D145). */
-export const SEARCH_DEBOUNCE_MS = 500
 
 type Props = {
   search: CatalogSearch
@@ -18,31 +16,6 @@ type Props = {
   rangeError: boolean
   onChange: (patch: Partial<CatalogSearch>, options?: { replace?: boolean }) => void
   onClear: () => void
-}
-
-/**
- * A text field that applies to the URL half a second after the last key, and follows the URL when it changes under
- * it (Back, a link). The draft is reset while rendering, the documented way to derive state from a changed prop.
- */
-function useDraft(value: string, apply: (next: string) => void) {
-  const [draft, setDraft] = useState(value)
-  const [seen, setSeen] = useState(value)
-  if (seen !== value) {
-    setSeen(value)
-    // The URL now holds what this field just applied (trimmed): keep the draft, or a space typed between two words would vanish.
-    if (value !== draft.trim()) setDraft(value)
-  }
-  const applyRef = useRef(apply)
-  useEffect(() => {
-    applyRef.current = apply
-  })
-  useEffect(() => {
-    const next = draft.trim()
-    if (next === value) return
-    const timer = setTimeout(() => applyRef.current(next), SEARCH_DEBOUNCE_MS)
-    return () => clearTimeout(timer)
-  }, [draft, value])
-  return [draft, setDraft] as const
 }
 
 export function CatalogFilters({ search, today, rangeError, onChange, onClear }: Props) {

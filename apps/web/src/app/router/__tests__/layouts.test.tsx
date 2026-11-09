@@ -134,9 +134,18 @@ describe('AdminLayout and its guard', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Bạn không có quyền truy cập trang này.')
   })
 
-  it('the sidebar offers only what the session may use: no entry has a route yet, so there is no admin navigation', async () => {
+  it('the sidebar offers only what the session may use: the list for WORKSHOP_EDIT, nothing for a report-only session', async () => {
     reportOk()
     signInAs({ permissions: ['WORKSHOP_CREATE', 'WORKSHOP_EDIT', 'REPORT_VIEW'] })
+    renderRoute(REPORT)
+    await screen.findByRole('complementary', { name: 'Thanh bên quản trị' })
+    const nav = screen.getByRole('navigation', { name: 'Quản trị' })
+    expect(within(nav).getByRole('link', { name: 'Danh sách workshop' })).toHaveAttribute('href', '/admin/workshops')
+  })
+
+  it('a report-only session has no admin navigation: the list needs WORKSHOP_EDIT', async () => {
+    reportOk()
+    signInAs({ permissions: ['REPORT_VIEW'] })
     renderRoute(REPORT)
     await screen.findByRole('complementary', { name: 'Thanh bên quản trị' })
     expect(screen.queryByRole('navigation', { name: 'Quản trị' })).not.toBeInTheDocument()

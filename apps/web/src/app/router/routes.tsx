@@ -1,6 +1,8 @@
 import { type RouteObject } from 'react-router'
 
 import { Permission } from '@/features/auth'
+import { AdminIndexPage } from '@/routes/admin/AdminIndexPage'
+import { WorkshopListPage } from '@/routes/admin/WorkshopListPage'
 import { WorkshopReportPage } from '@/routes/admin/WorkshopReportPage'
 import { SignInPage } from '@/routes/auth/SignInPage'
 import { CheckoutPage } from '@/routes/me/CheckoutPage'
@@ -44,6 +46,16 @@ export const routes: RouteObject[] = [
       </RequirePermission>
     ),
     children: [
+      { index: true, element: <AdminIndexPage /> },
+      {
+        // listManagedWorkshops is guarded by WORKSHOP_EDIT; WORKSHOP_CREATE alone does not list (paths/workshop.yaml).
+        path: 'workshops',
+        element: (
+          <RequirePermission anyOf={[Permission.WORKSHOP_EDIT]}>
+            <WorkshopListPage />
+          </RequirePermission>
+        ),
+      },
       {
         // getWorkshopReport is guarded by REPORT_VIEW (held by Organizer and Admin).
         path: 'workshops/:workshopId/report',
