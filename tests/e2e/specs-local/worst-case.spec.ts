@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 
 import { test, expect } from '../support/local-fixtures'
+import { shot } from '../support/shots'
 import type { PageHealth } from '../support/page-health'
 
 // Phase 8, task 7.2 (the `break-ui` pass): the workshop card, the administration list, the e-ticket and the report are fed the
@@ -115,7 +116,7 @@ for (const width of WIDTHS) {
       await expect(page.getByRole('link', { name: ONE_WORD })).toBeVisible()
       expect(await leaks(page)).toEqual([])
       expect(health.cspViolations).toEqual([])
-      await page.screenshot({ path: `${SHOTS}/${testInfo.project.name}-catalog-${width}.png`, fullPage: true })
+      await shot(page, testInfo, `${SHOTS}/${testInfo.project.name}-catalog-${width}.png`)
     })
 
     test('catalog: an empty list says so and does not break the frame', async ({ page }) => {
@@ -134,7 +135,7 @@ for (const width of WIDTHS) {
       await expect(page.getByRole('table')).toBeVisible()
       expect(await leaks(page)).toEqual([])
       expect(health.cspViolations).toEqual([])
-      await page.screenshot({ path: `${SHOTS}/${testInfo.project.name}-admin-list-${width}.png`, fullPage: true })
+      await shot(page, testInfo, `${SHOTS}/${testInfo.project.name}-admin-list-${width}.png`)
     })
 
     test('administration list: an empty tab and a 150-character search term do not break the frame', async ({ page }) => {
@@ -182,7 +183,7 @@ for (const width of WIDTHS) {
       expect(qr?.width ?? 0).toBeGreaterThanOrEqual(200) // a long title must not squeeze the code a scanner reads
       expect(await leaks(page)).toEqual([])
       expect(health.cspViolations).toEqual([])
-      await page.screenshot({ path: `${SHOTS}/${testInfo.project.name}-ticket-${width}.png`, fullPage: true })
+      await shot(page, testInfo, `${SHOTS}/${testInfo.project.name}-ticket-${width}.png`)
     })
 
     test('report: nine-digit counts, a rate above 100%, a long title, twenty attendance rows', async ({ page, health }, testInfo) => {
@@ -209,7 +210,7 @@ for (const width of WIDTHS) {
       await expect(page.getByRole('progressbar', { name: 'Tỷ lệ check-in' })).toHaveAttribute('aria-valuenow', '100')
       expect(await leaks(page)).toEqual([])
       expect(health.cspViolations).toEqual([])
-      await page.screenshot({ path: `${SHOTS}/${testInfo.project.name}-report-${width}.png`, fullPage: true })
+      await shot(page, testInfo, `${SHOTS}/${testInfo.project.name}-report-${width}.png`)
     })
   })
 }

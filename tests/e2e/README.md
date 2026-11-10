@@ -31,9 +31,11 @@ Every browser test also fails on a `securitypolicyviolation` event or a CSP erro
 guard from `support/local-fixtures.ts`, automatic and collected through a binding of the page (so a report from a document the test
 has since left is kept); a test that provokes a violation on purpose says so with `test.use({ expectCspViolations: true })` and then
 fails if the guard did **not** see one (`spike.spec.ts` is that control, on each engine). Both share `settleCsp` in
-`support/page-health.ts`, which holds the one tolerated report (WebKit, the checkout `<select>`, the owner's decision of 2026-11-06). The local guard
-also sets aside one report that is Playwright's, not the page's: WebKit reports the `<style>` Playwright injects for **any** screenshot
-(`style-src-elem blocked inline … at :N:M []`); it is dropped only while a screenshot is being taken and attached to the test as `csp-reports-from-screenshots`.
+`support/page-health.ts`, which holds the one tolerated report (WebKit, the checkout `<select>`, the owner's decision of 2026-11-06).
+The local guard has no other allowance. One rule follows from that: **no screenshot on WebKit** in the guarded specs
+(`support/shots.ts`, `shot()`): Playwright injects a `<style>` for any `page.screenshot` and WebKit reports it as a violation of the page's
+policy (`style-src-elem blocked inline … :N:M []`). Chromium and Firefox take the shots (`test-results/*-screens/`); the WebKit test records
+an annotation saying it skipped one.
 
 - **Accounts:** one Student per engine (`student1` Chromium, `student2` Firefox, `student3` WebKit), so per-user rate
   limits and "already registered" never collide. Passwords come from the cluster's Secret when needed and are never

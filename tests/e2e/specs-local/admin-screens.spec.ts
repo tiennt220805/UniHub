@@ -1,7 +1,8 @@
-import type { Page, Request } from '@playwright/test'
+import type { Page, Request, TestInfo } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 
 import { test, expect } from '../support/local-fixtures'
+import { shot as takeShot } from '../support/shots'
 import type { PageHealth } from '../support/page-health'
 
 // Phase 8, G4 (checklist 6.2–6.8, 8.4): the administration screens in a real browser under the production Content-Security-Policy,
@@ -83,8 +84,7 @@ async function signedIn(page: Page, permissions: string[]) {
 const MANAGER = ['WORKSHOP_CREATE', 'WORKSHOP_EDIT', 'REPORT_VIEW']
 
 const noHorizontalScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)
-const shot = (page: Page, name: string, testInfo: { project: { name: string } }) =>
-  page.screenshot({ path: `${SHOTS}/${testInfo.project.name}-${name}.png`, fullPage: true })
+const shot = (page: Page, name: string, testInfo: TestInfo) => takeShot(page, testInfo, `${SHOTS}/${testInfo.project.name}-${name}.png`)
 
 // A 1×1 PNG: a real image, so the browser can draw the `data:` preview.
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')

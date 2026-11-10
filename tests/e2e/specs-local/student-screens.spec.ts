@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs'
 import type { TestInfo } from '@playwright/test'
 
 import { test, expect } from '../support/local-fixtures'
+import { shot as takeShot } from '../support/shots'
 import type { PageHealth } from '../support/page-health'
 
 // Phase 8, G3 (checklist 5.2–5.6, 8.4): the checkout, registrations, e-ticket and inbox pages in a real browser at the widths
@@ -100,8 +101,7 @@ async function unexpected(page: Page, health: PageHealth, testInfo: TestInfo): P
   return [...all.filter((entry) => !quirk(entry)), ...candidates.slice(seen.selects * 2)]
 }
 
-const shot = (page: Page, name: string, testInfo: { project: { name: string } }) =>
-  page.screenshot({ path: `${SHOTS}/${testInfo.project.name}-${name}.png`, fullPage: true })
+const shot = (page: Page, name: string, testInfo: TestInfo) => takeShot(page, testInfo, `${SHOTS}/${testInfo.project.name}-${name}.png`)
 
 test.describe('checkout', () => {
   test('1280 px: the clock and the steps are the right column, and the form is beside them', async ({ page, health }, testInfo) => {
