@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router'
 
 import { parseManagedSearch, toManagedParams, type ManagedSearch } from '../model/managed-search'
@@ -11,11 +11,20 @@ export function useManagedSearch() {
   const [params, setParams] = useSearchParams()
   const search = useMemo(() => parseManagedSearch(params), [params])
 
+  // The newest filters, including a write that has not rendered yet (see use-catalog-search.ts: two writes in one turn
+  // must build on each other, not on the same stale copy).
+  const latest = useRef(search)
+  useEffect(() => {
+    latest.current = search
+  }, [search])
+
   const update = useCallback(
     (patch: Partial<ManagedSearch>, options: { replace?: boolean } = {}) => {
-      setParams(toManagedParams({ ...search, ...patch, page: patch.page ?? 0 }), { replace: options.replace })
+      const next = { ...latest.current, ...patch, page: patch.page ?? 0 }
+      latest.current = next
+      setParams(toManagedParams(next), { replace: options.replace })
     },
-    [search, setParams],
+    [setParams],
   )
   return { search, update }
 }

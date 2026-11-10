@@ -74,7 +74,7 @@ expect "PUT of the signed file is accepted" "$(put image/png "$work/cover.png" "
 confirmed="$(api -X POST "$BASE/api/v1/workshops/$WID/cover-image-upload-confirm")"
 cover="$(echo "$confirmed" | json 'd["coverImageUrl"]')"
 echo "      confirmed cover path: $cover"
-expect "the cover path is on the application's origin" "$(case "$cover" in /media/covers/"$WID"/*.png) echo yes;; *) echo "$cover";; esac)" yes
+if [[ "$cover" == /media/covers/$WID/*.png ]]; then ok "the cover path is on the application's origin"; else bad "the cover path is '$cover'"; fi
 expect "the public detail carries the cover path" "$(c "$BASE/api/v1/workshops/$WID" | json 'd["coverImageUrl"]')" "$cover"
 
 # 4 -- the anonymous read

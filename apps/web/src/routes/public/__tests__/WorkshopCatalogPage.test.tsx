@@ -1,8 +1,9 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
+import { SEARCH_DEBOUNCE_MS } from '@/shared/hooks/use-draft'
 import { endOfDay, startOfDay, ymdOf } from '@/shared/lib/vn-time'
 import { aWorkshop, aWorkshopPage, aWorkshopSummary, WORKSHOP_ID } from '@/testing/factories/workshop'
 import { server } from '@/testing/msw-server'
@@ -243,6 +244,29 @@ describe('WorkshopCatalogPage: filtering from the form', () => {
 
     await waitFor(() => expect(router.state.location.search).toBe(''))
     expect(screen.queryByRole('button', { name: 'Xóa bộ lọc' })).not.toBeInTheDocument()
+  })
+
+  it('keeps both edits when two text filters change inside one debounce window', async () => {
+    // Found on the cluster run (Phase 8 task 9.3): clearing "Diễn giả" and filling "Địa điểm" at once (Playwright's `fill`)
+    // made both timers fire from one stale copy of the URL; the second write put the cleared speaker back, and the box
+    // stayed empty while the old filter kept applying. Fake timers fire both in one go, as they did there.
+    serveList()
+    const { router } = renderRoute('/workshops?speaker=Lan')
+    await screen.findByLabelText('Chủ đề')
+
+    vi.useFakeTimers({ shouldAdvanceTime: false, toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      fireEvent.change(screen.getByLabelText('Diễn giả'), { target: { value: '' } })
+      fireEvent.change(screen.getByLabelText('Địa điểm'), { target: { value: 'B2' } })
+      act(() => {
+        vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS + 10)
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+
+    await waitFor(() => expect(router.state.location.search).toBe('?location=B2'))
+    expect(screen.getByLabelText('Diễn giả')).toHaveValue('')
   })
 
   it('follows the URL when it changes under the form (Back)', async () => {

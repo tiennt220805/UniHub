@@ -132,7 +132,10 @@ fi
 # 5 -- Prometheus
 down="$(prom 'up == 0' || true)"
 total="$(prom 'count(up)' | awk '{print $2}' || true)"
-if [ -z "$down" ] && [ "${total:-0}" -ge 4 ]; then ok "every Prometheus target is up (${total} targets)"; else bad "Prometheus targets down: ${down:-none}; total ${total:-?}"; fi
+# One target per API pod (overlays/dev runs 1, overlays/loadtest 3) plus RabbitMQ. A fixed floor of 4 fitted only the loadtest
+# overlay (Phase 8 task 9.3: on `dev` it failed with no target down).
+expected=$(( $(kubectl -n unihub get deploy backend-api -o jsonpath='{.spec.replicas}') + 1 ))
+if [ -z "$down" ] && [ "${total:-0}" -ge "$expected" ]; then ok "every Prometheus target is up (${total} targets, at least ${expected} expected)"; else bad "Prometheus targets down: ${down:-none}; total ${total:-?}, at least ${expected} expected"; fi
 
 # 6 -- traces in Tempo. The gateway samples 10% and starts the trace (AC98.1), so a request is recorded about one
 # time in ten: send sixty and look for their trace IDs (X-Correlation-Id is the trace ID). The chance that none is
