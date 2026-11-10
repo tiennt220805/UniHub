@@ -46,6 +46,18 @@ Every browser test also fails on a `securitypolicyviolation` event or a CSP erro
   else, on any engine, fails the test.
 - **429:** the Organizer helper waits out a `429` as `Retry-After` says (the rate limit is per identity).
 
+## The cluster specs against the local stack (no cluster)
+
+`specs/` can run without Minikube, to see that the journeys work on a real backend before a cluster run: `bootRun` on `:8080` with the dev seeder, MinIO and the other containers from `docker-compose.yml`, and a production build served by `vite preview` on **`localhost:5173`** (that port because the backend signs upload URLs for `UNIHUB_OBJECT_STORAGE_PUBLIC_ENDPOINT`, which in a dev run is `http://localhost:5173`, and a signature covers the host). Build with `VITE_PAYMENT_TEST_MODE=true` so checkout offers the test tokens.
+
+```
+E2E_BASE_URL=http://localhost:5173 \
+UNIHUB_DEV_SEED_STUDENT_PASSWORD=… UNIHUB_DEV_SEED_ORGANIZER_PASSWORD=… UNIHUB_DEV_SEED_ADMIN_PASSWORD=… \
+npx playwright test --project=chromium      # then firefox, then webkit
+```
+
+The passwords are the ones the backend was started with (`support/accounts.ts` reads the variable of the same name from the environment before it asks `kubectl`; there is no default). `E2E_STUDENT_EMAIL` makes every engine use one Student when the others' passwords are unknown; then run the engines one at a time, a few seconds apart, because one identity shares one rate-limit budget (INV-17) and a back-to-back run can be answered `429`. Not run this way: `--project=transport` (TLS probes). A green run here is not the cluster run (checklist 9.3).
+
 ## Local browser checks (no cluster): `npm run test:local`
 
 `playwright.local.config.ts` + `specs-local/` run on the three engines against a **production build of `apps/web`** served by

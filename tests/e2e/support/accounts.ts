@@ -7,6 +7,13 @@ const cache = new Map<string, string>()
 function secret(key: string): string {
   const hit = cache.get(key)
   if (hit !== undefined) return hit
+  // A run against the local stack (Backend API from `bootRun` behind a `vite preview`, no cluster) has no Secret to read:
+  // the same variable the backend's seeder takes, from the environment. Never a default in source.
+  const fromEnvironment = process.env[key]
+  if (fromEnvironment !== undefined && fromEnvironment !== '') {
+    cache.set(key, fromEnvironment)
+    return fromEnvironment
+  }
   const encoded = execFileSync(
     'kubectl',
     ['-n', 'unihub', 'get', 'secret', 'backend-api-secrets', '-o', `jsonpath={.data.${key}}`],
@@ -28,7 +35,8 @@ const STUDENT_OF_ENGINE: Record<string, string> = {
 }
 
 export function studentFor(engine: string): Account {
-  const email = STUDENT_OF_ENGINE[engine]
+  // A local stack may have only one Student whose password is known; E2E_STUDENT_EMAIL makes every engine use that one.
+  const email = process.env.E2E_STUDENT_EMAIL || STUDENT_OF_ENGINE[engine]
   if (email === undefined) throw new Error(`no Student account for the project "${engine}"`)
   return { email, password: secret('UNIHUB_DEV_SEED_STUDENT_PASSWORD') }
 }

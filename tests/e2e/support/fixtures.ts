@@ -44,7 +44,7 @@ export const test = base.extend<Fixtures>({
       // shown only in a test-mode build. At most two reports per <select> that the page put in the DOM are tolerated (that is what
       // WebKit sends); a third, anything else, on any engine, or this on any other page, still fails.
       const isWebkitSelectQuirk = (entry: string) =>
-        testInfo.project.name === 'webkit' && /^style-src-attr blocked inline on \/me\/checkout\/[^ ]+ at https:\/\/[^ ]+\/assets\/[^ ]+\.js:\d+:\d+ \[\]$/.test(entry)
+        testInfo.project.name === 'webkit' && webkitSelectQuirk.test(entry)
       const candidates = health.cspViolations.filter(isWebkitSelectQuirk)
       const tolerated = candidates.slice(0, seen.selects * 2)
       const violations = [...health.cspViolations.filter((entry) => !isWebkitSelectQuirk(entry)), ...candidates.slice(tolerated.length)]
@@ -65,6 +65,13 @@ export const test = base.extend<Fixtures>({
 })
 
 export { expect }
+
+// The report of that exception, pinned to the page, the origin under test (https on the cluster; a run on the local
+// stack is http, and the report names that scheme) and an empty sample.
+const originUnderTest = new URL(process.env.E2E_BASE_URL ?? 'https://unihub.local:8443').origin
+const webkitSelectQuirk = new RegExp(
+  `^style-src-attr blocked inline on /me/checkout/[^ ]+ at ${originUnderTest.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/assets/[^ ]+\\.js:\\d+:\\d+ \\[\\]$`,
+)
 
 /** A title no other run has used, so a workshop of this run is the only one that matches it. */
 export function uniqueTitle(label: string): string {
