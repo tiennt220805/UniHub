@@ -35,13 +35,44 @@ The system combines three architectural styles: a **Modular Monolith** (one stat
 
 It is a solo project covering the whole path: requirements, architecture, backend, web client, mobile client, tests, CI, Kubernetes manifests, and observability.
 
+<p align="center">
+  <img src="docs/images/readme/catalog.png" alt="The UniHub workshop catalog: filters by topic, speaker, place and date, and workshop cards grouped by day with price and seat level" width="720">
+</p>
+
 ## Features
 
 | Role | What they can do |
 | --- | --- |
 | **Student** | Browse published workshops with a live seat count, sign in, register (free or paid), pay at checkout through the Stripe sandbox, get a signed **QR e-ticket**, receive a confirmation email (QR included) and in-app notifications, and see their registrations. |
-| **Organizer / Admin** | Create, update, publish, cancel and reschedule workshops and upload a brochure PDF (through the API), and read per-workshop attendance reports (in the web app). Cancelling or rescheduling notifies exactly the students who hold a seat. Access is permission-based (RBAC). |
+| **Organizer / Admin** | Create, update, publish, cancel and reschedule workshops, upload a cover image and a brochure PDF, and read per-workshop registration and check-in reports, all in the web app. Cancelling or rescheduling notifies exactly the students who hold a seat. Access is permission-based (RBAC). |
 | **Check-in Staff** | Use the **Check-in Client** mobile app to scan e-tickets with no network, keep scans in a durable on-device queue, and sync automatically when a connection returns. |
+
+<table>
+  <tr>
+    <td width="38%" valign="top">
+      <img src="docs/images/readme/workshop-detail.png" alt="A workshop page with its time, place, price and a live seat count, and the register button">
+      <br><sub><b>Workshop page.</b> The seat count refreshes while the page is open.</sub>
+    </td>
+    <td width="38%" valign="top">
+      <img src="docs/images/readme/checkout.png" alt="The checkout page of a paid workshop: a 15-minute hold clock, the payment method and three steps">
+      <br><sub><b>Checkout.</b> A paid seat is held for 15 minutes; the page follows the payment to its end.</sub>
+    </td>
+    <td width="24%" rowspan="2" valign="top">
+      <img src="docs/images/readme/mobile-checkin.png" alt="The Check-in Client's scan history on a phone: each scan with its ticket code, time and the server's verdict, and repeat or wrong-room scans flagged">
+      <br><sub><b>Check-in Client.</b> Scans are kept on the phone and synced later; each shows the server's verdict.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top">
+      <img src="docs/images/readme/e-ticket.png" alt="The e-ticket page: workshop, ticket code and the signed QR code">
+      <br><sub><b>E-ticket.</b> A signed QR code that the Check-in Client verifies with no network.</sub>
+    </td>
+    <td width="38%" valign="top">
+      <img src="docs/images/readme/admin-report.png" alt="The Organizer's workshop report: capacity, held seats, confirmed registrations, check-in rate and the attendance list">
+      <br><sub><b>Organizer report.</b> Registrations and check-in rate for one workshop, refreshed every 10 seconds.</sub>
+    </td>
+  </tr>
+</table>
 
 Behind the scenes the system also syncs the legacy student roster nightly, expires unpaid seat holds, reconciles payments the gateway answered late, and refunds a payment that arrives after its hold has expired.
 
