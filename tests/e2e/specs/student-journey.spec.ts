@@ -1,8 +1,8 @@
 import { expect, signInThroughTheForm, test, uniqueTitle } from '../support/fixtures'
 
 // M-69 (Phase 7 task 9.2): a Student discovers a workshop in the catalog, registers (free, then paid through the
-// stub gateway with a test token) and sees the QR e-ticket. Everything the Student does is in the browser; only
-// the workshops are made through the API, because the Web has no page to create one.
+// stub gateway with a test token) and sees the QR e-ticket. Everything the Student does is in the browser; the
+// workshops are made through the API (organizer-journey.spec.ts drives the administration screens that make them).
 const CROCKFORD_TICKET_CODE = /^[0-9A-HJKMNP-TV-Z]{26}$/
 
 test('a Student registers for a free workshop and sees the QR e-ticket', async ({ page, organizerApi, student }) => {
@@ -10,14 +10,13 @@ test('a Student registers for a free workshop and sees the QR e-ticket', async (
   const workshop = await organizerApi.create({ title, paid: false })
   await organizerApi.publish(workshop.id)
 
-  // Discover: the catalog is public; the new workshop is in it (the list is cached for 30 s, workshop.md, so wait up to twice that).
+  // Discover: the catalog is public, and the Student finds the workshop by its topic (M-82, catalog.spec.ts has the other
+  // filters). A search is its own cache entry, so the new workshop shows at once and no reload loop is needed.
   await page.goto('/workshops')
   await expect(page.getByRole('heading', { name: 'Workshops' })).toBeVisible()
+  await page.getByLabel('Chủ đề').fill(title)
   const entry = page.getByRole('link', { name: title })
-  await expect(async () => {
-    await page.reload()
-    await expect(entry).toBeVisible({ timeout: 3_000 })
-  }).toPass({ timeout: 60_000 })
+  await expect(entry).toBeVisible()
   await entry.click()
   await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible()
 

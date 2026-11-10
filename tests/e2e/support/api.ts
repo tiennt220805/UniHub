@@ -3,8 +3,9 @@ import { expect, type APIRequestContext } from '@playwright/test'
 
 import type { Account } from './accounts'
 
-// The Organizer's operations that the Web has no page for (create, publish, edit, reschedule: the Web builds only
-// the report page, Phase 7 checklist Q-M70), called through the same gateway over HTTPS as the browser.
+// The Organizer's operations called through the API where a journey is about something else than the administration
+// screens: setting up the workshops a Student's or a catalog test needs, and cleaning them up. The Web has the screens for
+// create, publish, edit, reschedule and the uploads since Phase 8; `organizer-journey.spec.ts` drives those in the browser.
 export type Workshop = { id: string; title: string; status: string; startTime: string; endTime: string }
 
 export class OrganizerApi {
@@ -39,13 +40,25 @@ export class OrganizerApi {
     }
   }
 
-  async create(input: { title: string; paid: boolean; capacity?: number; daysAhead?: number }): Promise<Workshop> {
+  /** A workshop made in the browser: the clean-up after the test takes it out of the catalog too. */
+  track(id: string): void {
+    this.created.push(id)
+  }
+
+  async create(input: {
+    title: string
+    paid: boolean
+    capacity?: number
+    daysAhead?: number
+    speakerName?: string
+    location?: string
+  }): Promise<Workshop> {
     const start = new Date(Date.now() + (input.daysAhead ?? 2) * 86_400_000)
     const end = new Date(start.getTime() + 2 * 3_600_000)
     const response = await this.send('post', '/api/v1/workshops', {
       title: input.title,
-      speakerName: 'E2E Speaker',
-      location: 'Room E2E',
+      speakerName: input.speakerName ?? 'E2E Speaker',
+      location: input.location ?? 'Room E2E',
       startTime: start.toISOString(),
       endTime: end.toISOString(),
       capacity: input.capacity ?? 5,
