@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- The browser bar takes the colour of the header (bg-card). One per scheme for the first paint; applyTheme() keeps both in
+         step with the page afterwards, so a manual choice that differs from the system still gets the right bar. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FFFFFF" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#111B15" />
     <title>UniHub</title>
     <!-- Blocking on purpose: sets the colour theme before the first paint (public/theme-init.js). -->
     <script src="/theme-init.js"></script>

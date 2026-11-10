@@ -22,10 +22,18 @@ function systemPrefersDark(): boolean {
   return typeof window.matchMedia === 'function' && window.matchMedia(DARK_QUERY).matches
 }
 
-/** Puts the `.dark` class on <html>, the only thing the design tokens in index.css look at. */
+// The `card` token of each theme: the colour at the top of every page is the header, and the browser bar should match it.
+const THEME_COLOR = { light: '#FFFFFF', dark: '#111B15' } as const
+
+/** Puts the `.dark` class on <html>, the only thing the design tokens in index.css look at, and the browser bar with it. */
 export function applyTheme(preference: ThemePreference): void {
   const dark = preference === 'dark' || (preference === 'system' && systemPrefersDark())
   document.documentElement.classList.toggle('dark', dark)
+  // index.html has one <meta name="theme-color"> per system scheme, which cannot follow a choice that differs from the
+  // system; setting both to the colour in force can, and with the choice on `system` it is the matching one anyway.
+  document
+    .querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')
+    .forEach((meta) => meta.setAttribute('content', dark ? THEME_COLOR.dark : THEME_COLOR.light))
 }
 
 // Only the choice lives here (web-coding-standards.md §8): whether the page is dark right now is the class on <html>,

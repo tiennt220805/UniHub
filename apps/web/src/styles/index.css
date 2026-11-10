@@ -207,6 +207,29 @@
   }
   html {
     @apply font-sans;
+    /* No font inflation when a phone turns to landscape. */
+    -webkit-text-size-adjust: 100%;
+  }
+  /* Touch (task 7.3, mobile-native). A button, a link and a form control never double-tap-zoom, so the tap fires at once;
+     pinch zoom is untouched. */
+  button,
+  a,
+  [role='button'],
+  summary,
+  label,
+  select,
+  input {
+    touch-action: manipulation;
+  }
+  /* Text that is a control is not selectable and has no long-press callout; text that is content stays selectable (so
+     nothing on `body`). The grey tap flash goes only where the control gives its own press feedback (Button scales, and
+     so does the workshop card); plain links keep the browser's, because they give none. */
+  button,
+  [role='button'] {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
   }
 }
 

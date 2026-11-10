@@ -33,7 +33,7 @@ export function CatalogFilters({ search, today, rangeError, onChange, onClear }:
     >
       <Field>
         <Label htmlFor="catalog-q">Chủ đề</Label>
-        <Input id="catalog-q" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ví dụ: Kubernetes" className="h-11" />
+        <Input id="catalog-q" type="search" enterKeyHint="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ví dụ: Kubernetes" className="h-11" />
       </Field>
 
       <Button

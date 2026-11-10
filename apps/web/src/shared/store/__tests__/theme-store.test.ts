@@ -32,6 +32,39 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllGlobals())
 
+describe('the browser bar colour (task 7.3)', () => {
+  function withBarMetas() {
+    document.head.insertAdjacentHTML(
+      'beforeend',
+      '<meta name="theme-color" media="(prefers-color-scheme: light)" content="#FFFFFF">' +
+        '<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#111B15">',
+    )
+  }
+  const bars = () => Array.from(document.querySelectorAll('meta[name="theme-color"]')).map((meta) => meta.getAttribute('content'))
+  afterEach(() => document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.remove()))
+
+  it('follows a choice that differs from the system, in both tags, so whichever the browser reads is right', () => {
+    stubSystem(false)
+    withBarMetas()
+    applyTheme('dark')
+    expect(bars()).toEqual(['#111B15', '#111B15'])
+    applyTheme('light')
+    expect(bars()).toEqual(['#FFFFFF', '#FFFFFF'])
+  })
+
+  it('on `system` it is the colour of the system scheme', () => {
+    stubSystem(true)
+    withBarMetas()
+    applyTheme('system')
+    expect(bars()).toEqual(['#111B15', '#111B15'])
+  })
+
+  it('does nothing when the page has no such tag', () => {
+    stubSystem(false)
+    expect(() => applyTheme('dark')).not.toThrow()
+  })
+})
+
 describe('the theme store', () => {
   it('puts the dark class on <html> for `dark` and takes it off for `light`', () => {
     stubSystem(false)
