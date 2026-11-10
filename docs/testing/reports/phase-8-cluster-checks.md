@@ -2,7 +2,7 @@
 
 > **Mục đích.** Các spec trình duyệt của Mục 8 chạy trên backend thật cục bộ (Docker, `vite preview`). Chúng không đi qua Istio, không dưới STRICT và không dùng image của CI. File này ghi lần chạy trên cluster của Phase 7, với image CI của commit chạy.
 >
-> **Đây là bằng chứng do Claude Code chạy, chưa được owner chấp nhận (D102).** Theo luật của Phase 7, M-70, M-82, M-86 và M-88 **chưa** `Passing` cho tới khi owner nói rõ là chấp nhận lần chạy này. Việc đó thuộc 10.1.
+> **Đây là bằng chứng do Claude Code chạy, đã được owner chấp nhận (D102).** Owner nói rõ trong phiên làm việc ngày 2026-11-10 ("Tôi chấp nhận bằng chứng cluster"), sau khi đọc bản báo cáo này và danh sách "Chưa chứng minh" ở cuối; vì vậy M-82 … M-86 và M-88 là `Passing` và M-69, M-70 giữ `Passing` với nội dung mới. Sự chấp nhận không nói rằng các điều ở "Chưa chứng minh" đã được chứng minh.
 
 ## Ai chạy, khi nào, ở đâu
 

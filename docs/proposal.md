@@ -120,7 +120,7 @@ These are structural limitations of the current process rather than isolated bug
 ### 5.2 Out-of-Scope
 
 - **Public app-store distribution.** The Mobile Application (Section 5.1) is built and delivered as a functioning client for Check-in Staff, including the offline scanning and reconciliation workflow; publishing a signed build to the Apple App Store or Google Play Store is out-of-scope. The proof-of-concept is distributed through non-store channels (e.g., Expo preview/internal builds), consistent with the local, non-production deployment posture in Section 5.2's other items.
-- **Real cloud production deployment.** Infrastructure is validated against a local Kubernetes (Minikube) cluster; deployment to a managed cloud provider is not part of this delivery. The one exception is AWS S3, used specifically as the object store for uploaded PDF brochures (see Section 6, Assumptions) — this is a scoped, single-purpose managed dependency, not a production cloud rollout of the system itself.
+- **Real cloud production deployment.** Infrastructure is validated against a local Kubernetes (Minikube) cluster; deployment to a managed cloud provider is not part of this delivery. The one exception is AWS S3, used specifically as the object store for uploaded PDF brochures and, since Phase 8, workshop cover images in the same bucket (see Section 6, Assumptions) — this is a scoped, single-purpose managed dependency, not a production cloud rollout of the system itself.
 - **Real financial settlement.** Payment integration operates strictly in sandbox/test mode; no live monetary transactions or production PCI-compliance workstreams are in scope.
 
 ---
