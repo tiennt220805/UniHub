@@ -1,11 +1,7 @@
+import { lazy } from 'react'
 import { type RouteObject } from 'react-router'
 
 import { Permission } from '@/features/auth'
-import { AdminIndexPage } from '@/routes/admin/AdminIndexPage'
-import { WorkshopCreatePage } from '@/routes/admin/WorkshopCreatePage'
-import { WorkshopEditPage } from '@/routes/admin/WorkshopEditPage'
-import { WorkshopListPage } from '@/routes/admin/WorkshopListPage'
-import { WorkshopReportPage } from '@/routes/admin/WorkshopReportPage'
 import { SignInPage } from '@/routes/auth/SignInPage'
 import { CheckoutPage } from '@/routes/me/CheckoutPage'
 import { MyRegistrationsPage } from '@/routes/me/MyRegistrationsPage'
@@ -20,6 +16,15 @@ import { ADMIN_ACCESS } from './admin-nav'
 import { StudentLayout } from './StudentLayout'
 import { RequirePermission } from './guards/RequirePermission'
 import { RequireSession } from './guards/RequireSession'
+
+// The administration pages are lazy (task 7.5): a student never downloads them. The permission guard stays the outer
+// element of each route and is not lazy, so a visitor who may not enter is refused before any admin chunk is asked for;
+// AdminLayout holds the one <Suspense> that covers the wait. The pages are named exports, hence the `.then`.
+const AdminIndexPage = lazy(() => import('@/routes/admin/AdminIndexPage').then((m) => ({ default: m.AdminIndexPage })))
+const WorkshopCreatePage = lazy(() => import('@/routes/admin/WorkshopCreatePage').then((m) => ({ default: m.WorkshopCreatePage })))
+const WorkshopEditPage = lazy(() => import('@/routes/admin/WorkshopEditPage').then((m) => ({ default: m.WorkshopEditPage })))
+const WorkshopListPage = lazy(() => import('@/routes/admin/WorkshopListPage').then((m) => ({ default: m.WorkshopListPage })))
+const WorkshopReportPage = lazy(() => import('@/routes/admin/WorkshopReportPage').then((m) => ({ default: m.WorkshopReportPage })))
 
 // The CSP spike page (task 2.3). `import.meta.env.VITE_SPIKE` is read here, not through shared/config/env.ts, on
 // purpose: Vite replaces it with a constant at build time, so a build without the flag drops the whole branch and

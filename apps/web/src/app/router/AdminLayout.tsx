@@ -1,10 +1,12 @@
 import { House, LogOut, Menu } from 'lucide-react'
+import { Suspense } from 'react'
 import { Link, NavLink, Outlet } from 'react-router'
 
 import { hasAnyPermission, useSession, useSignOut } from '@/features/auth'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import { Logo } from '@/shared/ui/logo'
+import { Skeleton } from '@/shared/ui/skeleton'
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from '@/shared/ui/sheet'
 import { ThemeToggle } from '@/shared/ui/theme-toggle'
 import { ADMIN_NAV } from './admin-nav'
@@ -71,6 +73,17 @@ function SidebarBody({ collapsible }: { collapsible: boolean }) {
   )
 }
 
+// What stands where a lazy page is still coming (task 7.5). Not a loading state of the page's own data: each page draws that.
+function PageFallback() {
+  return (
+    <div role="status" aria-busy="true" className="grid gap-4 p-6">
+      <span className="sr-only">Đang tải trang…</span>
+      <Skeleton className="h-8 w-1/3" />
+      <Skeleton className="h-40 w-full rounded-2xl" />
+    </div>
+  )
+}
+
 export function AdminLayout() {
   return (
     <div className="min-h-svh bg-background md:flex">
@@ -110,7 +123,9 @@ export function AdminLayout() {
       </aside>
 
       <div className="min-w-0 flex-1">
-        <Outlet />
+        <Suspense fallback={<PageFallback />}>
+          <Outlet />
+        </Suspense>
       </div>
     </div>
   )
