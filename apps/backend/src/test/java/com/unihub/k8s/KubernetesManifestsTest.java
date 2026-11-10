@@ -371,6 +371,20 @@ class KubernetesManifestsTest {
                 .contains("UNIHUB_OBJECT_STORAGE_PUBLIC_ENDPOINT=https://unihub.local");
     }
 
+    @Test
+    @DisplayName(
+            "the overlays mint upload URLs for the gateway as this machine reaches it (port 8443):"
+                    + " a signature covers the Host with its port")
+    void overlaysMintUrlsForThePortForwardedGateway() throws IOException {
+        for (var overlay : List.of("dev", "loadtest")) {
+            var kustomization =
+                    K8S.resolve("overlays").resolve(overlay).resolve("kustomization.yaml");
+            assertThat(readString(kustomization))
+                    .as("overlays/%s", overlay)
+                    .contains("UNIHUB_OBJECT_STORAGE_PUBLIC_ENDPOINT=https://unihub.local:8443");
+        }
+    }
+
     private static List<Map<?, ?>> virtualServiceRoutes() throws IOException {
         var virtualService =
                 documents(BASE.resolve("gateway.yaml")).stream()

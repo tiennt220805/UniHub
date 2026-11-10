@@ -15,3 +15,7 @@ configMapGenerator:
     literals:
       # 0 replicas, so the replica datasource still needs a URL (D87): the Master.
       - UNIHUB_DATASOURCE_REPLICA_URL=jdbc:postgresql://postgres-master:5432/unihub
+      # Phase 8 task 9.2: on this machine the gateway is reached by `kubectl port-forward` on 8443 (no sudo, e2e.sh,
+      # check-mesh.sh). A presigned PUT is signed for the Host with its port, and the browser sends the page's own
+      # Host, so the URL must carry :8443 or the upload goes to port 443 (nothing there) / fails SigV4.
+      - UNIHUB_OBJECT_STORAGE_PUBLIC_ENDPOINT=https://unihub.local:8443

@@ -75,3 +75,12 @@ test('the Web is served with a Content-Security-Policy header that forbids frami
     expect(policy).toContain("frame-ancestors 'none'")
   }
 })
+
+test('the blocking theme script is served as JavaScript, not as the SPA shell (Phase 8 task 2.3)', async ({ request }) => {
+  // `index.html` loads /theme-init.js before the first paint. If the image lacked the file, the SPA fallback would
+  // answer 200 with HTML, the browser would refuse to run it as a script (nosniff) and every first paint would flash.
+  const response = await request.get('/theme-init.js')
+  expect(response.status()).toBe(200)
+  expect(response.headers()['content-type'] ?? '').toMatch(/javascript/)
+  expect(await response.text()).not.toMatch(/<!doctype html|<html/i)
+})

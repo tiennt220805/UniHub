@@ -1,5 +1,6 @@
 # overlays/loadtest: three API instances and a Postgres replica, the topology INV-16 and S-15 need (at least two
-# API pods). The base's replica URL already points at postgres-replica, so no ConfigMap change here.
+# API pods). The base's replica URL already points at postgres-replica; the only ConfigMap change is the public
+# object-storage endpoint (see overlays/dev: the gateway is reached on :8443 here).
 # The sizing in resource-patch.yaml is PROVISIONAL: the numbers of the design document do not fit the development
 # machine beside Istio and the observability stack (Resource Profile ADR, D82); task 5.7 measures and replaces them.
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -13,3 +14,8 @@ replicas:
     count: 3
   - name: postgres-replica
     count: 1
+configMapGenerator:
+  - name: backend-api-config
+    behavior: merge
+    literals:
+      - UNIHUB_OBJECT_STORAGE_PUBLIC_ENDPOINT=https://unihub.local:8443
