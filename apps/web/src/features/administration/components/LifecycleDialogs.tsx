@@ -1,4 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
+import type { RefObject } from 'react'
 import { CircleAlert, TriangleAlert } from 'lucide-react'
 
 import type { AppError } from '@/shared/api/errors'
@@ -13,6 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/shared/ui/alert-dialog'
+import { useRestoreFocus } from '@/shared/hooks/use-restore-focus'
 import { clock, dayHeading, ymdOf } from '@/shared/lib/vn-time'
 import { adminKeys } from '../api/keys'
 import { useCancelWorkshop, usePublishWorkshop } from '../api/mutations'
@@ -29,6 +31,8 @@ type LifecycleProps = {
   onDone: (workshop: Workshop) => void
   /** The dialog is closed after a refusal: the route re-reads what it shows (the lists here are re-read by the dialog itself). */
   onSettled?: () => void
+  /** Where focus goes when the dialog closes and what opened it is gone (a menu item): the menu's trigger. */
+  returnFocusTo?: RefObject<HTMLElement | null>
 }
 
 /**
@@ -53,7 +57,8 @@ function Failure({ error, message }: { error: AppError; message: string }) {
 }
 
 /** "Công bố workshop?" (6.5): one way, from a draft to what students see. */
-export function PublishWorkshopDialog({ workshop, open, onOpenChange, onDone, onSettled }: LifecycleProps) {
+export function PublishWorkshopDialog({ workshop, open, onOpenChange, onDone, onSettled, returnFocusTo }: LifecycleProps) {
+  const onCloseAutoFocus = useRestoreFocus(open, returnFocusTo)
   const publish = usePublishWorkshop(workshop.id, {
     onSuccess: (published) => {
       onOpenChange(false)
@@ -73,7 +78,7 @@ export function PublishWorkshopDialog({ workshop, open, onOpenChange, onDone, on
         onOpenChange(next)
       }}
     >
-      <AlertDialogContent className={WIDE}>
+      <AlertDialogContent className={WIDE} onCloseAutoFocus={onCloseAutoFocus}>
         <AlertDialogHeader>
           <AlertDialogTitle>Công bố workshop?</AlertDialogTitle>
           <AlertDialogDescription>
@@ -103,7 +108,8 @@ export function PublishWorkshopDialog({ workshop, open, onOpenChange, onDone, on
  * "Hủy workshop này?" (6.5, D157). The words say only what the backend does today (F2, F8): the status changes and the students
  * holding a seat are told; their registrations are not cancelled, their seats are not given back and nothing is refunded.
  */
-export function CancelWorkshopDialog({ workshop, open, onOpenChange, onDone, onSettled }: LifecycleProps) {
+export function CancelWorkshopDialog({ workshop, open, onOpenChange, onDone, onSettled, returnFocusTo }: LifecycleProps) {
+  const onCloseAutoFocus = useRestoreFocus(open, returnFocusTo)
   const cancel = useCancelWorkshop(workshop.id, {
     onSuccess: (cancelled) => {
       onOpenChange(false)
@@ -124,7 +130,7 @@ export function CancelWorkshopDialog({ workshop, open, onOpenChange, onDone, onS
         onOpenChange(next)
       }}
     >
-      <AlertDialogContent className={WIDE}>
+      <AlertDialogContent className={WIDE} onCloseAutoFocus={onCloseAutoFocus}>
         <AlertDialogHeader>
           <AlertDialogTitle>{isDraft ? 'Hủy bản nháp này?' : 'Hủy workshop này?'}</AlertDialogTitle>
           <AlertDialogDescription asChild>
@@ -189,9 +195,10 @@ export function RescheduleDialog({
   pending: boolean
   onConfirm: () => void
 }) {
+  const onCloseAutoFocus = useRestoreFocus(open)
   return (
     <AlertDialog open={open} onOpenChange={(value) => !pending && onOpenChange(value)}>
-      <AlertDialogContent className={WIDE}>
+      <AlertDialogContent className={WIDE} onCloseAutoFocus={onCloseAutoFocus}>
         <AlertDialogHeader>
           <AlertDialogTitle>Đổi lịch workshop?</AlertDialogTitle>
           <AlertDialogDescription asChild>

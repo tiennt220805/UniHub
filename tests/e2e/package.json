@@ -10,6 +10,7 @@
     "test:local": "playwright test -c playwright.local.config.ts"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@playwright/test": "1.64.1",
     "@types/node": "24.13.3",
     "typescript": "6.0.2"

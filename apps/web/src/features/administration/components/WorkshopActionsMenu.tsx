@@ -1,5 +1,5 @@
 import { ChartColumn, EllipsisVertical, Globe, Pencil, Ban } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router'
 
 import { Button } from '@/shared/ui/button'
@@ -24,6 +24,7 @@ type Dialog = 'publish' | 'cancel' | null
 /** A row's "⋯" menu (D166): edit, the report, and the two one-way changes, each behind its confirmation (6.5). */
 export function WorkshopActionsMenu({ workshop, editPath, reportPath, canEdit, onDone, onSettled }: Props) {
   const [dialog, setDialog] = useState<Dialog>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
   // As it was when the dialog was opened: a 409 re-reads the list, the row's status changes, and the dialog must stay to say why.
   const [asked, setAsked] = useState(workshop)
   const open = (kind: Exclude<Dialog, null>) => {
@@ -38,7 +39,7 @@ export function WorkshopActionsMenu({ workshop, editPath, reportPath, canEdit, o
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon-sm" aria-label={`Thao tác với ${workshop.title}`}>
+          <Button ref={trigger} variant="ghost" size="icon-sm" aria-label={`Thao tác với ${workshop.title}`}>
             <EllipsisVertical aria-hidden="true" />
           </Button>
         </DropdownMenuTrigger>
@@ -79,6 +80,7 @@ export function WorkshopActionsMenu({ workshop, editPath, reportPath, canEdit, o
           onOpenChange={(open) => setDialog(open ? 'publish' : null)}
           onDone={onDone}
           onSettled={onSettled}
+          returnFocusTo={trigger}
         />
       )}
       {canEdit && (
@@ -88,6 +90,7 @@ export function WorkshopActionsMenu({ workshop, editPath, reportPath, canEdit, o
           onOpenChange={(open) => setDialog(open ? 'cancel' : null)}
           onDone={onDone}
           onSettled={onSettled}
+          returnFocusTo={trigger}
         />
       )}
     </>

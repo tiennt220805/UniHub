@@ -69,12 +69,12 @@ const STATUS_NOTICE: Partial<Record<Workshop['status'], { text: string; detail: 
 
 function Row({ icon: Icon, label, children }: { icon: typeof Clock; label: string; children: ReactNode }) {
   return (
-    <div className="flex items-start gap-3">
-      <Icon aria-hidden="true" className="mt-1 size-5 shrink-0 text-primary-text" />
-      <div className="min-w-0">
-        <dt className="text-sm text-muted-foreground">{label}</dt>
-        <dd className="font-semibold [overflow-wrap:anywhere]">{children}</dd>
-      </div>
+    // A <dl> may hold only <dt>/<dd> groups wrapped in one <div> (axe `dlitem`): the term and its value are direct children of
+    // this div, and the icon sits beside both in a grid, not in an extra wrapper around them.
+    <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3">
+      <Icon aria-hidden="true" className="row-span-2 mt-1 size-5 shrink-0 text-primary-text" />
+      <dt className="text-sm text-muted-foreground">{label}</dt>
+      <dd className="font-semibold [overflow-wrap:anywhere]">{children}</dd>
     </div>
   )
 }

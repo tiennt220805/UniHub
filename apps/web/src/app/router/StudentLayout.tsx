@@ -55,7 +55,7 @@ export function StudentLayout() {
     <>
       <header className="sticky top-0 z-40 border-b border-border bg-card">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-4 md:h-16 md:gap-4 md:px-6">
-          <Link to="/" aria-label="UniHub" className="rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <Link to="/" className="rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <Logo />
           </Link>
 
