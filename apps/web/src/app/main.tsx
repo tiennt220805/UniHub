@@ -1,4 +1,4 @@
-// First, on purpose: see the module (Zod must not probe for eval under our CSP).
+// Kept as a belt: the files that build schemas import `z` from this module themselves (see it), which is what orders things.
 import '@/shared/config/zod'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'

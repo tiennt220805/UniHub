@@ -20,7 +20,7 @@ type Props = {
 // card never asks for the workshop's detail.
 export function WorkshopCard({ workshop, detailPath }: Props) {
   return (
-    <Card className="group relative flex h-full flex-col transition-shadow duration-150 ease-out-strong focus-within:ring-2 focus-within:ring-ring hover:shadow-md">
+    <Card className="group relative flex h-full flex-col transition-[box-shadow,transform] duration-150 ease-out-strong motion-safe:active:scale-[0.98] focus-within:ring-2 focus-within:ring-ring hover:shadow-md">
       <WorkshopCover workshopId={workshop.id} coverImageUrl={workshop.coverImageUrl ?? null} startTime={workshop.startTime} />
       <div className="flex flex-1 flex-col gap-2 p-4">
         <div className="flex items-center justify-between gap-2">

@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from './zod'
 
 // Parsed once at import: a bad value fails at startup, not mid-request.
 const schema = z.object({

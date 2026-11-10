@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from '@/shared/config/zod'
 
 import { fromDateTimeLocal, toDateTimeLocal } from '@/shared/lib/vn-time'
 import type { CreateWorkshopRequest, UpdateWorkshopRequest, Workshop } from '../api/requests'

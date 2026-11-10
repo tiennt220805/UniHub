@@ -102,7 +102,10 @@ export function UploadProgress({ label, fraction, step }: { label: string; fract
         aria-valuenow={percent}
         className="h-2 overflow-hidden rounded-full bg-seat-track"
       >
-        <div className="h-full bg-primary transition-[width] duration-150" style={{ width: `${percent}%` }} />
+        <div
+          className="h-full origin-left bg-primary transition-transform duration-150 ease-out-strong motion-reduce:transition-none"
+          style={{ transform: `scaleX(${percent / 100})` }}
+        />
       </div>
       <div className="flex justify-between text-sm text-muted-foreground tabular-nums">
         <span>{step === 'confirming' ? 'Đang xác nhận…' : step === 'requesting' ? 'Đang chuẩn bị…' : 'Đang tải lên…'}</span>

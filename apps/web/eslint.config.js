@@ -70,6 +70,18 @@ export default [
       ],
     },
   },
+  // Zod is imported only through shared/config/zod.ts, which turns the eval probe off before any schema is built (the CSP
+  // forbids the probe; see that file for why the import graph, not the order in main.tsx, has to carry this).
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/shared/config/zod.ts', 'src/**/__tests__/**', 'src/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { paths: [{ name: 'zod', message: "Import `z` from '@/shared/config/zod' — it sets jitless before any schema is built (CSP)." }] },
+      ],
+    },
+  },
   // web-coding-standards.md §12: a test lives in a __tests__/ folder. Vitest discovers tests by
   // name, so a misplaced one would still run — only this check keeps the convention from eroding.
   {

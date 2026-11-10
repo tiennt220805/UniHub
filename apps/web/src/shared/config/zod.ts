@@ -6,6 +6,11 @@ import { z } from 'zod'
 // schemas are small (an env check, two forms), so the compiled fast path is worth nothing here:
 // turning it off removes the probe, and the policy needs no exception for `script-src`.
 //
-// A side-effect module, imported first by app/main.tsx: the choice is read when a schema is built,
-// so it has to be made before the first one is (shared/config/env.ts builds one at import time).
+// The choice is read when a schema is built, so it has to be made before the first one is. Every file that builds a
+// schema therefore imports `z` from HERE, not from 'zod' (ESLint enforces it): the import graph, not the order of
+// imports in app/main.tsx, then guarantees the order. That mattered once the administration pages became lazy
+// chunks (Phase 8 task 7.5): the bundler moved a schema module into a shared chunk that is evaluated before the
+// entry chunk, so "imported first by main.tsx" no longer meant first, and the probe came back on /login.
 z.config({ jitless: true })
+
+export { z }
