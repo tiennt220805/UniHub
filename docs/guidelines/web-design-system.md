@@ -163,6 +163,8 @@ Rules, from the Emil Kowalski set the checklist names (`.claude/skills/emil-desi
 5. **Transitions, not keyframes**, for anything that can be triggered quickly (they retarget; keyframes restart).
 6. **Pressable things** get `scale(0.97)` on `:active`. Hover effects sit behind `@media (hover: hover) and (pointer: fine)` so a tap does not leave a stuck hover.
 7. **`prefers-reduced-motion: reduce`** removes movement and keeps opacity and colour changes (fewer and gentler, not zero). Tailwind's `motion-safe:` / `motion-reduce:` variants carry it.
+   For the five overlays (Dialog, AlertDialog, Popover, DropdownMenu, Sheet), whose enter and exit come from tw-animate-css, one rule at the end of `index.css` zeroes the `--tw-enter-*` / `--tw-exit-*` scale and translate variables under `prefers-reduced-motion: reduce`: the fade stays, the zoom and slide go. A new overlay primitive must carry a `data-slot` that is in that list. `tests/e2e/specs-local/motion.spec.ts` shows it on three engines (task 7.1, 2026-11-10).
+8. **Press feedback on a card** is `motion-safe:active:scale-[0.98]` (a card is large; a button is 0.97). The upload progress bar moves by `transform: scaleX`, not `width`.
 
 ## 7. Libraries — what the spike allowed (checklist 2.3, Q9, D125)
 
