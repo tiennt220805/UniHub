@@ -17,8 +17,8 @@ describe('Input and Textarea', () => {
     render(<Input aria-label="Tìm" />)
     const { className } = screen.getByRole('textbox')
     expect(className).toContain('border-input')
-    expect(className).toContain('focus-visible:ring-ring')
-    expect(className).not.toMatch(/ring-ring\/\d+/)
+    expect(className).toContain('focus-visible:outline-ring')
+    expect(className).not.toMatch(/outline-ring\/\d+/)
   })
 
   it('takes typed text and passes native attributes through', async () => {

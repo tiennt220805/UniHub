@@ -195,6 +195,7 @@ Every new UI library goes through the spike first. A library that needs a CSP ex
 | shadcn's `--accent` is a **green surface**, amber is `--highlight` | shadcn uses `accent` for hover and selection (ghost buttons, menu items, list rows); amber there would paint every hovered item yellow, against D109. The hex values of palette B are unchanged | `index.css`; confirmed 2026-11-08 (D130) |
 | `--primary-hover` is its own token | `hover:bg-primary/80` of the stock button drops white-on-green below 4,5:1 in light mode | `index.css`; 2.6 must use it |
 | Focus ring is a solid `outline-ring`, not `/50` | half opacity falls under 3:1 | `index.css` base layer |
+| Form controls draw their focus as an `outline` (2 px, offset 2 px), not a `box-shadow` ring | WebKit ignores `box-shadow` on a native-looking `<select>` and on `datetime-local`, and `outline-none` removes the native ring: those fields showed no focus on Safari (a11y.spec.ts, task 7.4). An outline is honoured by all three engines and follows the border radius | `shared/ui/control-classes.ts` |
 | `muted` and `seat-track` are `#ECEFEA` / `#1D2A21` | from the owner's preview page; they reproduce the 4,32 and 3,07 of the contrast table | `index.css` |
 | `secondary`, `accent`, `sidebar*`, `chart-*` are derived, not given | the table did not define them | `index.css`; `chart-*` final at 6.8 |
 | Dark mode is the `.dark` class only | a toggle cannot lose to the operating system | `index.css`, `theme-store.ts` |

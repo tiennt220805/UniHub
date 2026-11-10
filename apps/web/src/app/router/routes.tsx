@@ -12,6 +12,7 @@ import { NotFoundPage } from '@/routes/public/NotFoundPage'
 import { WorkshopCatalogPage } from '@/routes/public/WorkshopCatalogPage'
 import { WorkshopDetailPage } from '@/routes/public/WorkshopDetailPage'
 import { AdminLayout } from './AdminLayout'
+import { AdminPageError } from './AdminPageError'
 import { ADMIN_ACCESS } from './admin-nav'
 import { StudentLayout } from './StudentLayout'
 import { RequirePermission } from './guards/RequirePermission'
@@ -51,43 +52,50 @@ export const routes: RouteObject[] = [
       </RequirePermission>
     ),
     children: [
-      { index: true, element: <AdminIndexPage /> },
       {
-        // listManagedWorkshops is guarded by WORKSHOP_EDIT; WORKSHOP_CREATE alone does not list (paths/workshop.yaml).
-        path: 'workshops',
-        element: (
-          <RequirePermission anyOf={[Permission.WORKSHOP_EDIT]}>
-            <WorkshopListPage />
-          </RequirePermission>
-        ),
-      },
-      {
-        // createWorkshop is guarded by WORKSHOP_CREATE. Declared before ':workshopId' so "new" is not read as an id.
-        path: 'workshops/new',
-        element: (
-          <RequirePermission anyOf={[Permission.WORKSHOP_CREATE]}>
-            <WorkshopCreatePage />
-          </RequirePermission>
-        ),
-      },
-      {
-        // The page of one workshop: getWorkshop (a manager reads the Master) is let in by either permission; the form is
-        // editable, and publish and cancel are offered, only with WORKSHOP_EDIT (D166).
-        path: 'workshops/:workshopId',
-        element: (
-          <RequirePermission anyOf={[Permission.WORKSHOP_CREATE, Permission.WORKSHOP_EDIT]}>
-            <WorkshopEditPage />
-          </RequirePermission>
-        ),
-      },
-      {
-        // getWorkshopReport is guarded by REPORT_VIEW (held by Organizer and Admin).
-        path: 'workshops/:workshopId/report',
-        element: (
-          <RequirePermission anyOf={[Permission.REPORT_VIEW]}>
-            <WorkshopReportPage />
-          </RequirePermission>
-        ),
+        // A pathless route that only carries the error element: a chunk that fails to load is shown in the page area, inside
+        // the frame (AdminPageError), and not as React Router's default page.
+        errorElement: <AdminPageError />,
+        children: [
+          { index: true, element: <AdminIndexPage /> },
+          {
+            // listManagedWorkshops is guarded by WORKSHOP_EDIT; WORKSHOP_CREATE alone does not list (paths/workshop.yaml).
+            path: 'workshops',
+            element: (
+              <RequirePermission anyOf={[Permission.WORKSHOP_EDIT]}>
+                <WorkshopListPage />
+              </RequirePermission>
+            ),
+          },
+          {
+            // createWorkshop is guarded by WORKSHOP_CREATE. Declared before ':workshopId' so "new" is not read as an id.
+            path: 'workshops/new',
+            element: (
+              <RequirePermission anyOf={[Permission.WORKSHOP_CREATE]}>
+                <WorkshopCreatePage />
+              </RequirePermission>
+            ),
+          },
+          {
+            // The page of one workshop: getWorkshop (a manager reads the Master) is let in by either permission; the form is
+            // editable, and publish and cancel are offered, only with WORKSHOP_EDIT (D166).
+            path: 'workshops/:workshopId',
+            element: (
+              <RequirePermission anyOf={[Permission.WORKSHOP_CREATE, Permission.WORKSHOP_EDIT]}>
+                <WorkshopEditPage />
+              </RequirePermission>
+            ),
+          },
+          {
+            // getWorkshopReport is guarded by REPORT_VIEW (held by Organizer and Admin).
+            path: 'workshops/:workshopId/report',
+            element: (
+              <RequirePermission anyOf={[Permission.REPORT_VIEW]}>
+                <WorkshopReportPage />
+              </RequirePermission>
+            ),
+          },
+        ],
       },
     ],
   },

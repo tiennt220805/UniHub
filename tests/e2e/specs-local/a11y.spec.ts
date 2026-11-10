@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test as base, type Page } from '@playwright/test'
+import { expect, test as base, type Page, type TestInfo } from '@playwright/test'
 
 import { watch, type PageHealth } from '../support/page-health'
 
@@ -97,6 +97,18 @@ async function signedIn(page: Page, permissions: string[], roles = ['Student']) 
     },
     [permissions, roles] as const,
   )
+}
+
+// The one tolerated exception (owner, 2026-11-06), the same predicate as student-screens.spec.ts: WebKit reports `style-src-attr` with
+// an empty sample whenever a page creates a native <select>, and the checkout's test-token dropdown is one. At most two reports
+// per <select> that got into the page, on a checkout page and only in WebKit; anything else is a violation. Not a new exception.
+async function unexpected(page: Page, health: PageHealth, testInfo: TestInfo): Promise<string[]> {
+  const seen = await page.evaluate(() => ({ violations: window.__cspViolations ?? [], selects: window.__selectsCreated ?? 0 }))
+  const all = [...health.cspViolations, ...seen.violations]
+  const quirk = (entry: string) =>
+    testInfo.project.name === 'webkit' && /^style-src-attr blocked inline on \/me\/checkout\/[^ ]+ at https?:\/\/[^ ]+\/assets\/[^ ]+\.js:\d+:\d+ \[\]$/.test(entry)
+  const candidates = all.filter(quirk)
+  return [...all.filter((entry) => !quirk(entry)), ...candidates.slice(seen.selects * 2)]
 }
 
 const theme = (page: Page, value: 'light' | 'dark') => page.addInitScript((v) => window.localStorage.setItem('unihub.theme', v), value)
@@ -198,23 +210,36 @@ for (const mode of ['light', 'dark'] as const) {
           expect(await page.evaluate(() => document.documentElement.classList.contains('dark'))).toBe(mode === 'dark')
           const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
           expect(describeViolations(results.violations)).toEqual([])
-          // WebKit's one known report for the checkout's native <select> is judged by student-screens.spec.ts, not here.
-          if (!(screen.name === 'checkout' && testInfo.project.name === 'webkit')) expect(health.cspViolations).toEqual([])
+          expect(await unexpected(page, health, testInfo)).toEqual([])
         })
       }
     })
   }
 }
 
-/** True when the element, focused by the keyboard, draws something that is not the page: an outline or a ring (box-shadow). */
+/**
+ * True when the element that has focus draws a ring a person can see: an outline with width, or a box-shadow layer with a spread and
+ * a colour that is not transparent. It waits up to 600 ms, because the ring is a 150 ms transition and a shadow read at its first
+ * frame is transparent (an earlier version of this check only asked "is there a box-shadow?" and passed on that).
+ */
 const focusIsVisible = (page: Page) =>
-  page.evaluate(() => {
-    const el = document.activeElement as HTMLElement | null
-    if (!el || el === document.body) return false
-    const style = getComputedStyle(el)
-    const outline = style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0
-    return outline || (style.boxShadow !== 'none' && style.boxShadow !== '')
-  })
+  page
+    .waitForFunction(() => {
+      const el = document.activeElement as HTMLElement | null
+      if (!el || el === document.body) return false
+      const style = getComputedStyle(el)
+      if (style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0) return true
+      const layers = style.boxShadow.matchAll(/rgba?\(([^)]+)\)\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px/g)
+      return Array.from(layers).some((layer) => {
+        const parts = layer[1].split(/[,\s/]+/).filter(Boolean).map(Number)
+        const alpha = parts.length === 4 ? parts[3] : 1
+        return parseFloat(layer[5]) >= 1 && alpha >= 0.5
+      })
+    }, undefined, { timeout: 600 })
+    .then(
+      () => true,
+      () => false,
+    )
 
 /**
  * The key that moves to the next control. Safari on macOS skips buttons and links with plain Tab unless "Press Tab to highlight
@@ -301,6 +326,118 @@ test.describe('keyboard', () => {
     await page.keyboard.press('Escape')
     await expect(sheet).toBeHidden()
     await expect(trigger).toBeFocused()
+  })
+})
+
+test.describe('keyboard, the flows axe cannot judge', () => {
+  test.use({ viewport: { width: 1280, height: 900 } })
+
+  test('checkout: from the payment method Tab reaches "Thanh toán", and both show focus', async ({ page, browserName }) => {
+    await open(page, SCREENS.find((screen) => screen.name === 'checkout')!, 'light', 1280)
+    const method = page.getByLabel('Phương thức thanh toán (chế độ thử nghiệm)')
+    const pay = page.getByRole('button', { name: 'Thanh toán' })
+    // Arrive by keyboard, not by script: Safari does not match :focus-visible on a <select> focused by `.focus()`.
+    await pay.focus()
+    await page.keyboard.press(previousKey(browserName))
+    await expect(method).toBeFocused()
+    expect(await focusIsVisible(page), 'the payment method').toBe(true)
+    await page.keyboard.press(nextKey(browserName))
+    await expect(pay).toBeFocused()
+    expect(await focusIsVisible(page), '"Thanh toán"').toBe(true)
+  })
+
+  // The `datetime-local` fields are left out of the ring check on purpose: the browser draws its own highlight on the focused
+  // segment (day, month, hour…) and a calendar button, which a script cannot measure as one ring on the input. They are still
+  // walked, so a stop that traps focus would show; whether the native highlight is visible enough is for a person to see.
+  test('the create form: every stop between the first field and the submit button shows a ring, except the native date fields', async ({ page, browserName }) => {
+    await open(page, SCREENS.find((screen) => screen.name === 'admin create')!, 'light', 1280)
+    await page.getByLabel('Tên workshop').focus()
+    const names: string[] = []
+    const withoutRing: string[] = []
+    for (let i = 0; i < 14; i += 1) {
+      await page.keyboard.press(nextKey(browserName))
+      const stop = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement
+        if (!el.closest('main')) return null
+        const name = (el.getAttribute('aria-label') ?? (el as HTMLInputElement).labels?.[0]?.textContent ?? el.textContent ?? el.tagName).trim().slice(0, 30)
+        return { name, native: (el as HTMLInputElement).type === 'datetime-local' }
+      })
+      if (stop === null) break
+      names.push(stop.name)
+      if (!stop.native && !(await focusIsVisible(page))) withoutRing.push(stop.name)
+    }
+    expect(names.length, `stops: ${names.join(' | ')}`).toBeGreaterThanOrEqual(6)
+    expect(withoutRing, `stops: ${names.join(' | ')}`).toEqual([])
+  })
+
+  test('registrations: Tab reaches "Xem vé" and it shows focus', async ({ page, browserName }) => {
+    await open(page, SCREENS.find((screen) => screen.name === 'my registrations')!, 'light', 1280)
+    const link = page.getByRole('link', { name: 'Xem vé' })
+    // Walk from the first row's own action, so the test does not depend on how many header stops come before the list.
+    await page.getByRole('link', { name: 'Thanh toán' }).first().focus()
+    let reached = false
+    for (let i = 0; i < 6 && !reached; i += 1) {
+      await page.keyboard.press(nextKey(browserName))
+      reached = await link.evaluate((el) => el === document.activeElement)
+    }
+    expect(reached).toBe(true)
+    expect(await focusIsVisible(page)).toBe(true)
+  })
+
+  test('uploads: the "choose file" buttons are real, focusable buttons, so the dropzone is not the only way in', async ({ page }) => {
+    await signedIn(page, MANAGER, ['Organizer'])
+    await serve(page, { [`/api/v1/workshops/${WORKSHOP_ID}`]: detail({ status: 'DRAFT', seatsTaken: 0, hasBrochure: false }) })
+    await page.goto(`/admin/workshops/${WORKSHOP_ID}`)
+    for (const name of ['Chọn ảnh', 'Chọn file PDF']) {
+      const button = page.getByRole('button', { name })
+      await button.focus()
+      await expect(button, name).toBeFocused()
+      expect(await focusIsVisible(page), name).toBe(true)
+    }
+  })
+
+  test('the real row menu: open it, choose "Hủy workshop", Escape the dialog, and focus is back on the "⋯" button', async ({ page }) => {
+    await signedIn(page, MANAGER, ['Organizer'])
+    await serve(page, { '/api/v1/admin/workshops': pageOf([summary()]) })
+    await page.goto('/admin/workshops')
+    const trigger = page.getByRole('button', { name: /Thao tác/ }).first()
+    await trigger.focus()
+    await page.keyboard.press('Enter')
+    await page.getByRole('menuitem', { name: 'Hủy workshop' }).focus()
+    await page.keyboard.press('Enter')
+    const dialog = page.getByRole('alertdialog')
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect(trigger).toBeFocused()
+  })
+
+  test('publish on the edit page: after it succeeds the button that opened the dialog is gone, and focus stays on the page', async ({ page }) => {
+    await signedIn(page, MANAGER, ['Organizer'])
+    let published = false
+    await page.route('**/api/v1/workshops/**', (route) => {
+      const url = new URL(route.request().url())
+      if (route.request().method() === 'POST' && url.pathname.endsWith('/publish')) {
+        published = true
+        return route.fulfill(json(detail({ status: 'PUBLISHED', seatsTaken: 0 })))
+      }
+      return route.fulfill(json(detail({ status: published ? 'PUBLISHED' : 'DRAFT', seatsTaken: 0 })))
+    })
+    await page.goto(`/admin/workshops/${WORKSHOP_ID}`)
+    const opener = page.getByRole('button', { name: 'Công bố', exact: true })
+    await opener.focus()
+    await page.keyboard.press('Enter')
+    const dialog = page.getByRole('alertdialog')
+    await expect(dialog).toBeVisible()
+    await page.getByRole('button', { name: 'Công bố', exact: true }).last().click()
+    await expect(dialog).toBeHidden()
+    await expect(opener).toBeHidden() // a published workshop has no "Công bố"
+    // Focus must be somewhere a keyboard user can carry on from, not on <body>: inside the page's main region.
+    const where = await page.evaluate(() => {
+      const el = document.activeElement
+      return el === document.body ? 'body' : el?.closest('main') ? 'main' : el?.closest('aside,nav,header') ? 'frame' : 'elsewhere'
+    })
+    expect(where).not.toBe('body')
   })
 })
 

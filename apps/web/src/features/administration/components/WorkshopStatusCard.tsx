@@ -1,5 +1,5 @@
 import { Ban, Globe } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { formatNumber } from '@/shared/lib/format'
 import { cn } from '@/shared/lib/utils'
@@ -19,6 +19,9 @@ type Props = {
 /** The side card of the edit page: status, the seats now, and the two one-way changes (6.5). */
 export function WorkshopStatusCard({ workshop, canEdit, onDone, onSettled }: Props) {
   const [dialog, setDialog] = useState<'publish' | 'cancel' | null>(null)
+  // When "Công bố" or "Hủy" succeeds the status changes and the button that opened the dialog is no longer there: focus goes to
+  // the card itself (tabIndex -1: reachable by script, not a new Tab stop), whose name is read, rather than to <body>.
+  const card = useRef<HTMLElement>(null)
   // The workshop as it was when the dialog was opened. A 409 means the status already changed, and the answer to it re-reads the
   // workshop: the dialog must outlive that, or the reason it is showing disappears with it.
   const [asked, setAsked] = useState<Pick<Workshop, 'id' | 'title' | 'status'>>(workshop)
@@ -31,7 +34,12 @@ export function WorkshopStatusCard({ workshop, canEdit, onDone, onSettled }: Pro
   const canCancel = canEdit && !isTerminal(workshop.status)
 
   return (
-    <section aria-label="Trạng thái" className="grid gap-4 rounded-2xl border border-border bg-card p-5">
+    <section
+      ref={card}
+      tabIndex={-1}
+      aria-label="Trạng thái"
+      className="grid gap-4 rounded-2xl border border-border bg-card p-5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-base leading-6 font-semibold">Trạng thái</h2>
         <WorkshopStatusBadge status={workshop.status} />
@@ -70,6 +78,7 @@ export function WorkshopStatusCard({ workshop, canEdit, onDone, onSettled }: Pro
           onOpenChange={(open) => setDialog(open ? 'publish' : null)}
           onDone={onDone}
           onSettled={onSettled}
+          returnFocusTo={card}
         />
       )}
       {canEdit && (
@@ -79,6 +88,7 @@ export function WorkshopStatusCard({ workshop, canEdit, onDone, onSettled }: Pro
           onOpenChange={(open) => setDialog(open ? 'cancel' : null)}
           onDone={onDone}
           onSettled={onSettled}
+          returnFocusTo={card}
         />
       )}
     </section>

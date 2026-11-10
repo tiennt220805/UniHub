@@ -142,6 +142,28 @@ for (const width of WIDTHS) {
       await page.screenshot({ path: `${SHOTS}/${testInfo.project.name}-admin-list-${width}.png`, fullPage: true })
     })
 
+    test('administration list: an empty tab and a 150-character search term do not break the frame', async ({ page }) => {
+      await signedIn(page, ['WORKSHOP_CREATE', 'WORKSHOP_EDIT', 'REPORT_VIEW'])
+      await serve(page, { '/api/v1/admin/workshops': pageOf([]) })
+      await page.goto('/admin/workshops?q=' + 'x'.repeat(150))
+      await expect(page.getByRole('main')).toBeVisible()
+      expect(await leaks(page)).toEqual([])
+    })
+
+    test('report: no attendance yet, with a long title and zero counts', async ({ page, health }) => {
+      await signedIn(page, ['REPORT_VIEW'])
+      await serve(page, {
+        [`/api/v1/workshops/${WORKSHOP_ID}/report`]: { workshopId: WORKSHOP_ID, capacity: 0, seatsTaken: 0, confirmedCount: 0, reservedCount: 0, checkedInCount: 0, checkInRate: null },
+        [`/api/v1/workshops/${WORKSHOP_ID}`]: detail(),
+        [`/api/v1/workshops/${WORKSHOP_ID}/attendances`]: pageOf([]),
+      })
+      await page.goto(`/admin/workshops/${WORKSHOP_ID}/report`)
+      await expect(page.getByRole('region', { name: 'Báo cáo workshop' })).toBeVisible()
+      await expect(page.getByRole('region', { name: 'Danh sách điểm danh' })).toBeVisible()
+      expect(await leaks(page)).toEqual([])
+      expect(health.cspViolations).toEqual([])
+    })
+
     test('e-ticket: a long title and place beside a QR that keeps its size', async ({ page, health }, testInfo) => {
       await signedIn(page, ['REGISTRATION_CREATE'])
       await serve(page, {
