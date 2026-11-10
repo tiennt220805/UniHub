@@ -1,20 +1,15 @@
-import { expect, test as base, type Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 
 import type { TestInfo } from '@playwright/test'
 
-import { watch, type PageHealth } from '../support/page-health'
+import { test, expect } from '../support/local-fixtures'
+import type { PageHealth } from '../support/page-health'
 
 // Phase 8, G3 (checklist 5.2–5.6, 8.4): the checkout, registrations, e-ticket and inbox pages in a real browser at the widths
 // they promise, under the production Content-Security-Policy, with the API answered by `page.route`. jsdom applies no CSS,
 // so what is checked here is what Vitest cannot see: a sticky bar that sticks, a column that exists only from `lg`, a QR that
 // stays white on a dark page, no sideways scroll. The screenshots go to test-results/g3-screens/ for a person to look at.
-
-const test = base.extend<{ health: PageHealth }>({
-  health: async ({ page }, use) => {
-    await use(await watch(page))
-  },
-})
 
 const SHOTS = 'test-results/g3-screens'
 mkdirSync(SHOTS, { recursive: true })

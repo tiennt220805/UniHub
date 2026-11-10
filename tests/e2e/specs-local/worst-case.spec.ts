@@ -1,7 +1,8 @@
-import { expect, test as base, type Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 
-import { watch, type PageHealth } from '../support/page-health'
+import { test, expect } from '../support/local-fixtures'
+import type { PageHealth } from '../support/page-health'
 
 // Phase 8, task 7.2 (the `break-ui` pass): the workshop card, the administration list, the e-ticket and the report are fed the
 // worst data a real workshop can carry — a 200-character Vietnamese title, a title that is one 120-character word, a very long
@@ -11,12 +12,6 @@ import { watch, type PageHealth } from '../support/page-health'
 //
 // Two questions are asked of every page: does the page scroll sideways, and does any box that is not a scroll container hold
 // text wider than itself (a word that leaks out of its card without widening the page, because a parent clips it).
-
-const test = base.extend<{ health: PageHealth }>({
-  health: async ({ page }, use) => {
-    await use(await watch(page))
-  },
-})
 
 const SHOTS = 'test-results/worst-case'
 mkdirSync(SHOTS, { recursive: true })

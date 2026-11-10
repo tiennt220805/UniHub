@@ -20,12 +20,20 @@ There is no `ignoreHTTPSErrors`: a certificate the browser would reject fails th
 
 | Spec | Row | What it does |
 |---|---|---|
-| `specs/student-journey.spec.ts` | M-69 | catalog → sign in → register free → QR e-ticket; register paid → checkout with a test token → `CONFIRMED` → QR e-ticket |
-| `specs/organizer-journey.spec.ts` | M-70 | Organizer creates, publishes, edits and reschedules (API: the Web has no page for these) and, with the Admin, reads the report page in the browser |
+| `specs/student-journey.spec.ts` | M-69 | catalog (found by searching its title) → sign in → register free → QR e-ticket; register paid → checkout with a test token → `CONFIRMED` → QR e-ticket |
+| `specs/catalog.spec.ts` | M-82 | the catalog narrowed by topic, speaker, place and date range (state in the URL, Back, "Xóa bộ lọc", a backwards range), and paging over 21 workshops (one engine: it seeds 21 workshops, 63 Organizer calls) |
+| `specs/organizer-journey.spec.ts` | M-70 | the whole Organizer journey **in the browser**: create form → cover and brochure upload (to the object store on the page's own origin) → publish → edit → reschedule (each with its confirmation) → the public copy (title, time, a cover read without a token as an image with `nosniff`, drawn on the detail page) → the report; the Admin reads the same numbers. The only API calls are the Student's registration and the anonymous reads |
+| `specs/theme.spec.ts` | M-86 | the header toggle (dark, light, system), kept across a reload, and the same choice in the student pages and in the administration frame |
 | `specs/transport.spec.ts` | M-67 | TLS ≥ 1.2 with the local CA, TLS 1.1 refused, HTTP never reaches the API, `Content-Security-Policy` with `frame-ancestors` |
 
 Every browser test also fails on a `securitypolicyviolation` event or a CSP error in the console
-(`support/fixtures.ts`): that is the repeatable browser CSP check of `test-matrix.md` §4.5.
+(`support/fixtures.ts`): that is the repeatable browser CSP check of `test-matrix.md` §4.5. The specs of `specs-local/` have the same
+guard from `support/local-fixtures.ts`, automatic and collected through a binding of the page (so a report from a document the test
+has since left is kept); a test that provokes a violation on purpose says so with `test.use({ expectCspViolations: true })` and then
+fails if the guard did **not** see one (`spike.spec.ts` is that control, on each engine). Both share `settleCsp` in
+`support/page-health.ts`, which holds the one tolerated report (WebKit, the checkout `<select>`, the owner's decision of 2026-11-06). The local guard
+also sets aside one report that is Playwright's, not the page's: WebKit reports the `<style>` Playwright injects for **any** screenshot
+(`style-src-elem blocked inline … at :N:M []`); it is dropped only while a screenshot is being taken and attached to the test as `csp-reports-from-screenshots`.
 
 - **Accounts:** one Student per engine (`student1` Chromium, `student2` Firefox, `student3` WebKit), so per-user rate
   limits and "already registered" never collide. Passwords come from the cluster's Secret when needed and are never

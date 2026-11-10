@@ -1,16 +1,10 @@
-import { expect, test as base } from '@playwright/test'
 
-import { watch, type PageHealth } from '../support/page-health'
+import { test, expect } from '../support/local-fixtures'
+import type { PageHealth } from '../support/page-health'
 
 // Phase 8, task 7.3 (the `mobile-native` pass), on the three engines at 360 px. What can be shown without a phone is shown
 // here: the rules are in the built CSS and reach the elements. What cannot — a stuck hover, the tap flash, the keyboard, the URL
 // bar — needs a real device, and the checklist says so. Evidence for M-86 (the keyboard and touch half).
-
-const test = base.extend<{ health: PageHealth }>({
-  health: async ({ page }, use) => {
-    await use(await watch(page))
-  },
-})
 
 test.use({ viewport: { width: 360, height: 740 }, hasTouch: true, isMobile: false })
 

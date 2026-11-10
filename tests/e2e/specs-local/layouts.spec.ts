@@ -1,17 +1,12 @@
-import { expect, test as base, type Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 
-import { watch, type PageHealth } from '../support/page-health'
+import { test, expect } from '../support/local-fixtures'
+import type { PageHealth } from '../support/page-health'
 
 // Task 2.7 (Phase 8 checklist, D128, D136): what the two frames do at the widths they promise. The Vitest tests cannot
 // see this, because jsdom applies no CSS: here `md:hidden`, `sr-only lg:not-sr-only` and the rail width are real.
 // The API is not running (vite preview proxies /api to nothing), so a page inside the frame shows its error state; the
 // frame is what is under test.
-
-const test = base.extend<{ health: PageHealth }>({
-  health: async ({ page }, use) => {
-    await use(await watch(page))
-  },
-})
 
 /** A signed-in session in sessionStorage, as the app writes it (features/auth/store/session-store.ts). */
 async function signedInAs(page: Page, permissions: string[], roles = ['Student']) {

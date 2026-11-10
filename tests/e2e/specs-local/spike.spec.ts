@@ -1,6 +1,7 @@
-import { expect, test as base, type Locator, type Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
-import { watch, type PageHealth } from '../support/page-health'
+import { test, expect } from '../support/local-fixtures'
+import type { PageHealth } from '../support/page-health'
 
 // Task 2.3 (Phase 8 checklist, D125, Q9): each UI library the design leans on is opened under the production
 // Content-Security-Policy on the three engines. "No violation" proves nothing for a component that never opened, so
@@ -15,12 +16,6 @@ import { watch, type PageHealth } from '../support/page-health'
 //               each time a list opens. Allowing it would mean a hash in `style-src`: the owner's call, not this file's.
 // Sonner and NumberFlow were removed from package.json and Select from shared/ui, so they cannot be tested here any
 // more; the evidence is in checklists/phase-8-web-ui.md, 2.3.
-
-const test = base.extend<{ health: PageHealth }>({
-  health: async ({ page }, use) => {
-    await use(await watch(page))
-  },
-})
 
 /** Violations the page reported: the `securitypolicyviolation` events and CSP text in the console. */
 async function violations(page: Page, health: PageHealth): Promise<string[]> {
@@ -41,23 +36,28 @@ const open = async (page: Page, only: string) => {
 const transparent = /^rgba\(0, 0, 0, 0\)$|^transparent$/
 const bodyOverflow = (page: Page) => page.evaluate(() => document.body.style.overflow)
 
-test('the production build really has a Content-Security-Policy (the control: without it every result is a false pass)', async ({ page }) => {
-  await open(page, 'tabs')
-  const policy = await page.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute('content')
-  expect(policy).toContain("style-src 'self'")
-  expect(policy).not.toContain('unsafe-inline')
-  // And it bites: an inline <style> is refused, which is what a library that injects CSS at run time would hit.
-  const blocked = await page.evaluate(
-    () =>
-      new Promise<string>((resolve) => {
-        document.addEventListener('securitypolicyviolation', (event) => resolve(event.violatedDirective), { once: true })
-        const style = document.createElement('style')
-        style.textContent = 'body { outline: 1px solid red }'
-        document.head.appendChild(style)
-        setTimeout(() => resolve('not blocked'), 1000)
-      }),
-  )
-  expect(blocked).toMatch(/^style-src/)
+// This test provokes a violation on purpose, so it is the negative control of the automatic guard (support/local-fixtures.ts,
+// task 8.4): with `expectCspViolations` the guard fails the test if it did NOT see that report, on each engine.
+test.describe('the policy bites', () => {
+  test.use({ expectCspViolations: true })
+  test('the production build really has a Content-Security-Policy (the control: without it every result is a false pass)', async ({ page }) => {
+    await open(page, 'tabs')
+    const policy = await page.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute('content')
+    expect(policy).toContain("style-src 'self'")
+    expect(policy).not.toContain('unsafe-inline')
+    // And it bites: an inline <style> is refused, which is what a library that injects CSS at run time would hit.
+    const blocked = await page.evaluate(
+      () =>
+        new Promise<string>((resolve) => {
+          document.addEventListener('securitypolicyviolation', (event) => resolve(event.violatedDirective), { once: true })
+          const style = document.createElement('style')
+          style.textContent = 'body { outline: 1px solid red }'
+          document.head.appendChild(style)
+          setTimeout(() => resolve('not blocked'), 1000)
+        }),
+    )
+    expect(blocked).toMatch(/^style-src/)
+  })
 })
 
 test('Dialog opens, locks the page scroll, is styled and closes', async ({ page, health }) => {

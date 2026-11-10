@@ -39,3 +39,34 @@ export async function watch(page: Page): Promise<PageHealth> {
   })
   return health
 }
+
+// The one tolerated exception, decided by the owner 2026-11-06 (phase-7-cluster-checks.md, 9.4): WebKit reports a
+// `style-src-attr` violation with an empty sample whenever a page creates a native <select>, with the strict CSP and no
+// application code involved (reproduced on a page of its own). It is the checkout's test-token dropdown, shown only in a
+// test-mode build. At most two reports per <select> that the page put in the DOM are tolerated (that is what WebKit sends);
+// a third, anything else, on any engine, or this on any other page, still fails. The report is pinned to the page, the origin
+// under test (https on the cluster; a run on the local stack is http, and the report names that scheme) and an empty sample.
+function webkitSelectQuirk(origin: string): RegExp {
+  const escaped = origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`^style-src-attr blocked inline on /me/checkout/[^ ]+ at ${escaped}/assets/[^ ]+\\.js:\\d+:\\d+ \\[\\]$`)
+}
+
+/**
+ * What of a test's CSP reports and console errors is a failure. Console errors other than CSP ones are not: a 4xx a journey
+ * provokes on purpose logs "Failed to load resource". A CSP error text in the console counts as a violation too.
+ */
+export function settleCsp(input: { engine: string; origin: string; reports: string[]; consoleErrors: string[]; selects: number }) {
+  const cspInConsole = input.consoleErrors.filter((text) => /content security policy|violates the following/i.test(text))
+  const quirk = webkitSelectQuirk(input.origin)
+  const isQuirk = (entry: string) => input.engine === 'webkit' && quirk.test(entry)
+  const candidates = input.reports.filter(isQuirk)
+  const tolerated = candidates.slice(0, input.selects * 2)
+  const violations = [...input.reports.filter((entry) => !isQuirk(entry)), ...candidates.slice(tolerated.length)]
+  // Each tolerated event is followed by the same message in the console; take out that many, not all of them.
+  const consoleLeft = [...cspInConsole]
+  for (let i = 0; i < tolerated.length; i++) {
+    const at = consoleLeft.findIndex((text) => /^Refused to apply a stylesheet because its hash/.test(text))
+    if (at >= 0) consoleLeft.splice(at, 1)
+  }
+  return { failures: [...violations, ...consoleLeft], tolerated }
+}

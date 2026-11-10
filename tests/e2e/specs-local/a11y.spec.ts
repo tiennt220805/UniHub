@@ -1,7 +1,8 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test as base, type Page, type TestInfo } from '@playwright/test'
+import type { Page, TestInfo } from '@playwright/test'
 
-import { watch, type PageHealth } from '../support/page-health'
+import { test, expect } from '../support/local-fixtures'
+import type { PageHealth } from '../support/page-health'
 
 // Phase 8, task 7.4 (D115: WCAG 2.2 AA is the floor). Evidence for M-86. Two halves:
 //
@@ -12,12 +13,6 @@ import { watch, type PageHealth } from '../support/page-health'
 //      take focus in and give it back, and the seat count that is not announced on every refetch.
 //
 // The API is answered by `page.route`; vite preview serves the production build, so the Content-Security-Policy is the real one.
-
-const test = base.extend<{ health: PageHealth }>({
-  health: async ({ page }, use) => {
-    await use(await watch(page))
-  },
-})
 
 const WORKSHOP_ID = '3f2b8c1e-6d4a-4a57-9b0e-1c2d3e4f5a6b'
 const REGISTRATION_ID = '5b0c9d2e-1f3a-4b6c-8d7e-9f0a1b2c3d4e'

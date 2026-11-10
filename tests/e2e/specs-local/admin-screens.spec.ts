@@ -1,7 +1,8 @@
-import { expect, test as base, type Page, type Request } from '@playwright/test'
+import type { Page, Request } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 
-import { watch, type PageHealth } from '../support/page-health'
+import { test, expect } from '../support/local-fixtures'
+import type { PageHealth } from '../support/page-health'
 
 // Phase 8, G4 (checklist 6.2–6.8, 8.4): the administration screens in a real browser under the production Content-Security-Policy,
 // with the API answered by `page.route`. What Vitest cannot see is checked here: Radix menus and alert dialogs lock the page
@@ -9,12 +10,6 @@ import { watch, type PageHealth } from '../support/page-health'
 // application's own origin passes `connect-src 'self'` and carries only the signed Content-Type, the ring of the report is
 // drawn by presentation attributes, and a `datetime-local` value is read as Vietnam time in a browser that is somewhere else.
 // The PUT here is answered by this file; the PUT through the Istio gateway to MinIO is task 9.2.
-
-const test = base.extend<{ health: PageHealth }>({
-  health: async ({ page }, use) => {
-    await use(await watch(page))
-  },
-})
 
 const SHOTS = 'test-results/g4-screens'
 mkdirSync(SHOTS, { recursive: true })

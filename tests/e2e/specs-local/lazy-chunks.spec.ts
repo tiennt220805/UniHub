@@ -1,16 +1,11 @@
-import { expect, test as base, type Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 
-import { watch, type PageHealth } from '../support/page-health'
+import { test, expect } from '../support/local-fixtures'
+import type { PageHealth } from '../support/page-health'
 
 // Phase 8, task 7.5: the administration pages are lazy chunks, so a chunk can fail to arrive after the page has loaded (a rolling
 // deploy behind the gateway whose next pod no longer has that hash, or a dropped connection). The page area must say so, in
 // Vietnamese, with a way out, inside the admin frame, and not show React Router's default English error page with a module URL.
-
-const test = base.extend<{ health: PageHealth }>({
-  health: async ({ page }, use) => {
-    await use(await watch(page))
-  },
-})
 
 async function asManager(page: Page) {
   await page.addInitScript(() =>

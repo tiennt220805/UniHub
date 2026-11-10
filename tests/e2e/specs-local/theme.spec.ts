@@ -1,17 +1,12 @@
-import { expect, test as base, type Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 
-import { watch, type PageHealth } from '../support/page-health'
+import { test, expect } from '../support/local-fixtures'
+import type { PageHealth } from '../support/page-health'
 
 // Task 2.4 (Phase 8 checklist Q8, D124): the colour theme is on <html> before the first paint, on the three engines.
 // A flash shows up as the page being built without the class and the script adding it later, so each test asks the
 // question at the moment <body> is created: that is after the blocking script in <head> and before anything can paint.
 // Evidence for M-86.
-
-const test = base.extend<{ health: PageHealth }>({
-  health: async ({ page }, use) => {
-    await use(await watch(page))
-  },
-})
 
 declare global {
   interface Window {

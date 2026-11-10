@@ -2,7 +2,7 @@ import { expect, test as base, type Page } from '@playwright/test'
 
 import { organizer, studentFor, type Account } from './accounts'
 import { OrganizerApi, StudentApi } from './api'
-import { watch, type PageHealth } from './page-health'
+import { settleCsp, watch, type PageHealth } from './page-health'
 
 type Fixtures = {
   /** The Student of this engine (support/accounts.ts). */
@@ -20,8 +20,8 @@ export const test = base.extend<Fixtures>({
   organizerApi: async ({ request }, use) => {
     const api = await new OrganizerApi(request).signIn(organizer())
     await use(api)
-    // The Web's catalog shows only the first page of 20 (WorkshopCatalogPage: useWorkshops({})), so a run that left its
-    // workshops behind would push the next run's out of sight. Each test takes its own workshops out of the catalog.
+    // Each test takes its own workshops out of the catalog: published test workshops left behind would show to the next
+    // reader of the catalog (the owner's demo, the next run's counts of what a search finds).
     await api.cancelAllCreated()
   },
   studentApi: async ({ request, student }, use) => {
@@ -35,30 +35,18 @@ export const test = base.extend<Fixtures>({
         .evaluate(() => ({ violations: window.__cspViolations ?? [], selects: window.__selectsCreated ?? 0 }))
         .catch(() => ({ violations: [] as string[], selects: 0 }))
       health.cspViolations.push(...seen.violations)
-      // Console errors other than CSP ones are attached, not failed on: a 4xx the journey provokes on purpose
-      // logs "Failed to load resource". A CSP error text in the console counts as a violation too.
-      const cspInConsole = health.consoleErrors.filter((text) => /content security policy|violates the following/i.test(text))
-      // The one tolerated exception, decided by the owner 2026-11-06 (phase-7-cluster-checks.md, 9.4): WebKit reports a
-      // `style-src-attr` violation with an empty sample whenever a page creates a native <select>, with the strict CSP
-      // and no application code involved (reproduced on a page of its own). It is the checkout's test-token dropdown,
-      // shown only in a test-mode build. At most two reports per <select> that the page put in the DOM are tolerated (that is what
-      // WebKit sends); a third, anything else, on any engine, or this on any other page, still fails.
-      const isWebkitSelectQuirk = (entry: string) =>
-        testInfo.project.name === 'webkit' && webkitSelectQuirk.test(entry)
-      const candidates = health.cspViolations.filter(isWebkitSelectQuirk)
-      const tolerated = candidates.slice(0, seen.selects * 2)
-      const violations = [...health.cspViolations.filter((entry) => !isWebkitSelectQuirk(entry)), ...candidates.slice(tolerated.length)]
-      // Each tolerated event is followed by the same message in the console; take out that many, not all of them.
-      const consoleLeft = [...cspInConsole]
-      for (let i = 0; i < tolerated.length; i++) {
-        const at = consoleLeft.findIndex((text) => /^Refused to apply a stylesheet because its hash/.test(text))
-        if (at >= 0) consoleLeft.splice(at, 1)
-      }
+      const { failures, tolerated } = settleCsp({
+        engine: testInfo.project.name,
+        origin: originUnderTest,
+        reports: health.cspViolations,
+        consoleErrors: health.consoleErrors,
+        selects: seen.selects,
+      })
       await testInfo.attach('console-errors', { body: health.consoleErrors.join('\n') || '(none)', contentType: 'text/plain' })
       if (tolerated.length > 0) {
         await testInfo.attach('tolerated-csp-webkit-select', { body: tolerated.join('\n'), contentType: 'text/plain' })
       }
-      expect([...violations, ...consoleLeft], 'Content-Security-Policy violations').toEqual([])
+      expect(failures, 'Content-Security-Policy violations').toEqual([])
     },
     { auto: true },
   ],
@@ -66,12 +54,7 @@ export const test = base.extend<Fixtures>({
 
 export { expect }
 
-// The report of that exception, pinned to the page, the origin under test (https on the cluster; a run on the local
-// stack is http, and the report names that scheme) and an empty sample.
 const originUnderTest = new URL(process.env.E2E_BASE_URL ?? 'https://unihub.local:8443').origin
-const webkitSelectQuirk = new RegExp(
-  `^style-src-attr blocked inline on /me/checkout/[^ ]+ at ${originUnderTest.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/assets/[^ ]+\\.js:\\d+:\\d+ \\[\\]$`,
-)
 
 /** A title no other run has used, so a workshop of this run is the only one that matches it. */
 export function uniqueTitle(label: string): string {
