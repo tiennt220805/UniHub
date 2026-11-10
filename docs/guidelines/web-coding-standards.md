@@ -248,7 +248,7 @@ src/
     public/               # no login: catalog, workshop detail
     auth/                 # sign-in
     me/                   # the signed-in user's own data: registrations, e-tickets, checkout, inbox
-    administration/       # Workshop Administration: catalog management, reports, legacy-sync review
+    admin/                # Workshop Administration (URL /admin, D112): the managed list, create, edit, report; legacy-sync review is deferred (Phase 8 D105)
   features/
     <name>/
       api/                # requests.ts, queries.ts, mutations.ts, keys.ts (§7)
@@ -281,7 +281,7 @@ src/
 | `public/` | none (`/workshops`, `/workshops/:workshopId`) | none | `requirement.md` §1.3.1; `listWorkshops`/`getWorkshop` declare `security: []` |
 | `auth/` | `/login` | none | `auth-and-identity.md` §4 (re-authenticate via the login endpoint) |
 | `me/` | `/me` | a valid session; no specific permission | `createRegistration`, `listMyRegistrations`, `getRegistration`, `chargePayment`, `getPayment`, `listMyNotifications` declare no `x-required-permission` — they are ownership-scoped, not capability-scoped |
-| `administration/` | `/administration` | the permission each page needs (`WORKSHOP_CREATE`, `WORKSHOP_EDIT`, `REPORT_VIEW`, `STUDENT_SYNC_VIEW`, `STUDENT_SYNC_RESOLVE`) | `requirement.md` §1.3.3 "Workshop Administration", §1.3.6/§1.5 (sync error review) |
+| `admin/` | `/admin` | the permission each page needs: the frame needs any of `WORKSHOP_CREATE`, `WORKSHOP_EDIT`, `REPORT_VIEW`; each page its own (`WORKSHOP_EDIT` for the list and edit, `WORKSHOP_CREATE` for create, `REPORT_VIEW` for the report). `STUDENT_SYNC_VIEW`/`STUDENT_SYNC_RESOLVE` pages are not built (Phase 8 D105) | `requirement.md` §1.3.3 "Workshop Administration", §1.3.4 (brochure upload); the feature that holds the components is `features/administration/` (and `features/reports/` for the report) |
 
 **Naming.**
 
@@ -303,9 +303,10 @@ its permission. Under role folders, a new role such as "Department Lead" (`requi
 holding `REPORT_VIEW` but not `WORKSHOP_EDIT` has no folder that describes it; "admin" and
 "organizer" split what the SRS treats as one user group ("Organizers/Admin"); and "student" is not
 a permission at all — the contract grants Student endpoints to any authenticated caller and checks
-ownership (`paths/registration.yaml#/registrations`). `administration/` is the SRS's own name for
-the area (`requirement.md` §1.3.3, "Workshop Administration"), so it is used instead of a coined
-one. There is no `utils/` next to `lib/` for the same reason as before: two general-helper
+ownership (`paths/registration.yaml#/registrations`). The area is the SRS's own
+"Workshop Administration" (`requirement.md` §1.3.3): the feature folder keeps the full name
+(`features/administration/`), while the route folder and the URL are the shorter `admin` that Phase 8 chose
+(D112), since a URL is read by people. There is no `utils/` next to `lib/` for the same reason as before: two general-helper
 directories split one kind of code with no rule for which one a helper belongs in. The Shadcn
 aliases in `apps/web/components.json` still point at the old paths (`ui` → `@/components/ui`,
 `utils` → `@/lib/utils`) and must move to `@/shared/ui` and `@/shared/lib/utils` with the code
@@ -949,7 +950,7 @@ export function useRegisterForWorkshop(workshopId: string, options?: { onSuccess
   checks `hasAuthority(...)` on every request (`architecture.md` §5.1, §5.2; `auth-and-identity.md`
   §3). Hiding a button is not security; a `403` must still be handled (§6).
 - Route guards live in `app/router/guards/`: `RequireSession` for the `me/` area,
-  `RequirePermission anyOf={…}` per page in `administration/`. Inside a page, conditional UI
+  `RequirePermission anyOf={…}` per page in `routes/admin/`. Inside a page, conditional UI
   (e.g. an "Edit" link on the workshop detail) is decided in the **route**, which passes a boolean
   prop into the feature component — a feature never imports `features/auth` (§2 rule 4).
 - Permission constants are copied from the contract's `x-required-permission` values, only for
@@ -1037,7 +1038,7 @@ export function RequirePermission({ anyOf, children }: { anyOf: readonly Permiss
 ```tsx
 // app/router/routes.tsx (excerpt)
 {
-  path: '/administration/workshops/new',
+  path: '/admin/workshops/new',
   element: (
     <RequirePermission anyOf={[Permission.WORKSHOP_CREATE]}>
       <CreateWorkshopPage />
@@ -1065,8 +1066,8 @@ export function RequirePermission({ anyOf, children }: { anyOf: readonly Permiss
 - Fixtures and handler bodies are typed with `components['schemas'][…]` from `schema.gen.ts`, so a
   contract change breaks the fixture at compile time instead of drifting silently.
 - Each test gets a fresh `QueryClient` with query retries off.
-- **E2E:** Playwright, in `apps/web/e2e/`, run pre-release against the Minikube deploy — not a
-  per-push CI job (`e2e-testing.md` §2, §3). **Not yet installed** (§13 item 9).
+- **E2E:** Playwright, in `tests/e2e/`, run pre-release against the Minikube deploy — not a
+  per-push CI job (`e2e-testing.md` §2, §3). Installed since Phase 7 (§13 item 9).
 - No frontend coverage threshold. The ≥80% target applies to backend core business-logic services
   (`proposal.md` §12; `requirement.md` §3.2).
 
@@ -1121,7 +1122,7 @@ fills gaps with its own guesses becomes a second, conflicting source of truth.
 | 6 | ~~**Payment `503` replay semantics conflict.**~~ **Done (2026-10-14).** `technical-design/modules/payment.md` §8 now follows `backend-coding-standards.md` §21: a `503` is never recorded under the key, so a same-key retry executes for real (Phase 2 checklist D1). §10 already followed this | `technical-design/modules/payment.md` §8 | — |
 | 7 | ~~**Client timing values.**~~ **Done (2026-10-14).** Seats `staleTime` 3s / `refetchInterval` 5s while visible; status polling every 2s, stop at a final state (a payment owed a refund is not final until `REFUNDED`) or after 2 minutes; `503` auto-retry ≤ 3 with `Retry-After` + jitter, same key (§7, §10; Phase 2 checklist D15) | this file | — |
 | 8 | ~~**Client-side payment collection flow.**~~ **Done (2026-10-14).** Phase 2 uses a dropdown of Stripe test tokens (success and decline), shown only with a test key; `paymentMethodToken` stays a generic opaque token so Stripe.js can be added later without an API change (Phase 2 checklist D11) | `technical-design/modules/payment.md` | — |
-| 9 | **E2E tooling not installed.** Playwright is decided (`e2e-testing.md` §2) but not in `apps/web/package.json`, and `apps/web/e2e/` does not exist | `apps/web` | Phase 7 (`e2e-testing.md` §3) |
+| 9 | ~~**E2E tooling not installed.**~~ **Done (Phase 7, 2026-11-06; extended in Phase 8).** Playwright is in `tests/e2e/` (its own package, not `apps/web`): `specs/` against a deployed cluster (`make e2e`), `specs-local/` against a production build (`npm run test:local`: the CSP spike, the design system, the screens, motion, worst-case data, touch rules, axe-core). Every spec of both folders fails on a `securitypolicyviolation` | `tests/e2e/README.md` | — |
 | 10 | ✅ **Closed (Phase 8 Mục 3, 2026-11-09, C64)** — `listManagedWorkshops` (`GET /api/v1/admin/workshops`, `WORKSHOP_EDIT`, every status, paged) exists. *Was:* **No list of `DRAFT` (or `CANCELLED`/`COMPLETED`) workshops.** `listWorkshops` returns only `PUBLISHED` workshops regardless of caller, and no other endpoint lists workshops, so the `administration/` catalog cannot list drafts to edit or publish, nor past workshops to report on | `technical-design/modules/workshop.md`, `paths/workshop.yaml` | Phase 2 Organizer catalog UI |
 | 11 | **QR rendering library.** ✅ **Decided (2026-10-30, Phase 5 checklist D56):** `qrcode.react` (SVG, version pinned), error-correction level **Q**, on the e-ticket page `/me/registrations/:id` in `features/registrations`. Fits the build's Content-Security-Policy (`img-src 'self' data:`; inline SVG needs no `img-src`). Installed 2026-11-01 (Phase 5 checklist task 7.2) as `qrcode.react` `4.2.0`, exact version. Measured at level Q: 260-character JWS, QR version 15 (`checkin.md` §5) | this file (§3, `registrations`) | Phase 5 |
 | 12 | ~~**Permission on `createRegistration`.**~~ **Done (2026-10-14).** `REGISTRATION_CREATE` guards `createRegistration` and `chargePayment` (`backend-coding-standards.md` §11, §27 item 10); the `me/` checkout pages guard with `RequirePermission anyOf={[REGISTRATION_CREATE]}` | `auth-and-identity.md`, `user.md` | — |

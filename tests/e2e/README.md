@@ -26,6 +26,8 @@ There is no `ignoreHTTPSErrors`: a certificate the browser would reject fails th
 | `specs/theme.spec.ts` | M-86 | the header toggle (dark, light, system), kept across a reload, and the same choice in the student pages and in the administration frame |
 | `specs/transport.spec.ts` | M-67 | TLS ≥ 1.2 with the local CA, TLS 1.1 refused, HTTP never reaches the API, `Content-Security-Policy` with `frame-ancestors` |
 
+Beside the suite, `k8s/scripts/check-storage-edge.sh` (M-88) checks the object-storage path through the gateway with `curl`: the signed PUT, the anonymous cover read and the closed paths. Run it after `make deploy-*`, before `make e2e`.
+
 Every browser test also fails on a `securitypolicyviolation` event or a CSP error in the console
 (`support/fixtures.ts`): that is the repeatable browser CSP check of `test-matrix.md` §4.5. The specs of `specs-local/` have the same
 guard from `support/local-fixtures.ts`, automatic and collected through a binding of the page (so a report from a document the test
@@ -47,9 +49,9 @@ an annotation saying it skipped one.
 
 ## Notes from the first runs on three engines
 
-- **Before a run** `support/global-setup.ts` cancels every workshop titled `E2E …` that an earlier run left behind and refuses to
-  start when more than 16 other workshops are published. The Web's catalog page shows only the first 20 (no search, no paging),
-  so a fuller catalog hides the workshops the journeys create. Each test also cancels its own workshops.
+- **Before a run** `support/global-setup.ts` cancels every published workshop titled `E2E …` that an earlier run left behind (a run that was
+  interrupted never reached its clean-up). It no longer refuses to start on a full catalog: since Phase 8 a Student finds a workshop by
+  searching for its unique title (M-82), so the size of the catalog cannot hide it. Each test also cancels its own workshops.
 - **WebKit and `<select>`:** with the strict CSP, WebKit reports a `style-src-attr` violation for any native `<select>` (reproduced
   on a page with nothing else). The guard in `support/fixtures.ts` tolerates at most two such reports per `<select>` in the DOM, on `/me/checkout/…`, from
   the application's own bundle, on the `webkit` project (decided by the owner, 2026-11-06); the test attaches `tolerated-csp-webkit-select` whenever it does. Anything
