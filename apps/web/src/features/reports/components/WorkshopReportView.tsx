@@ -12,9 +12,11 @@ type Props = {
 
 function Figure({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-xl border border-border bg-card px-4 py-3.5">
-      <dt className="text-[13px] leading-[18px] text-muted-foreground">{label}</dt>
-      <dd className="mt-1 text-[28px] leading-9 font-bold tabular-nums">{formatNumber(value)}</dd>
+    // A container, so the number sizes itself to the card it is in: 28 px when the card is wide enough, down to 20 px for a
+    // nine-digit count in a narrow one (the worst-case spec). `anywhere` is only the last resort for something longer still.
+    <div className="@container rounded-xl border border-border bg-card px-4 py-3.5">
+      <dt className="text-[13px] leading-[18px] text-muted-foreground [overflow-wrap:anywhere]">{label}</dt>
+      <dd className="mt-1 text-[clamp(1.25rem,13cqw,1.75rem)] leading-9 font-bold tabular-nums [overflow-wrap:anywhere]">{formatNumber(value)}</dd>
     </div>
   )
 }

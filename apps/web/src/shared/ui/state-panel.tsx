@@ -28,8 +28,8 @@ function Panel({
       <div aria-hidden="true" className={cn("grid size-11 place-items-center rounded-full [&_svg]:size-5", bubble)}>
         {icon}
       </div>
-      <h3 className="text-base leading-6 font-semibold">{title}</h3>
-      {description ? <p className="max-w-prose text-sm text-muted-foreground">{description}</p> : null}
+      <h3 className="max-w-full text-base leading-6 font-semibold [overflow-wrap:anywhere]">{title}</h3>
+      {description ? <p className="max-w-prose text-sm text-muted-foreground [overflow-wrap:anywhere]">{description}</p> : null}
       {action ? <div className="mt-1">{action}</div> : null}
     </section>
   )

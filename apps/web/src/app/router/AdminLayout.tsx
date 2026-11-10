@@ -61,7 +61,7 @@ function SidebarBody({ collapsible }: { collapsible: boolean }) {
               <div className="text-xs text-muted-foreground">{session.user.roles.join(', ')}</div>
             </div>
             {wrap(
-              <Button variant="outline" size="sm" onClick={signOut} title="Đăng xuất">
+              <Button variant="outline" size="sm" className={cn(collapsible && 'max-lg:size-9 max-lg:px-0')} onClick={signOut} title="Đăng xuất">
                 <LogOut aria-hidden="true" />
                 <span className={label}>Đăng xuất</span>
               </Button>,
